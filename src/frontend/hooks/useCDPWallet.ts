@@ -47,7 +47,7 @@ export function useCDPWallet() {
 
   // Check if CDP is properly configured
   const cdpProjectId = import.meta.env.VITE_CDP_PROJECT_ID;
-  const isCdpConfigured = Boolean(cdpProjectId && cdpProjectId !== 'your-project-id');
+  const isCdpConfigured = Boolean(cdpProjectId);
 
   // Derive additional useful states
   const hasWallet = Boolean(evmAddress || solanaAddress);

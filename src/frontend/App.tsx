@@ -104,7 +104,7 @@ function App() {
   // Wait for CDP to initialize before generating user ID
   useEffect(() => {
     // If CDP is not configured, initialize immediately
-    if (!import.meta.env.VITE_CDP_PROJECT_ID || import.meta.env.VITE_CDP_PROJECT_ID === 'your-project-id') {
+    if (!import.meta.env.VITE_CDP_PROJECT_ID) {
       async function initUserId() {
         const id = await getUserId(undefined);
         setUserId(id);
@@ -508,7 +508,7 @@ function App() {
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
                     <p className="mt-4 text-muted-foreground uppercase tracking-wider text-sm font-mono">
-                      {!isInitialized && import.meta.env.VITE_CDP_PROJECT_ID && import.meta.env.VITE_CDP_PROJECT_ID !== 'your-project-id' ? 'Initializing wallet...' :
+                      {!isInitialized && import.meta.env.VITE_CDP_PROJECT_ID ? 'Initializing wallet...' :
                        !userId ? 'Initializing user...' : 
                        !connected ? 'Connecting to server...' :
                        isLoadingChannels ? 'Loading channels...' : 
@@ -548,7 +548,7 @@ function App() {
 // Wrap App with CDP Provider (if configured)
 export default function AppWithCDP() {
   const cdpProjectId = import.meta.env.VITE_CDP_PROJECT_ID;
-  const isCdpConfigured = cdpProjectId && cdpProjectId !== 'your-project-id';
+  const isCdpConfigured = cdpProjectId;
 
   // If CDP is not configured, just return App without the provider
   if (!isCdpConfigured) {
