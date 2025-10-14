@@ -5,12 +5,11 @@ import { useCDPWallet } from './hooks/useCDPWallet';
 import { elizaClient } from './lib/elizaClient';
 import { socketManager } from './lib/socketManager';
 import { ChatInterface } from './components/chat/chat-interface';
-import SmallChat from './components/chat';
 import { SidebarProvider } from './components/ui/sidebar';
 import { DashboardSidebar } from './components/dashboard/sidebar';
 import Widget from './components/dashboard/widget';
-import Notifications from './components/dashboard/notifications';
 import { CDPWalletCard } from './components/dashboard/cdp-wallet-card';
+import { SignInModal } from './components/auth/SignInModal';
 import { MobileChat } from './components/chat/mobile-chat';
 import { MobileHeader } from './components/dashboard/mobile-header';
 import { MessageSquare } from 'lucide-react';
@@ -90,7 +89,7 @@ interface Channel {
 
 function App() {
   // Get CDP wallet info (will be undefined if not configured or not signed in)
-  const { isInitialized, evmAddress } = useCDPWallet();
+  const { isInitialized, isSignedIn, evmAddress, userEmail, signOut } = useCDPWallet();
   
   const [userId, setUserId] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -119,12 +118,20 @@ function App() {
       return;
     }
 
+    // If CDP is initialized but user is not signed in, clear userId to show modal
+    if (!isSignedIn) {
+      console.log('🚫 User not signed in, waiting for authentication...');
+      setUserId(null);
+      return;
+    }
+
+    // User is signed in, generate userId from wallet address
     async function initUserId() {
       const id = await getUserId(evmAddress || undefined);
       setUserId(id);
     }
     initUserId();
-  }, [isInitialized, evmAddress]); // Re-run when CDP initializes or wallet address changes
+  }, [isInitialized, isSignedIn, evmAddress]); // Re-run when CDP state changes
 
   // Fetch the agent list first to get the ID
   const { data: agentsData } = useQuery({
@@ -467,6 +474,11 @@ function App() {
 
   return (
     <SidebarProvider>
+      {/* Sign In Modal - Shows when CDP is configured and user is not signed in */}
+      {import.meta.env.VITE_CDP_PROJECT_ID && (
+        <SignInModal isOpen={!isSignedIn} />
+      )}
+      
       {/* Mobile Header */}
       <MobileHeader mockData={mockData} />
 
@@ -482,6 +494,8 @@ function App() {
             isCreatingChannel={isCreatingChannel}
             agentName={agent.name}
             agentAvatar={agent.settings?.avatar as string | undefined}
+            userEmail={userEmail}
+            onSignOut={signOut}
           />
                 </div>
 
@@ -528,13 +542,11 @@ function App() {
           </div>
         </div>
 
-        {/* Right Sidebar - Widget, CDP Auth, Notifications, Small Chat */}
+        {/* Right Sidebar - Widget & CDP Wallet */}
         <div className="col-span-3 hidden lg:block">
           <div className="space-y-gap py-sides min-h-screen max-h-screen sticky top-0 overflow-clip">
             <Widget widgetData={mockData.widgetData} />
             <CDPWalletCard />
-            <Notifications initialNotifications={mockData.notifications} />
-            <SmallChat />
           </div>
             </div>
           </div>

@@ -21,6 +21,7 @@ import MonkeyIcon from "@/components/icons/monkey"
 import DotsVerticalIcon from "@/components/icons/dots-vertical"
 import { Bullet } from "@/components/ui/bullet"
 import PlusIcon from "@/components/icons/plus"
+import { LogOut } from "lucide-react"
 
 const data = {
   user: {
@@ -45,6 +46,8 @@ interface DashboardSidebarProps extends React.ComponentProps<typeof Sidebar> {
   isCreatingChannel?: boolean
   agentName?: string
   agentAvatar?: string
+  userEmail?: string
+  onSignOut?: () => void
 }
 
 export function DashboardSidebar({ 
@@ -56,6 +59,8 @@ export function DashboardSidebar({
   isCreatingChannel = false,
   agentName = "Loading...",
   agentAvatar,
+  userEmail,
+  onSignOut,
   ...props 
 }: DashboardSidebarProps) {
   return (
@@ -191,7 +196,7 @@ export function DashboardSidebar({
                       <div className="grid flex-1 text-left text-sm leading-tight">
                         <span className="truncate text-xl font-display">{data.user.name}</span>
                         <span className="truncate text-xs uppercase opacity-50 group-hover/item:opacity-100">
-                          {data.user.email}
+                          {userEmail || data.user.email}
                         </span>
                       </div>
                       <DotsVerticalIcon className="ml-auto size-4" />
@@ -207,6 +212,15 @@ export function DashboardSidebar({
                         <GearIcon className="mr-2 h-4 w-4" />
                         Settings
                       </a>
+                      {onSignOut && (
+                        <button 
+                          onClick={onSignOut}
+                          className="flex items-center px-4 py-2 text-sm hover:bg-accent text-left w-full"
+                        >
+                          <LogOut className="mr-2 h-4 w-4" />
+                          Sign Out
+                        </button>
+                      )}
                     </div>
                   </PopoverContent>
                 </Popover>

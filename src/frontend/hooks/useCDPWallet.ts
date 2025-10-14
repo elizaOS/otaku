@@ -1,4 +1,4 @@
-import { useIsSignedIn, useEvmAddress, useSolanaAddress, useSignOut, useIsInitialized } from "@coinbase/cdp-hooks";
+import { useIsSignedIn, useEvmAddress, useSolanaAddress, useSignOut, useIsInitialized, useCurrentUser } from "@coinbase/cdp-hooks";
 
 /**
  * Custom hook to access CDP wallet information
@@ -11,6 +11,7 @@ import { useIsSignedIn, useEvmAddress, useSolanaAddress, useSignOut, useIsInitia
  *   - isSignedIn: boolean - Whether user is authenticated with CDP wallet
  *   - evmAddress: string | undefined - EVM wallet address (Ethereum, Base, etc.)
  *   - solanaAddress: string | undefined - Solana wallet address
+ *   - userEmail: string | undefined - User's email address from CDP
  *   - hasWallet: boolean - Whether user has any wallet connected
  *   - isCdpConfigured: boolean - Whether CDP is properly configured
  *   - signOut: () => Promise<void> - Function to sign out the user
@@ -18,7 +19,7 @@ import { useIsSignedIn, useEvmAddress, useSolanaAddress, useSignOut, useIsInitia
  * @example
  * ```tsx
  * function MyComponent() {
- *   const { isInitialized, isSignedIn, evmAddress, hasWallet, signOut } = useCDPWallet();
+ *   const { isInitialized, isSignedIn, evmAddress, userEmail, hasWallet, signOut } = useCDPWallet();
  *   
  *   // Always wait for initialization first
  *   if (!isInitialized) {
@@ -32,6 +33,7 @@ import { useIsSignedIn, useEvmAddress, useSolanaAddress, useSignOut, useIsInitia
  *   return (
  *     <div>
  *       <p>Your wallet: {evmAddress}</p>
+ *       <p>Your email: {userEmail}</p>
  *       <button onClick={signOut}>Sign Out</button>
  *     </div>
  *   );
@@ -44,6 +46,7 @@ export function useCDPWallet() {
   const { evmAddress } = useEvmAddress();
   const { solanaAddress } = useSolanaAddress();
   const { signOut } = useSignOut();
+  const { currentUser } = useCurrentUser();
 
   // Check if CDP is properly configured
   const cdpProjectId = import.meta.env.VITE_CDP_PROJECT_ID;
@@ -51,6 +54,10 @@ export function useCDPWallet() {
 
   // Derive additional useful states
   const hasWallet = Boolean(evmAddress || solanaAddress);
+  
+  // Get user email from CDP currentUser
+  // Email is nested in authenticationMethods.email.email
+  const userEmail = (currentUser as any)?.authenticationMethods?.email?.email;
 
   return {
     // Loading state
@@ -63,6 +70,9 @@ export function useCDPWallet() {
     // Wallet addresses
     evmAddress,
     solanaAddress,
+    
+    // User info
+    userEmail,
     
     // Derived states
     hasWallet,
