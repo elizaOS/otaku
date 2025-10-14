@@ -154,16 +154,24 @@ export function DashboardSidebar({
                             <span className="font-medium text-sm truncate w-full">
                               {channel.name}
                             </span>
-                            {channel.lastMessageAt && channel.lastMessageAt > 0 && (
-                              <span className="text-xs text-muted-foreground">
-                                {new Date(channel.lastMessageAt).toLocaleDateString('en-US', { 
-                                  month: 'short', 
-                                  day: 'numeric',
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })}
-                              </span>
-                            )}
+                            {(() => {
+                              const timestamp = channel.lastMessageAt || channel.createdAt;
+                              if (timestamp && timestamp > 0) {
+                                return (
+                                  <span className="text-xs text-muted-foreground uppercase">
+                                    {new Date(timestamp).toLocaleDateString('en-US', { 
+                                      month: 'short', 
+                                      day: 'numeric',
+                                    })}, {new Date(timestamp).toLocaleTimeString('en-US', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: false
+                                    })}
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
