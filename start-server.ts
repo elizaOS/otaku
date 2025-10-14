@@ -28,7 +28,9 @@ async function main() {
   
   if (projectModule.agents && Array.isArray(projectModule.agents)) {
     const characters = projectModule.agents.map((agent: any) => agent.character);
-    await server.startAgents(characters);
+    // Flatten plugin arrays from all agents
+    const allPlugins = projectModule.agents.flatMap((agent: any) => agent.plugins || []);
+    await server.startAgents(characters, allPlugins);
     console.log(`✅ Started ${characters.length} agent(s)`);
   } else {
     throw new Error('No agents found in project');

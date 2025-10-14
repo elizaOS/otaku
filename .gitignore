@@ -44,3 +44,9 @@ coverage/
 *.tmp
 temp/
 
+# Workspace packages
+packages/*/dist/
+packages/*/node_modules/
+packages/*/.turbo/
+packages/*/tsconfig.tsbuildinfo
+

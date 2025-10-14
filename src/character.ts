@@ -2,11 +2,8 @@ import { Character } from '@elizaos/core';
 
 export const character: Character = {
   name: 'Otaku',
-  plugins: [
-    '@elizaos/plugin-sql',
-    '@elizaos/plugin-bootstrap',
-    '@elizaos/plugin-openai',
-  ],
+  // Plugins are registered via projectAgent.plugins in src/index.ts
+  plugins: [],
   settings: {
     secrets: {},
     avatar:

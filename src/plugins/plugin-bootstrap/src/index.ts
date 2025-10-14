@@ -486,8 +486,7 @@ const messageReceivedHandler = async ({
   onComplete,
 }: MessagePayload): Promise<void> => {
   // Set up timeout monitoring
-  const useMultiStep = runtime.getSetting('USE_MULTI_STEP');
-  console.log('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ useMultiStep', useMultiStep);
+  const useMultiStep = true;
   const timeoutDuration = 60 * 60 * 1000; // 1 hour
   let timeoutId: NodeJS.Timeout | undefined = undefined;
 
@@ -1616,7 +1615,7 @@ const controlMessageHandler = async ({
 
 const events: PluginEvents = {
   [EventType.MESSAGE_RECEIVED]: [
-    async (payload: MessagePayload) => {
+    async (payload: any) => {
       if (!payload.callback) {
         payload.runtime.logger.error('No callback provided for message');
         return;

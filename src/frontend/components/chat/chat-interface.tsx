@@ -82,12 +82,9 @@ export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterf
     loadMessages()
   }, [channelId, agent.id, agent.name])
 
-  // Join channel and listen for new messages
+  // Listen for new messages (channel joining is handled in App.tsx)
   useEffect(() => {
     if (!channelId) return undefined
-
-    console.log('🔌 Joining channel:', channelId)
-    socketManager.joinChannel(channelId)
 
     const handleNewMessage = (data: any) => {
       console.log('📩 New message received:', data)
@@ -118,18 +115,31 @@ export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterf
       }
     }
 
-    const unsubscribe = socketManager.onMessage(handleNewMessage)
+    // Only subscribe if socket is available - prevents errors during reconnection
+    let unsubscribe: (() => void) | undefined
+    try {
+      unsubscribe = socketManager.onMessage(handleNewMessage)
+    } catch (error) {
+      console.warn('⚠️ Failed to subscribe to messages (socket not ready):', error)
+      return undefined
+    }
 
     return () => {
-      console.log('🔌 Leaving channel:', channelId)
-      socketManager.leaveChannel(channelId)
-      unsubscribe()
+      unsubscribe?.()
     }
-  }, [channelId, agent.id, agent.name])
+  }, [channelId, agent.id, agent.name, userId])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!inputValue.trim()) return
+    
+    console.log('🚀 [ChatInterface] Sending message:', {
+      channelId,
+      text: inputValue,
+      serverId,
+      userId,
+      agentId: agent.id,
+    })
     
     // Send via socket (don't add optimistically - server will broadcast back)
     socketManager.sendMessage(channelId, inputValue, serverId, {

@@ -8,7 +8,7 @@
     "dev": "turbo run build && bun run start-server.ts",
     "dev:watch": "turbo run dev --parallel",
     "start": "bun run start-server.ts",
-    "build": "bun run build:backend && bun run build:frontend",
+    "build": "turbo run build && bun run build:backend && bun run build:frontend",
     "build:all": "turbo run build",
     "build:backend": "bun run build.ts",
     "build:frontend": "vite build",
@@ -16,17 +16,21 @@
   },
   "packageManager": "bun@1.2.21",
   "workspaces": [
-    "src/plugins/*"
+    "src/plugins/*",
+    "packages/*"
   ],
   "dependencies": {
-    "@elizaos/api-client": "latest",
+    "@coinbase/cdp-core": "^0.0.45",
+    "@coinbase/cdp-hooks": "^0.0.45",
+    "@coinbase/cdp-react": "^0.0.45",
+    "@elizaos/api-client": "workspace:*",
     "@elizaos/cli": "latest",
     "@elizaos/core": "latest",
     "@elizaos/plugin-anthropic": "^1.0.6",
     "@elizaos/plugin-bootstrap": "workspace:*",
     "@elizaos/plugin-openai": "^1.5.15",
     "@elizaos/plugin-sql": "latest",
-    "@elizaos/server": "latest",
+    "@elizaos/server": "workspace:*",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-avatar": "1.1.2",
     "@radix-ui/react-checkbox": "1.1.3",

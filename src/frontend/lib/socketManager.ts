@@ -44,7 +44,7 @@ class SocketManager {
     return this.socket;
   }
 
-  joinChannel(channelId: string) {
+  joinChannel(channelId: string, serverId: string, metadata?: Record<string, any>) {
     if (!this.socket) {
       throw new Error('Socket not connected. Call connect() first.');
     }
@@ -56,10 +56,12 @@ class SocketManager {
       payload: {
         channelId,
         entityId: this.userId,
+        serverId, // Pass userId as serverId for user-specific world isolation
+        metadata,
       },
     });
     
-    console.log(`Joined channel: ${channelId}`);
+    console.log(`!!!!!!!!!!!!!!!!!!!!!!!!! Joined channel: ${channelId} with serverId: ${serverId}`);
   }
 
   leaveChannel(channelId: string) {
@@ -72,17 +74,21 @@ class SocketManager {
       throw new Error('Socket not connected');
     }
     
+    const payload = {
+      senderId: this.userId,
+      senderName: 'User',
+      message,
+      channelId,
+      serverId,
+      source: 'custom_ui',
+      metadata,
+    };
+    
+    console.log('📤 [SocketManager] Emitting SEND_MESSAGE:', payload);
+    
     this.socket.emit('message', {
       type: SOCKET_MESSAGE_TYPE.SEND_MESSAGE,
-      payload: {
-        senderId: this.userId,
-        senderName: 'User',
-        message,
-        channelId,
-        serverId,
-        source: 'custom_ui',
-        metadata,
-      },
+      payload,
     });
   }
 
