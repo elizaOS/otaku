@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useCDPWallet } from '@/hooks/useCDPWallet';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { Copy, Check, TrendingUp, RefreshCw, Send } from 'lucide-react';
 import { formatUnits, createPublicClient, http } from 'viem';
 import { base, mainnet, polygon } from 'viem/chains';
 import { SendModal } from './SendModal';
+import { TokenDetailModal } from './TokenDetailModal';
 
 // Supported chains
 type ChainNetwork = 'base' | 'ethereum' | 'polygon';
@@ -119,6 +121,7 @@ export function CDPWalletCard() {
   const [isCopied, setIsCopied] = useState(false);
   const [showFundModal, setShowFundModal] = useState(false);
   const [showSendModal, setShowSendModal] = useState(false);
+  const [selectedToken, setSelectedToken] = useState<TokenBalance | null>(null);
   const [activeTab, setActiveTab] = useState<'tokens' | 'collections' | 'history'>('tokens');
   const [loadedChains, setLoadedChains] = useState<ChainNetwork[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -695,7 +698,6 @@ export function CDPWalletCard() {
                 <div className="h-10 w-32 bg-muted animate-pulse rounded"></div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <TrendingUp className="w-6 h-6 text-muted-foreground" />
                   <span className="text-3xl font-mono font-bold">
                     ${totalUsdValue.toFixed(2)}
                   </span>
@@ -786,9 +788,10 @@ export function CDPWalletCard() {
               ) : (
                 // Token list
                 tokens.map((token, index) => (
-                  <div
+                  <button
                     key={`${token.chain}-${token.contractAddress || token.symbol}-${index}`}
-                    className="flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors min-w-0"
+                    onClick={() => setSelectedToken(token)}
+                    className="w-full flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors min-w-0 cursor-pointer text-left"
                   >
                     <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
                       <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -827,7 +830,7 @@ export function CDPWalletCard() {
                     <span className="text-xs sm:text-sm font-mono flex-shrink-0 ml-2">
                       ${token.usdValue.toFixed(2)}
                     </span>
-                  </div>
+                  </button>
                 ))
               )
             ) : activeTab === 'collections' ? (
@@ -970,15 +973,16 @@ export function CDPWalletCard() {
 
 
           {/* Simple Fund Modal */}
-          {showFundModal && (
+          {showFundModal && createPortal(
             <div 
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
               onClick={() => setShowFundModal(false)}
             >
               <div 
-                className="bg-background border border-border rounded-lg p-4 sm:p-6 max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto"
+                className="bg-background rounded-lg max-w-md w-full max-h-[90vh] overflow-hidden p-1.5"
                 onClick={(e) => e.stopPropagation()}
               >
+                <div className="bg-pop rounded-lg p-4 sm:p-6 space-y-4 max-h-[calc(90vh-0.75rem)] overflow-y-auto">
                 <h3 className="text-lg font-semibold">Fund Your Wallet</h3>
                 <p className="text-sm text-muted-foreground">
                   Transfer ETH from another wallet or exchange
@@ -1025,8 +1029,10 @@ export function CDPWalletCard() {
                 >
                   Close
                 </Button>
+                </div>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
 
           {/* Send Modal */}
@@ -1039,6 +1045,14 @@ export function CDPWalletCard() {
                 // Refresh balances after successful send
                 fetchTokenBalances(true);
               }}
+            />
+          )}
+
+          {/* Token Detail Modal */}
+          {selectedToken && (
+            <TokenDetailModal
+              token={selectedToken}
+              onClose={() => setSelectedToken(null)}
             />
           )}
           </div>

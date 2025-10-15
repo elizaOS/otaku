@@ -26,7 +26,7 @@ export default function Chat() {
 
   return (
     <motion.div
-      className="absolute bottom-0 inset-x-0 z-50"
+      className="absolute bottom-0 inset-x-0 z-30"
       initial={{ y: CONTENT_HEIGHT }}
       animate={{ y: isExpanded ? 0 : CONTENT_HEIGHT }}
       transition={{ duration: 0.3, ease: "circInOut" }}

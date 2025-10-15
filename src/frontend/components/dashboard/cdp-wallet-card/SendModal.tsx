@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useSendUserOperation, useEvmAddress, useCurrentUser } from '@coinbase/cdp-hooks';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -203,9 +204,10 @@ export function SendModal({ tokens, onClose, onSuccess }: SendModalProps) {
 
   // Success screen
   if (txHash && selectedToken) {
-    return (
+    return createPortal(
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
-        <div className="bg-background border border-border rounded-lg p-4 sm:p-6 max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-background rounded-lg max-w-md w-full max-h-[90vh] overflow-hidden p-1.5" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-pop rounded-lg p-4 sm:p-6 space-y-4 max-h-[calc(90vh-0.75rem)] overflow-y-auto">
           <h3 className="text-lg font-semibold">Transaction Sent!</h3>
           
           <div className="space-y-2">
@@ -240,15 +242,18 @@ export function SendModal({ tokens, onClose, onSuccess }: SendModalProps) {
             Close
           </Button>
         </div>
-      </div>
+        </div>
+      </div>,
+      document.body
     );
   }
 
   // Loading screen
   if (isLoading) {
-    return (
+    return createPortal(
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-        <div className="bg-background border border-border rounded-lg p-4 sm:p-6 max-w-md w-full space-y-4">
+        <div className="bg-background rounded-lg max-w-md w-full overflow-hidden p-1.5">
+          <div className="bg-pop rounded-lg p-4 sm:p-6 space-y-4">
           <h3 className="text-lg font-semibold">Sending Transaction...</h3>
           
           <div className="space-y-3">
@@ -269,13 +274,16 @@ export function SendModal({ tokens, onClose, onSuccess }: SendModalProps) {
             )}
           </div>
         </div>
-      </div>
+        </div>
+      </div>,
+      document.body
     );
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-background border border-border rounded-lg p-4 sm:p-6 max-w-md w-full space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-background rounded-lg max-w-md w-full max-h-[90vh] overflow-hidden p-1.5" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-pop rounded-lg p-4 sm:p-6 space-y-4 max-h-[calc(90vh-0.75rem)] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Send Tokens</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -400,8 +408,10 @@ export function SendModal({ tokens, onClose, onSuccess }: SendModalProps) {
             {isLoading ? 'Sending...' : 'Send'}
           </Button>
         </div>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
