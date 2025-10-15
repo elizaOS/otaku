@@ -535,11 +535,11 @@ export function CDPWalletCard() {
         }
       }
       
-      // Sort by block number (most recent first)
+      // Sort by timestamp (most recent first)
       allTransactions.sort((a, b) => {
-        const blockA = parseInt(a.blockNum, 16) || 0;
-        const blockB = parseInt(b.blockNum, 16) || 0;
-        return blockB - blockA;
+        const timeA = a.metadata?.blockTimestamp ? new Date(a.metadata.blockTimestamp).getTime() : 0;
+        const timeB = b.metadata?.blockTimestamp ? new Date(b.metadata.blockTimestamp).getTime() : 0;
+        return timeB - timeA; // Most recent first
       });
       
       setTransactions(allTransactions);
@@ -847,55 +847,123 @@ export function CDPWalletCard() {
                   No transactions found
                 </div>
               ) : (
-                // Transaction list
-                transactions.map((tx, index) => {
-                  const isReceived = tx.direction === 'received';
-                  const amount = parseFloat(tx.value || '0').toFixed(4);
-                  const asset = tx.asset || 'ETH';
-                  
-            return (
-              <div
-                key={`${tx.hash}-${index}`}
-                className="flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors min-w-0"
-              >
-                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                  <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    isReceived ? 'bg-green-500/10' : 'bg-red-500/10'
-                  }`}>
-                    <span className="text-base sm:text-lg">
-                      {isReceived ? '↓' : '↑'}
-                    </span>
-                  </div>
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                      <span className="text-xs sm:text-sm font-medium">
-                        {isReceived ? 'Received' : 'Sent'}
-                      </span>
-                      <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono whitespace-nowrap">
-                        {tx.chainName}
-                      </span>
-                    </div>
-                    <span className="text-xs text-muted-foreground truncate">
-                      {isReceived 
-                        ? `From: ${tx.from?.slice(0, 6)}...${tx.from?.slice(-4)}`
-                        : `To: ${tx.to?.slice(0, 6)}...${tx.to?.slice(-4)}`
+                // Transaction list with date grouping
+                (() => {
+                  // Helper function to get date label
+                  const getDateLabel = (timestamp: string) => {
+                    const date = new Date(timestamp);
+                    const today = new Date();
+                    const yesterday = new Date(today);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    
+                    // Reset time for comparison
+                    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                    const yesterdayOnly = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+                    
+                    if (dateOnly.getTime() === todayOnly.getTime()) {
+                      return 'Today';
+                    } else if (dateOnly.getTime() === yesterdayOnly.getTime()) {
+                      return 'Yesterday';
+                    } else {
+                      return date.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: '2-digit',
+                        year: 'numeric'
+                      });
+                    }
+                  };
+
+                  // Group transactions by date
+                  const groupedTxs: { [key: string]: any[] } = {};
+                  transactions.forEach((tx) => {
+                    if (tx.metadata?.blockTimestamp) {
+                      const label = getDateLabel(tx.metadata.blockTimestamp);
+                      if (!groupedTxs[label]) {
+                        groupedTxs[label] = [];
                       }
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end flex-shrink-0 ml-2">
-                  <span className={`text-xs sm:text-sm font-mono font-medium ${
-                    isReceived ? 'text-green-500' : 'text-red-500'
-                  }`}>
-                    {isReceived ? '+' : '-'}{amount} {asset}
-                  </span>
-                  <span className="text-[10px] sm:text-xs text-muted-foreground whitespace-nowrap">
-                    Block #{parseInt(tx.blockNum, 16)}
-                  </span>
-                </div>
-              </div>
-            );
-                })
+                      groupedTxs[label].push(tx);
+                    }
+                  });
+
+                  return Object.entries(groupedTxs).map(([dateLabel, txs]) => (
+                    <div key={dateLabel}>
+                      {/* Date header */}
+                      <div className="sticky top-0 bg-background/95 backdrop-blur-sm px-2 py-1 text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider border-b border-border/50 mb-1">
+                        {dateLabel}
+                      </div>
+                      
+                      {/* Transactions for this date */}
+                      {txs.map((tx, index) => {
+                        const isReceived = tx.direction === 'received';
+                        const amount = parseFloat(tx.value || '0');
+                        const asset = tx.asset || 'ETH';
+                        
+                        // Format amount with truncation
+                        let amountStr = amount.toFixed(4);
+                        if (amountStr.length > 10) {
+                          amountStr = amount.toFixed(2);
+                        }
+                        
+                        // Get explorer URL for the transaction
+                        const getExplorerUrl = (hash: string, chain: string) => {
+                          const explorers: Record<string, string> = {
+                            Base: 'https://basescan.org',
+                            Ethereum: 'https://etherscan.io',
+                            Polygon: 'https://polygonscan.com',
+                          };
+                          return `${explorers[chain] || explorers.Base}/tx/${hash}`;
+                        };
+
+                        return (
+                          <a
+                            key={`${tx.hash}-${index}`}
+                            href={getExplorerUrl(tx.hash, tx.chainName)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors min-w-0 cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                              <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                isReceived ? 'bg-green-500/10' : 'bg-red-500/10'
+                              }`}>
+                                <span className="text-base sm:text-lg">
+                                  {isReceived ? '↓' : '↑'}
+                                </span>
+                              </div>
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 sm:gap-2">
+                                  <span className="text-xs sm:text-sm font-medium truncate">
+                                    {isReceived ? 'Received' : 'Sent'}
+                                  </span>
+                                  <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono whitespace-nowrap flex-shrink-0">
+                                    {tx.chainName}
+                                  </span>
+                                </div>
+                                <span className="text-xs text-muted-foreground truncate">
+                                  {isReceived 
+                                    ? `From: ${tx.from?.slice(0, 6)}...${tx.from?.slice(-4)}`
+                                    : `To: ${tx.to?.slice(0, 6)}...${tx.to?.slice(-4)}`
+                                  }
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end flex-shrink-0 ml-2" style={{ maxWidth: '35%', minWidth: 0 }}>
+                              <span className={`text-xs sm:text-sm font-mono font-medium overflow-hidden text-ellipsis whitespace-nowrap w-full text-right ${
+                                isReceived ? 'text-green-500' : 'text-red-500'
+                              }`} title={`${isReceived ? '+' : '-'}${amount.toFixed(8)} ${asset}`}>
+                                {isReceived ? '+' : '-'}{amountStr}
+                              </span>
+                              <span className="text-[10px] sm:text-xs text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap w-full text-right" title={asset}>
+                                {asset}
+                              </span>
+                            </div>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ));
+                })()
               )
             )}
           </div>
