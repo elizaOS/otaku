@@ -69,7 +69,7 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
     const fetchPriceHistory = async () => {
       setIsLoadingChart(true);
       try {
-        const apiKey = import.meta.env.VITE_COINGECKO_API_KEY;
+        const apiKey = import.meta.env.COINGECKO_API_KEY;
         const baseUrl = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
         
         // Get days for timeframe
