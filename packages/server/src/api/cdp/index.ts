@@ -42,6 +42,17 @@ const UNISWAP_V3_ROUTER: Record<string, string> = {
 };
 
 /**
+ * Uniswap V3 Quoter V2 addresses per network
+ */
+const UNISWAP_V3_QUOTER: Record<string, string> = {
+  'ethereum': '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  'polygon': '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  'arbitrum': '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  'optimism': '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  'base': '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a',
+};
+
+/**
  * Wrapped native token addresses per network
  * Uniswap V3 requires wrapped tokens for native currency swaps
  */
@@ -1131,15 +1142,157 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
           minToAmount: (swapPrice as any).minToAmount?.toString() || '0',
         };
       } else {
-        // Non-CDP networks: No price estimation available
-        // User will execute swap directly without preview
-        logger.info(`[CDP API] Price estimation not available for ${network} (non-CDP network)`);
+        // Non-CDP networks: Use Uniswap V3 Quoter for price estimation
+        logger.info(`[CDP API] Using Uniswap V3 Quoter for price estimation on ${network}`);
         
-        swapPriceResult = {
-          liquidityAvailable: false,
-          toAmount: '0',
-          minToAmount: '0',
-        };
+        const quoterAddress = UNISWAP_V3_QUOTER[network];
+        if (!quoterAddress) {
+          logger.warn(`[CDP API] Uniswap V3 Quoter not available for ${network}`);
+          swapPriceResult = {
+            liquidityAvailable: false,
+            toAmount: '0',
+            minToAmount: '0',
+          };
+        } else {
+          const chain = getViemChain(network);
+          if (!chain) {
+            throw new Error(`Unsupported network: ${network}`);
+          }
+
+          const alchemyKey = process.env.ALCHEMY_API_KEY;
+          if (!alchemyKey) {
+            throw new Error('Alchemy API key not configured');
+          }
+
+          const rpcUrl = getRpcUrl(network, alchemyKey);
+          if (!rpcUrl) {
+            throw new Error(`Could not get RPC URL for network: ${network}`);
+          }
+
+          const { createPublicClient } = await import('viem');
+
+          const publicClient = createPublicClient({
+            chain,
+            transport: http(rpcUrl),
+          });
+
+          // Convert native token addresses to wrapped tokens for Uniswap V3
+          const wrappedNativeAddress = WRAPPED_NATIVE_TOKEN[network];
+          if (!wrappedNativeAddress) {
+            throw new Error(`Wrapped native token not configured for network: ${network}`);
+          }
+
+          const isFromNative = normalizedFromToken === NATIVE_TOKEN_ADDRESS;
+          const isToNative = normalizedToToken === NATIVE_TOKEN_ADDRESS;
+
+          const uniswapFromToken = isFromNative ? wrappedNativeAddress : normalizedFromToken;
+          const uniswapToToken = isToNative ? wrappedNativeAddress : normalizedToToken;
+
+          // QuoterV2 ABI for quoteExactInputSingle
+          const quoterAbi = [
+            {
+              name: 'quoteExactInputSingle',
+              type: 'function',
+              stateMutability: 'nonpayable',
+              inputs: [
+                {
+                  name: 'params',
+                  type: 'tuple',
+                  components: [
+                    { name: 'tokenIn', type: 'address' },
+                    { name: 'tokenOut', type: 'address' },
+                    { name: 'amountIn', type: 'uint256' },
+                    { name: 'fee', type: 'uint24' },
+                    { name: 'sqrtPriceLimitX96', type: 'uint160' }
+                  ]
+                }
+              ],
+              outputs: [
+                { name: 'amountOut', type: 'uint256' },
+                { name: 'sqrtPriceX96After', type: 'uint160' },
+                { name: 'initializedTicksCrossed', type: 'uint32' },
+                { name: 'gasEstimate', type: 'uint256' }
+              ]
+            }
+          ] as const;
+
+          const quoteParams = {
+            tokenIn: uniswapFromToken as `0x${string}`,
+            tokenOut: uniswapToToken as `0x${string}`,
+            amountIn: BigInt(fromAmount),
+            fee: UNISWAP_POOL_FEES.MEDIUM,
+            sqrtPriceLimitX96: 0n,
+          };
+
+          let expectedAmountOut: bigint;
+          let liquidityAvailable = false;
+          
+          try {
+            const quoteResult = await publicClient.simulateContract({
+              address: quoterAddress as `0x${string}`,
+              abi: quoterAbi,
+              functionName: 'quoteExactInputSingle',
+              args: [quoteParams],
+            });
+            expectedAmountOut = quoteResult.result[0];
+            liquidityAvailable = true;
+            logger.info(`[CDP API] Uniswap quote result: ${expectedAmountOut.toString()} tokens expected`);
+          } catch (quoteError) {
+            logger.debug(`[CDP API] Failed to get quote, trying LOW fee tier:`, quoteError instanceof Error ? quoteError.message : String(quoteError));
+            
+            // Try LOW fee tier as fallback
+            quoteParams.fee = UNISWAP_POOL_FEES.LOW;
+            try {
+              const quoteResult = await publicClient.simulateContract({
+                address: quoterAddress as `0x${string}`,
+                abi: quoterAbi,
+                functionName: 'quoteExactInputSingle',
+                args: [quoteParams],
+              });
+              expectedAmountOut = quoteResult.result[0];
+              liquidityAvailable = true;
+              logger.info(`[CDP API] Uniswap quote result (LOW fee): ${expectedAmountOut.toString()} tokens expected`);
+            } catch (lowFeeError) {
+              logger.debug(`[CDP API] Failed to get quote with LOW fee, trying HIGH fee tier:`, lowFeeError instanceof Error ? lowFeeError.message : String(lowFeeError));
+              
+              // Try HIGH fee tier as last resort
+              quoteParams.fee = UNISWAP_POOL_FEES.HIGH;
+              try {
+                const quoteResult = await publicClient.simulateContract({
+                  address: quoterAddress as `0x${string}`,
+                  abi: quoterAbi,
+                  functionName: 'quoteExactInputSingle',
+                  args: [quoteParams],
+                });
+                expectedAmountOut = quoteResult.result[0];
+                liquidityAvailable = true;
+                logger.info(`[CDP API] Uniswap quote result (HIGH fee): ${expectedAmountOut.toString()} tokens expected`);
+              } catch (highFeeError) {
+                logger.warn(`[CDP API] All fee tiers failed for Uniswap quote:`, highFeeError instanceof Error ? highFeeError.message : String(highFeeError));
+                expectedAmountOut = 0n;
+              }
+            }
+          }
+
+          if (liquidityAvailable) {
+            // Calculate minimum amount out based on slippage tolerance
+            // slippageBps is passed in the swap request, but for price we'll assume a default
+            // The minToAmount will be calculated during actual swap with user's slippage preference
+            const toAmountStr = expectedAmountOut.toString();
+            
+            swapPriceResult = {
+              liquidityAvailable: true,
+              toAmount: toAmountStr,
+              minToAmount: toAmountStr, // Will be calculated with actual slippage during swap
+            };
+          } else {
+            swapPriceResult = {
+              liquidityAvailable: false,
+              toAmount: '0',
+              minToAmount: '0',
+            };
+          }
+        }
       }
 
       logger.info(`[CDP API] Swap price retrieved. Liquidity available: ${swapPriceResult.liquidityAvailable}`);
@@ -1385,9 +1538,97 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
           account.address
         );
 
-        // Set minimum amount out to 0 since we don't have a price quote
-        // The user has been warned about market rate execution
-        const minAmountOut = 0n;
+        // Get quote from Uniswap V3 Quoter to calculate slippage protection
+        logger.info(`[CDP API] Getting quote from Uniswap V3 Quoter for slippage calculation`);
+        
+        const quoterAddress = UNISWAP_V3_QUOTER[network];
+        if (!quoterAddress) {
+          throw new Error(`Uniswap V3 Quoter not available on network: ${network}`);
+        }
+
+        // QuoterV2 ABI for quoteExactInputSingle
+        const quoterAbi = [
+          {
+            name: 'quoteExactInputSingle',
+            type: 'function',
+            stateMutability: 'nonpayable',
+            inputs: [
+              {
+                name: 'params',
+                type: 'tuple',
+                components: [
+                  { name: 'tokenIn', type: 'address' },
+                  { name: 'tokenOut', type: 'address' },
+                  { name: 'amountIn', type: 'uint256' },
+                  { name: 'fee', type: 'uint24' },
+                  { name: 'sqrtPriceLimitX96', type: 'uint160' }
+                ]
+              }
+            ],
+            outputs: [
+              { name: 'amountOut', type: 'uint256' },
+              { name: 'sqrtPriceX96After', type: 'uint160' },
+              { name: 'initializedTicksCrossed', type: 'uint32' },
+              { name: 'gasEstimate', type: 'uint256' }
+            ]
+          }
+        ] as const;
+
+        const quoteParams = {
+          tokenIn: uniswapFromToken as `0x${string}`,
+          tokenOut: uniswapToToken as `0x${string}`,
+          amountIn: BigInt(fromAmount),
+          fee: UNISWAP_POOL_FEES.MEDIUM,
+          sqrtPriceLimitX96: 0n,
+        };
+
+        let expectedAmountOut: bigint;
+        try {
+          const quoteResult = await publicClient.simulateContract({
+            address: quoterAddress as `0x${string}`,
+            abi: quoterAbi,
+            functionName: 'quoteExactInputSingle',
+            args: [quoteParams],
+          });
+          expectedAmountOut = quoteResult.result[0];
+          logger.info(`[CDP API] Quote result: ${expectedAmountOut.toString()} tokens expected`);
+        } catch (quoteError) {
+          logger.warn(`[CDP API] Failed to get quote, trying LOW fee tier:`, quoteError instanceof Error ? quoteError.message : String(quoteError));
+          
+          // Try LOW fee tier as fallback
+          quoteParams.fee = UNISWAP_POOL_FEES.LOW;
+          try {
+            const quoteResult = await publicClient.simulateContract({
+              address: quoterAddress as `0x${string}`,
+              abi: quoterAbi,
+              functionName: 'quoteExactInputSingle',
+              args: [quoteParams],
+            });
+            expectedAmountOut = quoteResult.result[0];
+            logger.info(`[CDP API] Quote result (LOW fee): ${expectedAmountOut.toString()} tokens expected`);
+          } catch (lowFeeError) {
+            logger.warn(`[CDP API] Failed to get quote with LOW fee, trying HIGH fee tier:`, lowFeeError instanceof Error ? lowFeeError.message : String(lowFeeError));
+            
+            // Try HIGH fee tier as last resort
+            quoteParams.fee = UNISWAP_POOL_FEES.HIGH;
+            const quoteResult = await publicClient.simulateContract({
+              address: quoterAddress as `0x${string}`,
+              abi: quoterAbi,
+              functionName: 'quoteExactInputSingle',
+              args: [quoteParams],
+            });
+            expectedAmountOut = quoteResult.result[0];
+            logger.info(`[CDP API] Quote result (HIGH fee): ${expectedAmountOut.toString()} tokens expected`);
+          }
+        }
+
+        // Calculate minimum amount out based on slippage tolerance
+        // slippageBps is in basis points (e.g., 100 = 1%)
+        // minAmountOut = expectedAmountOut * (10000 - slippageBps) / 10000
+        const minAmountOut = (expectedAmountOut * BigInt(10000 - slippageBps)) / BigInt(10000);
+        logger.info(`[CDP API] Slippage protection: expected=${expectedAmountOut.toString()}, min=${minAmountOut.toString()} (${slippageBps}bps slippage)`);
+        
+        toAmount = expectedAmountOut.toString();
 
         // Uniswap V3 SwapRouter ABI for exactInputSingle
         const swapRouterAbi = [
@@ -1415,12 +1656,12 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
           }
         ] as const;
 
-        // Prepare swap parameters
+        // Prepare swap parameters using the fee tier that worked in the quote
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 20); // 20 minutes
         const swapParams = {
           tokenIn: uniswapFromToken as `0x${string}`,
           tokenOut: uniswapToToken as `0x${string}`,
-          fee: UNISWAP_POOL_FEES.MEDIUM, // Try 0.3% fee tier first
+          fee: quoteParams.fee, // Use the fee tier from successful quote
           recipient: account.address as `0x${string}`,
           deadline,
           amountIn: BigInt(fromAmount),
