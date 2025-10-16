@@ -49,6 +49,7 @@ interface Transaction {
   timestamp: number;
   blockNum: string;
   explorerUrl: string;
+  direction: 'sent' | 'received';
 }
 
 interface CDPWalletCardProps {
@@ -209,7 +210,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     }
   };
 
-  // Group transactions by date
+  // Group transactions by date (sorted by most recent first)
   const groupedTransactions = transactions.reduce<Record<string, Transaction[]>>((groups, tx) => {
     const dateKey = formatDate(tx.timestamp);
     if (!groups[dateKey]) {
@@ -218,6 +219,14 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     groups[dateKey].push(tx);
     return groups;
   }, {});
+
+  // Preserve the date order (most recent first)
+  const orderedDates = Object.keys(groupedTransactions).sort((a, b) => {
+    // Get the first transaction's timestamp from each group to determine order
+    const aTime = groupedTransactions[a][0]?.timestamp || 0;
+    const bTime = groupedTransactions[b][0]?.timestamp || 0;
+    return bTime - aTime;
+  });
 
   // Get token icon - returns JSX element
   const getTokenIcon = (token: Token) => {
@@ -492,37 +501,74 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {Object.entries(groupedTransactions).map(([date, txs]) => (
-                    <div key={date}>
-                      <div className="text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider">
-                        {date}
+                  {orderedDates.map((date) => {
+                    const txs = groupedTransactions[date];
+                    return (
+                      <div key={date}>
+                        <div className="sticky top-0 bg-background/95 backdrop-blur-sm text-[10px] font-mono text-muted-foreground mb-1.5 uppercase tracking-wider border-b border-border/50 pb-1">
+                          {date}
+                        </div>
+                        <div className="space-y-1">
+                          {txs.map((tx, index) => {
+                            const isReceived = tx.direction === 'received';
+                            const amount = parseFloat(tx.value || '0');
+                            
+                            // Format amount with truncation
+                            let amountStr = amount.toFixed(4);
+                            if (amountStr.length > 10) {
+                              amountStr = amount.toFixed(2);
+                            }
+
+                            return (
+                              <a
+                                key={`${tx.hash}-${index}`}
+                                href={tx.explorerUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors text-left cursor-pointer"
+                              >
+                                <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                                  <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                    isReceived ? 'bg-green-500/10' : 'bg-red-500/10'
+                                  }`}>
+                                    <span className="text-base sm:text-lg">
+                                      {isReceived ? '↓' : '↑'}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 sm:gap-2">
+                                      <span className="text-xs sm:text-sm font-medium truncate">
+                                        {isReceived ? 'Received' : 'Sent'}
+                                      </span>
+                                      <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono whitespace-nowrap flex-shrink-0">
+                                        {tx.chain}
+                                      </span>
+                                    </div>
+                                    <span className="text-xs text-muted-foreground truncate">
+                                      {isReceived 
+                                        ? `From: ${tx.from?.slice(0, 6)}...${tx.from?.slice(-4)}`
+                                        : `To: ${tx.to?.slice(0, 6)}...${tx.to?.slice(-4)}`
+                                      }
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-end flex-shrink-0 ml-2" style={{ maxWidth: '35%', minWidth: 0 }}>
+                                  <span className={`text-xs sm:text-sm font-mono font-medium overflow-hidden text-ellipsis whitespace-nowrap w-full text-right ${
+                                    isReceived ? 'text-green-500' : 'text-red-500'
+                                  }`} title={`${isReceived ? '+' : '-'}${amount.toFixed(8)} ${tx.asset}`}>
+                                    {isReceived ? '+' : '-'}{amountStr}
+                                  </span>
+                                  <span className="text-[10px] sm:text-xs text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap w-full text-right" title={tx.asset}>
+                                    {tx.asset}
+                                  </span>
+                                </div>
+                              </a>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        {txs.map((tx) => (
-                          <button
-                            key={tx.hash}
-                            onClick={() => window.open(tx.explorerUrl, '_blank')}
-                            className="w-full flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors text-left group"
-                          >
-                            <div className="flex flex-col min-w-0 flex-1">
-                              <span className="text-xs font-medium truncate">{tx.asset}</span>
-                              <span className="text-[10px] text-muted-foreground truncate capitalize">
-                                {tx.chain} • {tx.category}
-                              </span>
-                            </div>
-                            <div className="flex flex-col items-end ml-2">
-                              <span className="text-xs font-mono">
-                                {parseFloat(tx.value).toFixed(6).replace(/\.?0+$/, '')}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground font-mono">
-                                {tx.to.slice(0, 6)}...{tx.to.slice(-4)}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )
             )}

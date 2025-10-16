@@ -591,8 +591,8 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
 
       for (const network of networks) {
         try {
-          // Use Alchemy's alchemy_getAssetTransfers method
-          const response = await fetch(network.rpc, {
+          // Fetch sent transactions (fromAddress)
+          const sentResponse = await fetch(network.rpc, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -600,39 +600,85 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
               id: 1,
               method: 'alchemy_getAssetTransfers',
               params: [{
-                fromBlock: '0x0',
-                toBlock: 'latest',
                 fromAddress: address,
                 category: ['external', 'erc20', 'erc721', 'erc1155'],
+                maxCount: '0x19', // 25 transactions
                 withMetadata: true,
-                maxCount: '0x32', // 50 transactions
+                excludeZeroValue: false,
               }],
             }),
           });
 
-          if (!response.ok) {
-            logger.warn(`[CDP API] Failed to fetch history for ${network.name}: ${response.status}`);
-            continue;
+          // Fetch received transactions (toAddress)
+          const receivedResponse = await fetch(network.rpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 2,
+              method: 'alchemy_getAssetTransfers',
+              params: [{
+                toAddress: address,
+                category: ['external', 'erc20', 'erc721', 'erc1155'],
+                maxCount: '0x19', // 25 transactions
+                withMetadata: true,
+                excludeZeroValue: false,
+              }],
+            }),
+          });
+
+          if (sentResponse.ok) {
+            const sentData = await sentResponse.json();
+            if (sentData.error) {
+              logger.warn(`[CDP API] ${network.name} sent transactions error:`, sentData.error);
+            } else {
+              const sentTransfers = sentData?.result?.transfers || [];
+              for (const tx of sentTransfers) {
+                const timestamp = tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp).getTime() : Date.now();
+                allTransactions.push({
+                  chain: network.name,
+                  hash: tx.hash,
+                  from: tx.from,
+                  to: tx.to,
+                  value: tx.value?.toString() || '0',
+                  asset: tx.asset || 'ETH',
+                  category: tx.category,
+                  timestamp,
+                  blockNum: tx.blockNum,
+                  explorerUrl: `${network.explorer}/tx/${tx.hash}`,
+                  direction: 'sent',
+                });
+              }
+            }
+          } else {
+            logger.warn(`[CDP API] ${network.name} sent transactions: HTTP ${sentResponse.status}`);
           }
 
-          const data = await response.json();
-          const transfers = data.result?.transfers || [];
-
-          for (const tx of transfers) {
-            const timestamp = tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp).getTime() : Date.now();
-            
-            allTransactions.push({
-              chain: network.name,
-              hash: tx.hash,
-              from: tx.from,
-              to: tx.to,
-              value: tx.value?.toString() || '0',
-              asset: tx.asset || 'ETH',
-              category: tx.category,
-              timestamp,
-              blockNum: tx.blockNum,
-              explorerUrl: `${network.explorer}/tx/${tx.hash}`,
-            });
+          if (receivedResponse.ok) {
+            const receivedData = await receivedResponse.json();
+            if (receivedData.error) {
+              logger.warn(`[CDP API] ${network.name} received transactions error:`, receivedData.error);
+            } else {
+              const receivedTransfers = receivedData?.result?.transfers || [];
+              for (const tx of receivedTransfers) {
+                const timestamp = tx.metadata?.blockTimestamp ? new Date(tx.metadata.blockTimestamp).getTime() : Date.now();
+                allTransactions.push({
+                  chain: network.name,
+                  hash: tx.hash,
+                  from: tx.from,
+                  to: tx.to,
+                  value: tx.value?.toString() || '0',
+                  asset: tx.asset || 'ETH',
+                  category: tx.category,
+                  timestamp,
+                  blockNum: tx.blockNum,
+                  explorerUrl: `${network.explorer}/tx/${tx.hash}`,
+                  direction: 'received',
+                });
+              }
+            }
+          } else {
+            logger.warn(`[CDP API] ${network.name} received transactions: HTTP ${receivedResponse.status}`);
           }
         } catch (err) {
           logger.warn(`[CDP API] Error fetching history for ${network.name}:`, err instanceof Error ? err.message : String(err));
