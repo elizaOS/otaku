@@ -1,5 +1,11 @@
 import { BaseApiClient } from '../lib/base-client';
 
+/**
+ * Native token address used by swap protocols
+ * This special address represents native tokens (ETH, MATIC, etc.)
+ */
+export const NATIVE_TOKEN_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+
 export interface Token {
   symbol: string;
   name: string;
@@ -94,6 +100,44 @@ export interface SendNFTResponse {
   network: string;
 }
 
+export interface SwapPriceRequest {
+  name: string;
+  network: string;
+  fromToken: string;
+  toToken: string;
+  fromAmount: string;
+}
+
+export interface SwapPriceResponse {
+  liquidityAvailable: boolean;
+  toAmount: string;
+  minToAmount: string;
+  fromAmount: string;
+  fromToken: string;
+  toToken: string;
+  network: string;
+}
+
+export interface SwapRequest {
+  name: string;
+  network: string;
+  fromToken: string;
+  toToken: string;
+  fromAmount: string;
+  slippageBps: number;
+}
+
+export interface SwapResponse {
+  transactionHash: string;
+  from: string;
+  fromToken: string;
+  toToken: string;
+  fromAmount: string;
+  toAmount: string;
+  network: string;
+  method: string;
+}
+
 /**
  * Service for interacting with CDP wallet endpoints
  */
@@ -143,6 +187,22 @@ export class CdpService extends BaseApiClient {
    */
   async sendNFT(request: SendNFTRequest): Promise<SendNFTResponse> {
     const response = await this.post<SendNFTResponse>('/api/cdp/wallet/send-nft', request);
+    return response;
+  }
+
+  /**
+   * Get swap price estimate
+   */
+  async getSwapPrice(request: SwapPriceRequest): Promise<SwapPriceResponse> {
+    const response = await this.post<SwapPriceResponse>('/api/cdp/wallet/swap-price', request);
+    return response;
+  }
+
+  /**
+   * Execute token swap
+   */
+  async swap(request: SwapRequest): Promise<SwapResponse> {
+    const response = await this.post<SwapResponse>('/api/cdp/wallet/swap', request);
     return response;
   }
 }

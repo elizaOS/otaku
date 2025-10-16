@@ -5,6 +5,7 @@ import { Button } from '../../ui/button';
 import { Bullet } from '../../ui/bullet';
 import { Copy, Check, RefreshCw, Send } from 'lucide-react';
 import { SendModal } from './SendModal';
+import { SwapModal } from './SwapModal';
 import { TokenDetailModal } from './TokenDetailModal';
 import { NFTDetailModal } from './NFTDetailModal';
 import { elizaClient } from '../../../lib/elizaClient';
@@ -84,6 +85,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
   
   // Modal states
   const [isSendModalOpen, setIsSendModalOpen] = useState(false);
+  const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
   const [selectedToken, setSelectedToken] = useState<Token | null>(null);
   const [selectedNft, setSelectedNft] = useState<NFT | null>(null);
@@ -312,7 +314,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
           </div>
 
           {/* Action Buttons - Before tabs */}
-          <div className="flex gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <Button 
               onClick={() => setIsFundModalOpen(true)}
               className="flex-1"
@@ -330,6 +332,15 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
             >
               <Send className="w-4 h-4 mr-2" />
               Send
+            </Button>
+            <Button 
+              onClick={() => setIsSwapModalOpen(true)}
+              className="flex-1"
+              variant="outline"
+              size="sm"
+              disabled={tokens.length === 0 || isLoadingTokens}
+            >
+              Swap
             </Button>
           </div>
 
@@ -580,6 +591,17 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
         userId={userId}
         onSuccess={() => {
           setIsSendModalOpen(false);
+          fetchTokens();
+        }}
+      />
+
+      <SwapModal
+        isOpen={isSwapModalOpen}
+        onClose={() => setIsSwapModalOpen(false)}
+        tokens={tokens}
+        userId={userId}
+        onSuccess={() => {
+          setIsSwapModalOpen(false);
           fetchTokens();
         }}
       />

@@ -21,6 +21,11 @@ export interface ChainConfig {
     decimals: number;
   };
   coingeckoPlatform: string;
+  // Swap configuration
+  swap: {
+    cdpSupported: boolean; // Does CDP SDK support swaps on this network?
+    uniswapV3Supported: boolean; // Does Uniswap V3 support swaps on this network?
+  };
 }
 
 /**
@@ -40,6 +45,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'base',
+    swap: {
+      cdpSupported: true, // CDP SDK supports Base swaps
+      uniswapV3Supported: true, // Uniswap V3 available on Base
+    },
   },
   'ethereum': {
     name: 'Ethereum',
@@ -53,6 +62,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'ethereum',
+    swap: {
+      cdpSupported: true, // CDP SDK supports Ethereum swaps
+      uniswapV3Supported: true, // Uniswap V3 available on Ethereum
+    },
   },
   'polygon': {
     name: 'Polygon',
@@ -66,6 +79,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'polygon-pos',
+    swap: {
+      cdpSupported: false, // CDP SDK does NOT support Polygon swaps
+      uniswapV3Supported: true, // Uniswap V3 available on Polygon
+    },
   },
   'arbitrum': {
     name: 'Arbitrum',
@@ -79,6 +96,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'arbitrum-one',
+    swap: {
+      cdpSupported: false, // CDP SDK does NOT support Arbitrum swaps
+      uniswapV3Supported: true, // Uniswap V3 available on Arbitrum
+    },
   },
   'optimism': {
     name: 'Optimism',
@@ -92,6 +113,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'optimistic-ethereum',
+    swap: {
+      cdpSupported: false, // CDP SDK does NOT support Optimism swaps
+      uniswapV3Supported: true, // Uniswap V3 available on Optimism
+    },
   },
   'scroll': {
     name: 'Scroll',
@@ -105,6 +130,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'scroll',
+    swap: {
+      cdpSupported: false, // CDP SDK does NOT support Scroll swaps
+      uniswapV3Supported: false, // No Uniswap V3 on Scroll
+    },
   },
   'base-sepolia': {
     name: 'Base Sepolia',
@@ -118,6 +147,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'base',
+    swap: {
+      cdpSupported: false, // Testnet - no CDP swap support
+      uniswapV3Supported: false, // Testnet - limited support
+    },
   },
   'ethereum-sepolia': {
     name: 'Ethereum Sepolia',
@@ -131,6 +164,10 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'ethereum',
+    swap: {
+      cdpSupported: false, // Testnet - no CDP swap support
+      uniswapV3Supported: false, // Testnet - limited support
+    },
   },
 };
 
@@ -231,5 +268,30 @@ export function isMainnet(network: string): boolean {
  */
 export function isTestnet(network: string): boolean {
   return TESTNET_NETWORKS.includes(network as SupportedNetwork);
+}
+
+/**
+ * Helper: Check if CDP SDK supports swaps on a network
+ */
+export function isCdpSwapSupported(network: string): boolean {
+  const config = getChainConfig(network);
+  return config?.swap.cdpSupported || false;
+}
+
+/**
+ * Helper: Get networks that support CDP swaps
+ */
+export function getCdpSwapSupportedNetworks(): SupportedNetwork[] {
+  return ALL_NETWORKS.filter(network => isCdpSwapSupported(network));
+}
+
+/**
+ * Helper: Get all networks that support swaps (CDP or Uniswap V3)
+ */
+export function getSwapSupportedNetworks(): SupportedNetwork[] {
+  return ALL_NETWORKS.filter(network => {
+    const config = getChainConfig(network);
+    return config?.swap.cdpSupported || config?.swap.uniswapV3Supported;
+  });
 }
 
