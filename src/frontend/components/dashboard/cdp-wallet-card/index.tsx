@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../../ui/card';
 import { Button } from '../../ui/button';
 import { Bullet } from '../../ui/bullet';
-import { Copy, Check, RefreshCw, Send } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import { SendModal } from './SendModal';
 import { SwapModal } from './SwapModal';
 import { TokenDetailModal } from './TokenDetailModal';
@@ -170,15 +170,25 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     }
   }, [activeTab]);
 
-  // Refresh all data
+  // Refresh all data using sync APIs
   const handleManualRefresh = async () => {
+    if (!userId) return;
+    
     setIsRefreshing(true);
     try {
-      await Promise.all([
-        fetchTokens(),
-        activeTab === 'collections' ? fetchNfts() : Promise.resolve(),
-        activeTab === 'history' ? fetchHistory() : Promise.resolve(),
-      ]);
+      // Use sync APIs to force fresh data
+      if (activeTab === 'tokens') {
+        const data = await elizaClient.cdp.syncTokens(userId);
+        setTokens(data.tokens || []);
+        setTotalUsdValue(data.totalUsdValue || 0);
+      } else if (activeTab === 'collections') {
+        const data = await elizaClient.cdp.syncNFTs(userId);
+        setNfts(data.nfts || []);
+      } else if (activeTab === 'history') {
+        await fetchHistory();
+      }
+    } catch (error) {
+      console.error('Error syncing data:', error);
     } finally {
       setIsRefreshing(false);
     }
@@ -280,7 +290,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
         </CardTitle>
         <Button
           onClick={handleManualRefresh}
-          disabled={isRefreshing}
+          disabled={isRefreshing || !userId || isLoadingTokens}
           variant="ghost"
           size="sm"
           className="text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground"
@@ -330,7 +340,6 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
               size="sm"
               disabled={tokens.length === 0 || isLoadingTokens}
             >
-              <Send className="w-4 h-4 mr-2" />
               Send
             </Button>
             <Button 

@@ -17,7 +17,7 @@
   "packageManager": "bun@1.2.21",
   "workspaces": [
     "src/plugins/*",
-    "packages/*"
+    "src/packages/*"
   ],
   "dependencies": {
     "@coinbase/cdp-core": "^0.0.45",

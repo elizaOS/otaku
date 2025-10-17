@@ -21,32 +21,52 @@ const swapTemplate = `# CDP Token Swap Request
 {{recentMessages}}
 
 ## Available Networks
-- base (default)
-- base-sepolia  
+- base (default - use if not specified)
 - ethereum
 - arbitrum
 - optimism
 - polygon
 
 ## Instructions
-Determine and extract the user's swap details from the conversation context. If any detail is missing, use reasonable defaults.
+Extract the swap details EXACTLY as the user stated them. Do not modify, normalize, or convert token names.
 
-**Important Notes:**
-- **Default network is "base"** - only specify another network if explicitly mentioned by the user
-- You can use EITHER token symbols (USDC, BNKR, DAI) OR contract addresses (0x...)
-- **For native gas tokens, always use ETH or MATIC** (preferred for swapping native tokens)
-- If user says "ETH" or "WETH", use "ETH" (system handles both as different tokens)
-- If user says "MATIC" or "WMATIC", use "MATIC" (system handles both as different tokens)
-- Common tokens on Base: USDC, ETH, DAI, BNKR
-- Common tokens on Ethereum: USDC, ETH, DAI
-- **For "all", "max", "full balance", or "entire balance" requests, use "MAX" as the amount**
+**Rules:**
+1. **Network**: Use "base" if user doesn't mention a network
+2. **Tokens**: Extract token symbols or addresses EXACTLY as user typed them (e.g., if user says "MATIC", output "MATIC"; if user says "lgns", output "lgns")
+3. **Amount vs Percentage**:
+   - Specific amount (e.g., "swap 2 MATIC") → use <amount>2</amount>
+   - Percentage (e.g., "swap half my MATIC", "swap all my tokens", "swap 80%") → use <percentage> tag
+   - For "all"/"max"/"everything" → <percentage>100</percentage>
+   - For "half" → <percentage>50</percentage>
+   - Use ONLY ONE: <amount> OR <percentage>, never both
+4. **Slippage**: Always use <slippageBps>100</slippageBps> (1% slippage)
 
 Respond with the swap parameters in this exact format:
+
+Example 1 (specific amount):
 <response>
   <network>base</network>
   <fromToken>USDC</fromToken>
   <toToken>ETH</toToken>
   <amount>100</amount>
+  <slippageBps>100</slippageBps>
+</response>
+
+Example 2 (percentage):
+<response>
+  <network>polygon</network>
+  <fromToken>MATIC</fromToken>
+  <toToken>lgns</toToken>
+  <percentage>50</percentage>
+  <slippageBps>100</slippageBps>
+</response>
+
+Example 3 (user input: "swap 2 matic to lgns"):
+<response>
+  <network>base</network>
+  <fromToken>matic</fromToken>
+  <toToken>lgns</toToken>
+  <amount>2</amount>
   <slippageBps>100</slippageBps>
 </response>`;
 
@@ -54,28 +74,53 @@ interface SwapParams {
   network: CdpNetwork;
   fromToken: string; // Can be symbol or address, gets resolved later
   toToken: string; // Can be symbol or address, gets resolved later
-  amount: string;
+  amount?: string; // Specific amount (mutually exclusive with percentage)
+  percentage?: number; // Percentage of balance (mutually exclusive with amount)
   slippageBps?: number;
 }
 
 const parseSwapParams = (text: string): SwapParams | null => {
-  logger.debug("Parsing swap parameters from XML response");
+  console.log("Parsing swap parameters from XML response");
   const parsed = parseKeyValueXml(text);
-  logger.debug(`Parsed XML data: ${JSON.stringify(parsed)}`);
+  console.log(`Parsed XML data: ${JSON.stringify(parsed)}`);
   
   // Network defaults to "base" if not provided
-  if (!parsed?.fromToken || !parsed?.toToken || !parsed?.amount) {
+  if (!parsed?.fromToken || !parsed?.toToken) {
     logger.warn(`Missing required swap parameters: ${JSON.stringify({ parsed })}`);
     return null;
   }
 
-  const swapParams = {
+  // Must have either amount OR percentage, but not both
+  const hasAmount = !!parsed.amount;
+  const hasPercentage = !!parsed.percentage;
+
+  if (!hasAmount && !hasPercentage) {
+    logger.warn(`Must specify either amount or percentage: ${JSON.stringify({ parsed })}`);
+    return null;
+  }
+
+  if (hasAmount && hasPercentage) {
+    logger.warn(`Cannot specify both amount and percentage: ${JSON.stringify({ parsed })}`);
+    return null;
+  }
+
+  const swapParams: SwapParams = {
     network: (parsed.network || "base") as SwapParams["network"],
     fromToken: parsed.fromToken.trim(),
     toToken: parsed.toToken.trim(),
-    amount: parsed.amount,
     slippageBps: parsed.slippageBps ? parseInt(parsed.slippageBps) : 100,
   };
+
+  if (hasAmount) {
+    swapParams.amount = parsed.amount;
+  } else {
+    swapParams.percentage = parseFloat(parsed.percentage);
+    // Validate percentage is between 0 and 100
+    if (swapParams.percentage <= 0 || swapParams.percentage > 100) {
+      logger.warn(`Invalid percentage value: ${swapParams.percentage}`);
+      return null;
+    }
+  }
   
   logger.debug(`Formatted swap parameters: ${JSON.stringify(swapParams)}`);
   return swapParams;
@@ -199,11 +244,11 @@ const resolveTokenToAddress = async (
  */
 
 export const cdpWalletSwap: Action = {
-  name: "CDP_WALLET_SWAP",
+  name: "WALLET_SWAP",
   similes: [
-    "CDP_SWAP",
-    "CDP_TRADE",
-    "CDP_EXCHANGE",
+    "SWAP",
+    "TRADE",
+    "EXCHANGE",
     "SWAP_TOKENS_CDP",
     "TRADE_TOKENS_CDP",
     "EXCHANGE_TOKENS_CDP",
@@ -233,11 +278,11 @@ export const cdpWalletSwap: Action = {
   handler: async (
     runtime: IAgentRuntime,
     message: Memory,
-    state: State,
-    _options: Record<string, unknown>,
+    state?: State,
+    _options?: Record<string, unknown>,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
-    logger.info("CDP_WALLET_SWAP handler invoked");
+    logger.info("WALLET_SWAP handler invoked");
     logger.debug(`Message content: ${JSON.stringify(message.content)}`);
     
     try {
@@ -255,12 +300,16 @@ export const cdpWalletSwap: Action = {
       const walletResult = await getEntityWallet(
         runtime,
         message,
-        "CDP_WALLET_SWAP",
+        "WALLET_SWAP",
         callback,
       );
       if (walletResult.success === false) {
         logger.warn("Entity wallet verification failed");
         return walletResult.result;
+      }
+      const accountName = walletResult.metadata?.accountName as string;
+      if (!accountName) {
+        throw new Error("Could not find account name for wallet");
       }
       logger.debug("Entity wallet verified successfully");
 
@@ -310,73 +359,46 @@ export const cdpWalletSwap: Action = {
       const decimals = await getTokenDecimals(fromToken, swapParams.network);
       logger.debug(`Token decimals: ${decimals}`);
 
-      // Handle "MAX" amount - fetch token balance using same logic as CDP_WALLET_BALANCE action
-      let amountToSwap = swapParams.amount;
-      if (swapParams.amount.toUpperCase() === "MAX") {
-        logger.info("MAX amount detected, fetching token balance...");
-        const account = await cdpService.getOrCreateAccount({ name: message.entityId });
-        const balancesResponse = await account.listTokenBalances({ network: swapParams.network as any });
-        const rows = balancesResponse?.balances || [];
+      // Determine the amount to swap (either specific amount or percentage of balance)
+      let amountToSwap: string;
+      
+      if (swapParams.percentage !== undefined) {
+        // Percentage-based swap - fetch wallet info to get token balance
+        logger.info(`Percentage-based swap: ${swapParams.percentage}% of ${swapParams.fromToken}`);
         
-        if (!rows.length) {
-          logger.error(`No token balances found on ${swapParams.network}`);
-          throw new Error(`No token balances found in your wallet. Please check your wallet balance first.`);
-        }
-
-        // Helper to convert values to integer strings (same as balance action)
-        const toIntegerString = (v: unknown): string => {
-          if (typeof v === "bigint") return v.toString();
-          if (typeof v === "number") return Math.trunc(v).toString();
-          if (typeof v === "string") return v;
-          return "0";
-        };
-
-        // Helper to format units (same as balance action)
-        const formatUnits = (amountInBaseUnits: string, decimals: number): string => {
-          if (!/^-?\d+$/.test(amountInBaseUnits)) return amountInBaseUnits;
-          const negative = amountInBaseUnits.startsWith("-");
-          const digits = negative ? amountInBaseUnits.slice(1) : amountInBaseUnits;
-          const d = Math.max(0, decimals | 0);
-          if (d === 0) return (negative ? "-" : "") + digits;
-          const padded = digits.padStart(d + 1, "0");
-          const i = padded.length - d;
-          let head = padded.slice(0, i);
-          let tail = padded.slice(i);
-          // trim trailing zeros on fractional part
-          tail = tail.replace(/0+$/, "");
-          if (tail.length === 0) return (negative ? "-" : "") + head;
-          // trim leading zeros on integer part
-          head = head.replace(/^0+(?=\d)/, "");
-          return (negative ? "-" : "") + head + "." + tail;
-        };
+        const walletInfo = await cdpService.getWalletInfoCached(accountName);
         
-        // Find the balance for the from token (same pattern as balance action)
-        const tokenBalance = rows.find((b: any) => {
-          const address = (b?.token?.contractAddress || b?.token?.address || "").toLowerCase();
-          return address === fromToken.toLowerCase();
+        // Find the token in wallet (matching both symbol and address)
+        const walletToken = walletInfo.tokens.find((t) => {
+          // Check if token matches by address
+          if (t.contractAddress && fromToken.startsWith("0x")) {
+            return t.contractAddress.toLowerCase() === fromToken.toLowerCase();
+          }
+          // Check if token matches by symbol
+          return t.symbol.toLowerCase() === swapParams.fromToken.toLowerCase() && 
+                 t.chain === swapParams.network;
         });
 
-        if (!tokenBalance) {
-          logger.error(`Token ${fromToken} not found in wallet balances on ${swapParams.network}`);
-          throw new Error(`No balance found for the token you're trying to swap. Please check your wallet balance first.`);
+        if (!walletToken) {
+          logger.error(`Token ${swapParams.fromToken} not found in wallet on ${swapParams.network}`);
+          throw new Error(`You don't have any ${swapParams.fromToken.toUpperCase()} in your wallet on ${swapParams.network}.`);
         }
 
-        // Extract raw amount and decimals (same as balance action)
-        const raw = toIntegerString(tokenBalance?.amount?.amount ?? tokenBalance?.amount ?? "0");
-        const tokenDecimals = ((tokenBalance?.amount as any)?.decimals ?? (tokenBalance?.token as any)?.decimals ?? decimals) as number;
-        
-        logger.info(`Found token balance: ${raw} (${tokenDecimals} decimals)`);
-        
-        // Check if balance is zero or negative
-        const balanceInWei = BigInt(raw);
-        if (balanceInWei <= 0n) {
-          logger.error(`Zero or negative balance for token ${fromToken}: ${raw}`);
-          throw new Error(`You have zero balance for this token. Cannot swap.`);
+        const tokenBalance = parseFloat(walletToken.balance);
+        if (tokenBalance <= 0) {
+          logger.error(`Zero balance for token ${swapParams.fromToken}: ${tokenBalance}`);
+          throw new Error(`You have zero balance for ${swapParams.fromToken.toUpperCase()}. Cannot swap.`);
         }
+
+        // Calculate amount based on percentage
+        const calculatedAmount = (tokenBalance * swapParams.percentage) / 100;
+        amountToSwap = calculatedAmount.toString();
         
-        // Format to human-readable amount (same as balance action)
-        amountToSwap = formatUnits(raw, tokenDecimals);
-        logger.info(`Using MAX balance: ${amountToSwap} (validated non-zero)`);
+        logger.info(`Calculated amount from ${swapParams.percentage}%: ${amountToSwap} ${swapParams.fromToken} (from balance: ${tokenBalance})`);
+      } else {
+        // Specific amount provided
+        amountToSwap = swapParams.amount!;
+        logger.info(`Using specific amount: ${amountToSwap} ${swapParams.fromToken}`);
       }
 
       // Parse amount to wei using correct decimals
@@ -389,25 +411,13 @@ export const cdpWalletSwap: Action = {
       const amountInWei = parseUnits(amountToSwap, decimals);
       logger.debug(`Amount in wei: ${amountInWei.toString()}`);
 
-      logger.info(`Executing CDP swap: network=${swapParams.network}, fromToken=${fromToken}, toToken=${toToken}, amount=${swapParams.amount}, slippageBps=${swapParams.slippageBps}`);
-
-      // Note: CDP service will handle token approval and swap execution
-      // Step 1: Approve token for Permit2 contract
-      // Step 2: Execute the swap via account.swap()
-      logger.info("CDP service will approve token and execute swap");
+      logger.info(`Executing CDP swap: network=${swapParams.network}, fromToken=${fromToken}, toToken=${toToken}, amount=${amountToSwap}, slippageBps=${swapParams.slippageBps}`);
 
       // Execute the swap using CDP service
-      logger.debug(`Calling CDP service swap method with params: ${JSON.stringify({
-        accountName: message.entityId,
-        network: swapParams.network,
-        fromToken,
-        toToken,
-        fromAmount: amountInWei.toString(),
-        slippageBps: swapParams.slippageBps,
-      })}`);
+      logger.debug(`Calling CDP service swap method`);
       
       const result = await cdpService.swap({
-        accountName: message.entityId,
+        accountName,
         network: swapParams.network,
         fromToken,
         toToken,
@@ -430,9 +440,9 @@ export const cdpWalletSwap: Action = {
           success: true,
           transactionHash: result.transactionHash,
           network: swapParams.network,
-          fromToken,
-          toToken,
-          amount: amountToSwap,
+          fromToken: String(fromToken),
+          toToken: String(toToken),
+          amount: String(amountToSwap),
         },
       });
 
@@ -443,10 +453,10 @@ export const cdpWalletSwap: Action = {
         data: {
           transactionHash: result.transactionHash,
           network: swapParams.network,
-          fromToken,
-          toToken,
-          amount: amountToSwap,
-          slippageBps: swapParams.slippageBps,
+          fromToken: String(fromToken),
+          toToken: String(toToken),
+          amount: String(amountToSwap),
+          slippageBps: swapParams.slippageBps ? Number(swapParams.slippageBps) : 100,
         },
         values: {
           swapSuccess: true,
@@ -454,7 +464,7 @@ export const cdpWalletSwap: Action = {
         },
       };
     } catch (error) {
-      logger.error("CDP_WALLET_SWAP error:", error);
+      logger.error("WALLET_SWAP error:", error instanceof Error ? error.message : String(error));
       logger.error("Error stack:", error instanceof Error ? error.stack : "No stack trace available");
       
       let errorMessage = "Failed to execute swap.";
@@ -474,14 +484,13 @@ export const cdpWalletSwap: Action = {
       logger.debug(`Sending error callback: ${errorMessage}`);
       callback?.({
         text: errorMessage,
-        content: { error: "cdp_wallet_swap_failed", details: error },
+        content: { error: "wallet_swap_failed" },
       });
       
       logger.debug("Returning error result");
       return {
         text: errorMessage,
         success: false,
-        error: error as Error,
       };
     }
   },
@@ -495,7 +504,7 @@ export const cdpWalletSwap: Action = {
         name: "{{agent}}",
         content: {
           text: "I'll swap 3 USDC to BNKR on Base for you.",
-          action: "CDP_WALLET_SWAP",
+          action: "WALLET_SWAP",
         },
       },
     ],
@@ -508,33 +517,46 @@ export const cdpWalletSwap: Action = {
         name: "{{agent}}",
         content: {
           text: "I'll swap 100 USDC to ETH on Base network for you.",
-          action: "CDP_WALLET_SWAP",
+          action: "WALLET_SWAP",
         },
       },
     ],
     [
       {
         name: "{{user}}",
-        content: { text: "exchange 0.5 ETH for DAI on ethereum" },
+        content: { text: "swap half of my USDC to ETH" },
       },
       {
         name: "{{agent}}",
         content: {
-          text: "Executing swap of 0.5 ETH to DAI on Ethereum...",
-          action: "CDP_WALLET_SWAP",
+          text: "I'll swap 50% of your USDC to ETH on Base.",
+          action: "WALLET_SWAP",
         },
       },
     ],
     [
       {
         name: "{{user}}",
-        content: { text: "trade my MATIC for USDC on polygon with 2% slippage" },
+        content: { text: "swap 80% of my ETH to DAI" },
       },
       {
         name: "{{agent}}",
         content: {
-          text: "I'll trade your MATIC for USDC on Polygon with 2% slippage tolerance.",
-          action: "CDP_WALLET_SWAP",
+          text: "I'll swap 80% of your ETH to DAI.",
+          action: "WALLET_SWAP",
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
+        content: { text: "swap all my MATIC for USDC on polygon" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: "I'll swap 100% of your MATIC to USDC on Polygon.",
+          action: "WALLET_SWAP",
         },
       },
     ],

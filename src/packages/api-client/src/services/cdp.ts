@@ -54,11 +54,15 @@ export interface TokensResponse {
   tokens: Token[];
   totalUsdValue: number;
   address: string;
+  fromCache?: boolean;
+  synced?: boolean;
 }
 
 export interface NFTsResponse {
   nfts: NFT[];
   address: string;
+  fromCache?: boolean;
+  synced?: boolean;
 }
 
 export interface TransactionHistoryResponse {
@@ -171,7 +175,7 @@ export class CdpService extends BaseApiClient {
   }
 
   /**
-   * Get token balances across all networks
+   * Get token balances across all networks (uses cache if available)
    */
   async getTokens(name: string): Promise<TokensResponse> {
     const response = await this.get<TokensResponse>(`/api/cdp/wallet/tokens/${name}`);
@@ -179,10 +183,26 @@ export class CdpService extends BaseApiClient {
   }
 
   /**
-   * Get NFT holdings across networks
+   * Force sync token balances (bypasses cache)
+   */
+  async syncTokens(name: string): Promise<TokensResponse> {
+    const response = await this.post<TokensResponse>(`/api/cdp/wallet/tokens/sync/${name}`, {});
+    return response;
+  }
+
+  /**
+   * Get NFT holdings across networks (uses cache if available)
    */
   async getNFTs(name: string): Promise<NFTsResponse> {
     const response = await this.get<NFTsResponse>(`/api/cdp/wallet/nfts/${name}`);
+    return response;
+  }
+
+  /**
+   * Force sync NFTs (bypasses cache)
+   */
+  async syncNFTs(name: string): Promise<NFTsResponse> {
+    const response = await this.post<NFTsResponse>(`/api/cdp/wallet/nfts/sync/${name}`, {});
     return response;
   }
 

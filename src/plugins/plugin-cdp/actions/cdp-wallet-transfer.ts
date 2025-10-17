@@ -10,12 +10,10 @@ import {
   composePromptFromState,
   parseKeyValueXml,
 } from "@elizaos/core";
-import { parseUnits, createPublicClient, http, formatUnits } from "viem";
-import { base, mainnet, polygon } from "viem/chains";
+import { parseUnits } from "viem";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
-import type { CoinGeckoService } from "../../plugin-coingecko/src/services/coingecko.service";
-import type { CdpNetwork } from "../types";
+import { type CdpNetwork } from "../types";
 
 const transferTemplate = `# Token Transfer Request
 
@@ -23,150 +21,77 @@ const transferTemplate = `# Token Transfer Request
 {{recentMessages}}
 
 ## Supported Networks
-- base (Base Mainnet)
-- base-sepolia (Base Sepolia Testnet)
-- ethereum (Ethereum Mainnet)
-- ethereum-sepolia (Ethereum Sepolia Testnet)
-- arbitrum (Arbitrum One)
-- optimism (Optimism Mainnet)
-- polygon (Polygon Mainnet)
+- base (default - use if not specified)
+- ethereum
+- arbitrum
+- optimism
+- polygon
 
 ## Instructions
-Determine and extract the user's transfer details from the conversation context. All fields are required.
+Extract the transfer details EXACTLY as the user stated them. Do not modify or normalize token names.
 
-**Important Notes:**
-- Amount should be in human-readable format (e.g., "10.5" for 10.5 tokens)
-- Recipient address must start with 0x and be 42 characters
-- For ENS names, resolve to 0x address first
-- Token can be a symbol (ETH, USDC, BNXR, DAI) or contract address
-- Default to base network if not specified
+**Rules:**
+1. **To Address**: Must be a valid 0x address (42 characters)
+2. **Token**: Extract token symbol EXACTLY as user typed it (e.g., if user says "USDC", output "USDC"; if user says "wlfi", output "wlfi")
+3. **Network**: Omit the <network> tag if user doesn't mention a specific network
+4. **Amount vs Percentage**:
+   - Specific amount (e.g., "send 10 USDC") → use <amount>10</amount>
+   - Percentage (e.g., "send half my tokens", "send all my USDC") → use <percentage> tag
+   - For "all"/"max"/"everything" → <percentage>100</percentage>
+   - For "half" → <percentage>50</percentage>
+   - Use ONLY ONE: <amount> OR <percentage>, never both
 
 Respond with the transfer parameters in this exact format:
+
+Example 1 (specific amount):
+<response>
+  <to>0x1234567890123456789012345678901234567890</to>
+  <token>USDC</token>
+  <amount>10.5</amount>
+</response>
+
+Example 2 (percentage with network):
 <response>
   <network>base</network>
   <to>0x1234567890123456789012345678901234567890</to>
-  <token>bnxr</token>
-  <amount>10.5</amount>
+  <token>wlfi</token>
+  <percentage>50</percentage>
+</response>
+
+Example 3 (user input: "send 5 eth to 0xabc..."):
+<response>
+  <to>0xabc123...</to>
+  <token>eth</token>
+  <amount>5</amount>
 </response>`;
 
-type ChainNetwork = 'base' | 'ethereum' | 'polygon' | 'base-sepolia' | 'ethereum-sepolia' | 'arbitrum' | 'optimism';
-
-interface ChainConfig {
-  name: string;
-  rpcUrl: string;
-  nativeToken: {
-    symbol: string;
-    name: string;
-  };
-  coingeckoPlatform: string;
-  chainId: number;
-}
-
-const CHAIN_CONFIGS: Record<ChainNetwork, ChainConfig> = {
-  base: {
-    name: 'Base',
-    rpcUrl: 'BASE_RPC_URL',
-    nativeToken: { symbol: 'ETH', name: 'Ethereum' },
-    coingeckoPlatform: 'base',
-    chainId: 8453,
-  },
-  'base-sepolia': {
-    name: 'Base Sepolia',
-    rpcUrl: 'BASE_SEPOLIA_RPC_URL',
-    nativeToken: { symbol: 'ETH', name: 'Ethereum' },
-    coingeckoPlatform: 'base',
-    chainId: 84532,
-  },
-  ethereum: {
-    name: 'Ethereum',
-    rpcUrl: 'ETHEREUM_RPC_URL',
-    nativeToken: { symbol: 'ETH', name: 'Ethereum' },
-    coingeckoPlatform: 'ethereum',
-    chainId: 1,
-  },
-  'ethereum-sepolia': {
-    name: 'Ethereum Sepolia',
-    rpcUrl: 'ETHEREUM_SEPOLIA_RPC_URL',
-    nativeToken: { symbol: 'ETH', name: 'Ethereum' },
-    coingeckoPlatform: 'ethereum',
-    chainId: 11155111,
-  },
-  arbitrum: {
-    name: 'Arbitrum',
-    rpcUrl: 'ARBITRUM_RPC_URL',
-    nativeToken: { symbol: 'ETH', name: 'Ethereum' },
-    coingeckoPlatform: 'arbitrum-one',
-    chainId: 42161,
-  },
-  optimism: {
-    name: 'Optimism',
-    rpcUrl: 'OPTIMISM_RPC_URL',
-    nativeToken: { symbol: 'ETH', name: 'Ethereum' },
-    coingeckoPlatform: 'optimistic-ethereum',
-    chainId: 10,
-  },
-  polygon: {
-    name: 'Polygon',
-    rpcUrl: 'POLYGON_RPC_URL',
-    nativeToken: { symbol: 'MATIC', name: 'Polygon' },
-    coingeckoPlatform: 'polygon-pos',
-    chainId: 137,
-  },
-};
-
-const VIEM_CHAINS: Record<string, any> = {
-  base,
-  'base-sepolia': base, // Use base chain for testnet
-  ethereum: mainnet,
-  'ethereum-sepolia': mainnet, // Use mainnet chain for testnet
-  arbitrum: base, // Fallback
-  optimism: base, // Fallback
-  polygon,
-};
-
-// ERC20 ABI for balance check and metadata
-const ERC20_ABI = [
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    name: 'decimals',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint8' }],
-  },
-  {
-    name: 'symbol',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'string' }],
-  },
-  {
-    name: 'name',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'string' }],
-  },
-] as const;
-
 interface TransferParams {
-  network: ChainNetwork;
+  network?: CdpNetwork;
   to: `0x${string}`;
   token: string;
-  amount: string;
+  amount?: string; // Specific amount (mutually exclusive with percentage)
+  percentage?: number; // Percentage of balance (mutually exclusive with amount)
 }
 
 const parseTransferParams = (text: string): TransferParams | null => {
   const parsed = parseKeyValueXml(text);
   
-  if (!parsed?.network || !parsed?.to || !parsed?.token || !parsed?.amount) {
+  if (!parsed?.to || !parsed?.token) {
+    logger.warn(`Missing required transfer parameters: ${JSON.stringify({ parsed })}`);
+    return null;
+  }
+
+  // Must have either amount OR percentage, but not both
+  const hasAmount = !!parsed.amount;
+  const hasPercentage = !!parsed.percentage;
+
+  if (!hasAmount && !hasPercentage) {
+    logger.warn(`Must specify either amount or percentage: ${JSON.stringify({ parsed })}`);
+    return null;
+  }
+
+  if (hasAmount && hasPercentage) {
+    logger.warn(`Cannot specify both amount and percentage: ${JSON.stringify({ parsed })}`);
     return null;
   }
 
@@ -177,226 +102,27 @@ const parseTransferParams = (text: string): TransferParams | null => {
     return null;
   }
 
-  return {
-    network: parsed.network as ChainNetwork,
+  const transferParams: TransferParams = {
+    network: parsed.network ? (parsed.network as CdpNetwork) : undefined,
     to: to as `0x${string}`,
     token: parsed.token.toLowerCase(),
-    amount: parsed.amount,
   };
+
+  if (hasAmount) {
+    transferParams.amount = parsed.amount;
+  } else {
+    transferParams.percentage = parseFloat(parsed.percentage);
+    // Validate percentage is between 0 and 100
+    if (transferParams.percentage <= 0 || transferParams.percentage > 100) {
+      logger.warn(`Invalid percentage value: ${transferParams.percentage}`);
+      return null;
+    }
+  }
+
+  return transferParams;
 };
 
-// Resolve token using CoinGecko service
-async function resolveToken(
-  runtime: IAgentRuntime,
-  tokenInput: string,
-  chain: ChainNetwork,
-  walletAddress: string,
-): Promise<{
-  address: `0x${string}` | 'eth' | 'usdc'; // CDP supports 'eth' and 'usdc' as special strings
-  symbol: string;
-  decimals: number;
-  name: string;
-  isNative: boolean;
-} | null> {
-  // Check if it's already a contract address
-  if (tokenInput.startsWith('0x') && tokenInput.length === 42) {
-    try {
-      const chainConfig = CHAIN_CONFIGS[chain];
-      const rpcUrl = process.env[chainConfig.rpcUrl];
-      if (!rpcUrl) {
-        logger.warn(`RPC URL not configured for ${chain}`);
-        return null;
-      }
-
-      const viemChain = VIEM_CHAINS[chain];
-      const publicClient = createPublicClient({
-        chain: viemChain,
-        transport: http(rpcUrl),
-      });
-
-      const [symbol, decimals, name] = await Promise.all([
-        publicClient.readContract({
-          address: tokenInput as `0x${string}`,
-          abi: ERC20_ABI,
-          functionName: 'symbol',
-        }),
-        publicClient.readContract({
-          address: tokenInput as `0x${string}`,
-          abi: ERC20_ABI,
-          functionName: 'decimals',
-        }),
-        publicClient.readContract({
-          address: tokenInput as `0x${string}`,
-          abi: ERC20_ABI,
-          functionName: 'name',
-        }),
-      ]);
-
-      logger.info(`✅ Resolved contract address: ${name} (${symbol})`);
-
-      return {
-        address: tokenInput as `0x${string}`,
-        symbol: symbol || 'UNKNOWN',
-        decimals: decimals || 18,
-        name: name || 'Unknown Token',
-        isNative: false,
-      };
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      logger.warn(`Failed to fetch on-chain token info for ${tokenInput}: ${errorMsg}`);
-      return null;
-    }
-  }
-
-  // Check if it's a native token
-  const chainConfig = CHAIN_CONFIGS[chain];
-  const isNative = tokenInput === 'eth' || 
-                   (chain === 'polygon' && tokenInput === 'matic') ||
-                   tokenInput === chainConfig.nativeToken.symbol.toLowerCase();
-  
-  if (isNative) {
-    logger.info(`✅ Resolved as native token: ${chainConfig.nativeToken.symbol}`);
-    return {
-      address: 'eth', // CDP uses 'eth' for native tokens
-      symbol: chainConfig.nativeToken.symbol,
-      decimals: 18,
-      name: chainConfig.nativeToken.name,
-      isNative: true,
-    };
-  }
-
-  // Check for USDC (CDP has special support)
-  if (tokenInput === 'usdc') {
-    logger.info(`✅ Resolved as USDC (CDP native support)`);
-    return {
-      address: 'usdc',
-      symbol: 'USDC',
-      decimals: 6,
-      name: 'USD Coin',
-      isNative: false,
-    };
-  }
-
-  // Try to resolve using CoinGecko service
-  try {
-    const coingeckoService = runtime.getService?.("COINGECKO_SERVICE") as CoinGeckoService | undefined;
-    
-    if (coingeckoService) {
-      logger.info(`Resolving token "${tokenInput}" using CoinGecko service...`);
-      const results = await coingeckoService.getTokenMetadata(tokenInput);
-      
-      if (results && results.length > 0 && results[0].success && results[0].data) {
-        const tokenData = results[0].data;
-        const platform = chainConfig.coingeckoPlatform;
-        
-        // Check if token exists on this chain
-        const contractAddress = tokenData.platforms?.[platform] || 
-                               tokenData.detail_platforms?.[platform]?.contract_address;
-        
-        if (contractAddress && contractAddress.startsWith('0x')) {
-          const decimals = tokenData.detail_platforms?.[platform]?.decimal_place || 18;
-          
-          logger.info(`✅ Found token via CoinGecko: ${tokenData.symbol} (${contractAddress}) on ${chain}`);
-          
-          return {
-            address: contractAddress as `0x${string}`,
-            symbol: (tokenData.symbol || tokenInput).toUpperCase(),
-            decimals,
-            name: tokenData.name || tokenInput,
-            isNative: false,
-          };
-        }
-      }
-    }
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.warn(`CoinGecko resolution failed for ${tokenInput}: ${errorMsg}`);
-  }
-
-  // Last resort: Check user's wallet for matching tokens
-  logger.info(`Checking user's wallet for token "${tokenInput}"...`);
-  try {
-    const chainConfig = CHAIN_CONFIGS[chain];
-    const rpcUrl = process.env[chainConfig.rpcUrl];
-    if (!rpcUrl) {
-      logger.warn(`RPC URL not configured for ${chain}`);
-      return null;
-    }
-
-    // Use Alchemy to get user's tokens
-    const alchemyApiKey = process.env.ALCHEMY_API_KEY;
-    if (alchemyApiKey && rpcUrl.includes('{{ALCHEMY_API_KEY}}')) {
-      const alchemyRpcUrl = rpcUrl.replace('{{ALCHEMY_API_KEY}}', alchemyApiKey);
-      
-      const response = await fetch(alchemyRpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'alchemy_getTokenBalances',
-          params: [walletAddress],
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const tokens = data.result?.tokenBalances || [];
-
-        const viemChain = VIEM_CHAINS[chain];
-        const publicClient = createPublicClient({
-          chain: viemChain,
-          transport: http(alchemyRpcUrl),
-        });
-
-        // Try to find a matching token by symbol
-        for (const tokenBalance of tokens) {
-          const contractAddress = tokenBalance.contractAddress;
-          if (!contractAddress) continue;
-
-          try {
-            const [symbol, decimals, name] = await Promise.all([
-              publicClient.readContract({
-                address: contractAddress as `0x${string}`,
-                abi: ERC20_ABI,
-                functionName: 'symbol',
-              }),
-              publicClient.readContract({
-                address: contractAddress as `0x${string}`,
-                abi: ERC20_ABI,
-                functionName: 'decimals',
-              }),
-              publicClient.readContract({
-                address: contractAddress as `0x${string}`,
-                abi: ERC20_ABI,
-                functionName: 'name',
-              }),
-            ]);
-
-            if (symbol.toLowerCase() === tokenInput.toLowerCase()) {
-              logger.info(`✅ Found token in user's wallet: ${symbol} (${contractAddress})`);
-              return {
-                address: contractAddress as `0x${string}`,
-                symbol: symbol || 'UNKNOWN',
-                decimals: decimals || 18,
-                name: name || 'Unknown Token',
-                isNative: false,
-              };
-            }
-          } catch {
-            // Skip this token and try next
-            continue;
-          }
-        }
-      }
-    }
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    logger.warn(`Failed to check wallet tokens: ${errorMsg}`);
-  }
-
-  return null;
-}
+// use strict resolver from utils
 
 export const cdpWalletTransfer: Action = {
   name: "WALLET_TRANSFER",
@@ -404,13 +130,14 @@ export const cdpWalletTransfer: Action = {
     "SEND",
     "TRANSFER",
     "PAY",
-    "SEND_TOKENS",
-    "TRANSFER_TOKENS",
-    "SEND_CRYPTO",
+    "SEND_TOKENS_CDP",
+    "TRANSFER_TOKENS_CDP",
+    "PAY_WITH_CDP",
   ],
-  description: "Use this action when the user wants to transfer or send tokens/crypto to another address. This supports native tokens (ETH, MATIC) and any ERC20 tokens across Base, Ethereum, Polygon, and other supported networks.",
+  description: "Use this action when you need to transfer tokens.",
   validate: async (_runtime: IAgentRuntime, message: Memory) => {
     try {
+      // Check if CDP service is available
       const cdpService = _runtime.getService(
         CdpService.serviceType,
       ) as CdpService;
@@ -420,13 +147,7 @@ export const cdpWalletTransfer: Action = {
         return false;
       }
 
-      // Check if wallet exists
-      const walletResult = await getEntityWallet(
-        _runtime,
-        message,
-        "WALLET_TRANSFER",
-      );
-      return walletResult.success;
+      return true;
     } catch (error) {
       logger.error(
         "Error validating transfer action:",
@@ -439,7 +160,7 @@ export const cdpWalletTransfer: Action = {
     runtime: IAgentRuntime,
     message: Memory,
     state?: State,
-    _options?: any,
+    _options?: Record<string, unknown>,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
@@ -449,7 +170,7 @@ export const cdpWalletTransfer: Action = {
         throw new Error("CDP Service not initialized");
       }
 
-      // Ensure the user has a wallet
+      // Ensure the user has a wallet saved
       const walletResult = await getEntityWallet(
         runtime,
         message,
@@ -460,7 +181,10 @@ export const cdpWalletTransfer: Action = {
         return walletResult.result;
       }
 
-      const walletAddress = walletResult.walletAddress;
+      const accountName = walletResult.metadata?.accountName as string;
+      if (!accountName) {
+        throw new Error("Could not find account name for wallet");
+      }
 
       // Compose state and get transfer parameters from LLM
       const composedState = await runtime.composeState(message, ["RECENT_MESSAGES"], true);
@@ -476,129 +200,185 @@ export const cdpWalletTransfer: Action = {
       const transferParams = parseTransferParams(xmlResponse);
       
       if (!transferParams) {
-        throw new Error("Failed to parse transfer parameters from request. Please specify the amount, token, recipient address, and network.");
+        throw new Error("Failed to parse transfer parameters from request");
       }
 
-      // Resolve token address, symbol, and decimals
-      const tokenInfo = await resolveToken(
-        runtime,
-        transferParams.token,
-        transferParams.network,
-        walletAddress,
-      );
+      logger.info(`[WALLET_TRANSFER] Looking up token in wallet: ${transferParams.token}`);
 
-      if (!tokenInfo) {
-        throw new Error(
-          `❌ Could not find token "${transferParams.token.toUpperCase()}" on ${transferParams.network}.\n\n` +
-          `Please provide:\n` +
-          `• A valid token symbol (ETH, USDC, DAI, etc.)\n` +
-          `• Or a contract address (0x...)\n` +
-          `• Make sure the token exists on ${transferParams.network} network`
-        );
-      }
-
-      const chainConfig = CHAIN_CONFIGS[transferParams.network];
-
-      // Parse amount
-      const amount = parseUnits(transferParams.amount, tokenInfo.decimals);
-
-      logger.info(
-        `Executing transfer: network=${transferParams.network}, ` +
-        `to=${transferParams.to}, token=${tokenInfo.symbol}, ` +
-        `amount=${transferParams.amount} (${amount.toString()} raw)`
-      );
-
-      // Determine token type for CDP API
-      let token: `0x${string}` | "usdc" | "eth";
+      // Get user's wallet info to find the token (use cached data if available)
+      const walletInfo = await cdpService.getWalletInfoCached(accountName);
       
-      if (tokenInfo.address === 'eth' || tokenInfo.address === 'usdc') {
-        token = tokenInfo.address;
-      } else {
-        token = tokenInfo.address as `0x${string}`;
-      }
+      let tokenAddress: string;
+      let decimals: number = 18;
+      let resolvedNetwork: CdpNetwork;
+      let walletToken: typeof walletInfo.tokens[0] | undefined;
 
-      // Execute transfer via CDP service
+      // Check if it's already an address
+      if (transferParams.token.startsWith("0x") && transferParams.token.length === 42) {
+        tokenAddress = transferParams.token;
+        // Try to find decimals and network from wallet tokens
+        walletToken = walletInfo.tokens.find(
+          t => t.contractAddress?.toLowerCase() === transferParams.token.toLowerCase() &&
+               (!transferParams.network || t.chain === transferParams.network)
+        );
+        if (walletToken) {
+          decimals = walletToken.decimals;
+          resolvedNetwork = walletToken.chain as CdpNetwork;
+        } else if (transferParams.network) {
+          resolvedNetwork = transferParams.network;
+        } else {
+          throw new Error(`Token ${transferParams.token} not found in your wallet. Please specify the network.`);
+        }
+      } else if (transferParams.token === "eth") {
+        // Native tokens - default to base if no network specified
+        tokenAddress = "eth";
+        decimals = 18;
+        resolvedNetwork = transferParams.network || "base";
+        // Find the actual wallet token for percentage calculation
+        walletToken = walletInfo.tokens.find(
+          t => !t.contractAddress && t.chain === resolvedNetwork
+        );
+      } else if (transferParams.token === "matic") {
+        // Native tokens
+        tokenAddress = "eth";
+        decimals = 18;
+        resolvedNetwork = transferParams.network || "polygon";
+        // Find the actual wallet token for percentage calculation
+        walletToken = walletInfo.tokens.find(
+          t => !t.contractAddress && t.chain === resolvedNetwork
+        );
+      } else {
+        // Look for token in user's wallet by symbol
+        walletToken = transferParams.network
+          ? // If network specified, find token on that specific network
+            walletInfo.tokens.find(
+              t => t.symbol.toLowerCase() === transferParams.token.toLowerCase() && 
+                   t.chain === transferParams.network
+            )
+          : // If no network specified, find token on any network (prefer highest balance)
+            walletInfo.tokens
+              .filter(t => t.symbol.toLowerCase() === transferParams.token.toLowerCase())
+              .sort((a, b) => parseFloat(b.balance) - parseFloat(a.balance))[0];
+
+        if (!walletToken) {
+          const networkMsg = transferParams.network ? ` on ${transferParams.network}` : '';
+          throw new Error(`Token ${transferParams.token.toUpperCase()} not found in your wallet${networkMsg}. You don't have this token to send.`);
+        }
+
+        resolvedNetwork = walletToken.chain as CdpNetwork;
+
+        // Native token (no contract address)
+        if (!walletToken.contractAddress) {
+          tokenAddress = "eth";
+        } else {
+          tokenAddress = walletToken.contractAddress;
+        }
+        decimals = walletToken.decimals;
+
+        logger.info(`[WALLET_TRANSFER] Found ${transferParams.token} in wallet: ${tokenAddress} on ${resolvedNetwork} with ${decimals} decimals (balance: ${walletToken.balanceFormatted})`);
+      }
+      
+      // Determine token type for CDP API
+      let token: `0x${string}` | "eth";
+      const lowerToken = tokenAddress.toLowerCase();
+      
+      if (lowerToken === "eth") {
+        token = lowerToken;
+      } else if (lowerToken.startsWith("0x") && lowerToken.length === 42) {
+        token = lowerToken as `0x${string}`;
+      } else {
+        throw new Error(`Invalid token format: ${tokenAddress}`);
+      }
+      
+      // Calculate amount based on percentage or use provided amount
+      let amountToTransfer: string;
+      if (transferParams.percentage !== undefined) {
+        // Calculate amount from percentage
+        if (!walletToken) {
+          throw new Error(`Cannot calculate percentage: token ${transferParams.token} not found in wallet`);
+        }
+        
+        const balanceRaw = parseUnits(walletToken.balanceFormatted, decimals);
+        const percentageAmount = (balanceRaw * BigInt(Math.floor(transferParams.percentage * 100))) / BigInt(10000);
+        
+        logger.info(`[WALLET_TRANSFER] Calculated ${transferParams.percentage}% of ${walletToken.balanceFormatted} = ${percentageAmount.toString()} raw units`);
+        
+        if (percentageAmount === 0n) {
+          throw new Error(`Insufficient balance: ${transferParams.percentage}% of your ${transferParams.token.toUpperCase()} is 0`);
+        }
+        
+        // Convert back to formatted string for display
+        const formattedAmount = Number(percentageAmount) / Math.pow(10, decimals);
+        amountToTransfer = formattedAmount.toString();
+      } else {
+        amountToTransfer = transferParams.amount!;
+      }
+      
+      // Parse amount to proper units
+      const amount = parseUnits(amountToTransfer, decimals);
+
+      const displayAmount = transferParams.percentage !== undefined
+        ? `${transferParams.percentage}% (${amountToTransfer} ${transferParams.token.toUpperCase()})`
+        : `${amountToTransfer} ${transferParams.token.toUpperCase()}`;
+
+      logger.info(`[WALLET_TRANSFER] Executing transfer: ${displayAmount} (${token}) to ${transferParams.to} on ${resolvedNetwork}`);
+
+      callback?.({ text: `🔄 Sending ${displayAmount} to ${transferParams.to}...` });
+
+      // Execute transfer via service method
       const result = await cdpService.transfer({
-        accountName: message.entityId,
-        network: transferParams.network as CdpNetwork,
+        accountName,
+        network: resolvedNetwork,
         to: transferParams.to,
         token,
         amount,
       });
 
-      const txHash = result.transactionHash;
+      const successText = `✅ Transfer successful!\n\n` +
+                         `💸 Sent: ${displayAmount}\n` +
+                         `📍 To: ${transferParams.to}\n` +
+                         `🔗 Network: ${resolvedNetwork}\n` +
+                         `📋 TX: ${result.transactionHash}`;
 
-      // Get explorer URL
-      const getExplorerUrl = (hash: string, network: string) => {
-        const explorers: Record<string, string> = {
-          base: 'https://basescan.org',
-          'base-sepolia': 'https://sepolia.basescan.org',
-          ethereum: 'https://etherscan.io',
-          'ethereum-sepolia': 'https://sepolia.etherscan.io',
-          arbitrum: 'https://arbiscan.io',
-          optimism: 'https://optimistic.etherscan.io',
-          polygon: 'https://polygonscan.com',
-        };
-        return `${explorers[network] || explorers.base}/tx/${hash}`;
-      };
-
-      const successText = 
-        `✅ **Transfer Sent Successfully!**\n\n` +
-        `**Amount:** ${transferParams.amount} ${tokenInfo.symbol}\n` +
-        `**To:** \`${transferParams.to.slice(0, 6)}...${transferParams.to.slice(-4)}\`\n` +
-        `**Network:** ${chainConfig.name}\n` +
-        `**Transaction:** ${getExplorerUrl(txHash, transferParams.network)}\n\n` +
-        `Your transfer is being processed on the blockchain.`;
-
-      const data = {
-        actionName: 'WALLET_TRANSFER',
-        success: true,
-        transactionHash: txHash,
-        network: transferParams.network,
-        to: transferParams.to,
-        token: tokenInfo.symbol,
-        tokenAddress: tokenInfo.address,
-        amount: transferParams.amount,
-        decimals: tokenInfo.decimals,
-        explorerUrl: getExplorerUrl(txHash, transferParams.network),
-      };
-
-      callback?.({ text: successText, content: data });
+      callback?.({
+        text: successText,
+        content: {
+          success: true,
+          transactionHash: result.transactionHash,
+        },
+      });
 
       return {
         text: successText,
         success: true,
-        data,
-        values: data,
+        data: {
+          transactionHash: result.transactionHash,
+          network: resolvedNetwork,
+          to: transferParams.to,
+          token: transferParams.token,
+          amount: amountToTransfer,
+          percentage: transferParams.percentage,
+        },
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      logger.error(`WALLET_TRANSFER error: ${errorMsg}`);
+      logger.error("[WALLET_TRANSFER] Error:", error instanceof Error ? error.message : String(error));
       
-      let errorMessage = "❌ **Transfer failed**\n\n";
+      let errorMessage = "❌ Transfer failed";
       if (error instanceof Error) {
-        if (error.message.startsWith('❌')) {
-          // Already formatted
-          errorMessage = error.message;
-        } else if (error.message.includes("insufficient")) {
-          errorMessage += "Insufficient balance for this transfer.";
-        } else if (error.message.includes("invalid address") || error.message.includes("Invalid recipient")) {
-          errorMessage += "Invalid recipient address provided.";
-        } else if (error.message.includes("not authenticated") || error.message.includes("no wallet")) {
-          errorMessage += "Wallet not found. Please create a wallet first.";
+        if (error.message.includes("insufficient")) {
+          errorMessage = "❌ Insufficient balance for this transfer";
+        } else if (error.message.includes("invalid address")) {
+          errorMessage = "❌ Invalid recipient address";
+        } else if (error.message.includes("not found in your wallet")) {
+          errorMessage = `❌ ${error.message}`;
         } else {
-          errorMessage += error.message;
+          errorMessage = `❌ Transfer failed: ${error.message}`;
         }
-      } else {
-        errorMessage += "An unknown error occurred.";
       }
       
       callback?.({
         text: errorMessage,
-        content: { 
-          error: "wallet_transfer_failed", 
-          details: errorMsg
-        },
+        content: { error: errorMessage },
       });
       
       return {
@@ -612,12 +392,25 @@ export const cdpWalletTransfer: Action = {
     [
       {
         name: "{{user}}",
-        content: { text: "send 3 bnxr to 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb5" },
+        content: { text: "send 10 USDC to 0x1234567890123456789012345678901234567890 on base" },
       },
       {
         name: "{{agent}}",
         content: {
-          text: "I'll help you send 3 BNXR tokens to that address.",
+          text: "🔄 Sending 10 USDC to 0x1234567890123456789012345678901234567890...",
+          action: "WALLET_TRANSFER",
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
+        content: { text: "send 2 wlfi to 0xabcd1234abcd1234abcd1234abcd1234abcd1234" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: "🔄 Sending 2 WLFI to 0xabcd1234abcd1234abcd1234abcd1234abcd1234...",
           action: "WALLET_TRANSFER",
         },
       },
@@ -630,7 +423,7 @@ export const cdpWalletTransfer: Action = {
       {
         name: "{{agent}}",
         content: {
-          text: "Sending 0.5 ETH to the specified address...",
+          text: "🔄 Sending 0.5 ETH to the specified address...",
           action: "WALLET_TRANSFER",
         },
       },
@@ -638,12 +431,38 @@ export const cdpWalletTransfer: Action = {
     [
       {
         name: "{{user}}",
-        content: { text: "pay 100 USDC to my friend 0x9999...8888 on ethereum" },
+        content: { text: "send half of my USDC to 0x1234567890123456789012345678901234567890" },
       },
       {
         name: "{{agent}}",
         content: {
-          text: "Processing payment of 100 USDC on Ethereum mainnet...",
+          text: "🔄 Sending 50% of your USDC...",
+          action: "WALLET_TRANSFER",
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
+        content: { text: "send all my ETH to 0xabcd1234abcd1234abcd1234abcd1234abcd1234" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: "🔄 Sending 100% of your ETH...",
+          action: "WALLET_TRANSFER",
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
+        content: { text: "transfer 80% of my WLFI to 0x9876...5432" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: "🔄 Sending 80% of your WLFI...",
           action: "WALLET_TRANSFER",
         },
       },
@@ -652,3 +471,4 @@ export const cdpWalletTransfer: Action = {
 };
 
 export default cdpWalletTransfer;
+

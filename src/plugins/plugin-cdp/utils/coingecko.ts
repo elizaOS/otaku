@@ -1,6 +1,25 @@
 import { logger } from "@elizaos/core";
 
 /**
+ * Token Resolution Strategy (in priority order):
+ * 
+ * 1. **Hardcoded Addresses**: Fastest, most reliable for common tokens on each network
+ *    - Used for tokens that may not be in CoinGecko yet (e.g., new chains like Base)
+ *    - Verified addresses from official bridge/chain documentation
+ * 
+ * 2. **Known Coin IDs**: Well-known tokens resolved via CoinGecko coin ID
+ *    - More reliable than search API
+ *    - Direct lookup using stable coin identifiers
+ * 
+ * 3. **CoinGecko Search**: Fallback for unknown/new tokens
+ *    - Search by symbol, then fetch platform address
+ *    - May not find newer tokens or return multiple results
+ * 
+ * This multi-tier approach ensures maximum reliability for common tokens
+ * while still supporting discovery of new tokens via CoinGecko.
+ */
+
+/**
  * Token metadata from CoinGecko
  */
 export interface TokenMetadata {
@@ -50,6 +69,52 @@ const NETWORK_TO_PLATFORM: Record<string, string> = {
   "optimism-sepolia": "optimistic-ethereum",
   "polygon": "polygon-pos",
   "polygon-mumbai": "polygon-pos",
+};
+
+/**
+ * Hardcoded token addresses for networks
+ * Fallback when CoinGecko doesn't have the data yet (e.g., new chains)
+ * Format: network -> symbol -> address
+ */
+const HARDCODED_TOKEN_ADDRESSES: Record<string, Record<string, string>> = {
+  "base": {
+    "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "usdt": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+    "dai": "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
+    "weth": "0x4200000000000000000000000000000000000006",
+    "cbeth": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+  },
+  "ethereum": {
+    "usdc": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "usdt": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "dai": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+    "weth": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "wbtc": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+  },
+  "arbitrum": {
+    "usdc": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    "usdt": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+    "dai": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+    "weth": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+    "wbtc": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+    "arb": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+  },
+  "optimism": {
+    "usdc": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+    "usdt": "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
+    "dai": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+    "weth": "0x4200000000000000000000000000000000000006",
+    "wbtc": "0x68f180fcCe6836688e9084f035309E29Bf0A2095",
+    "op": "0x4200000000000000000000000000000000000042",
+  },
+  "polygon": {
+    "usdc": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+    "usdt": "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+    "dai": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063",
+    "weth": "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+    "wbtc": "0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6",
+    "wmatic": "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+  },
 };
 
 /**
@@ -175,6 +240,15 @@ export async function resolveTokenSymbol(
   symbol: string,
   network: string
 ): Promise<string | null> {
+  const lowerSymbol = symbol.toLowerCase();
+  
+  // Priority 1: Check hardcoded addresses (fastest and most reliable)
+  const hardcodedAddress = HARDCODED_TOKEN_ADDRESSES[network]?.[lowerSymbol];
+  if (hardcodedAddress) {
+    logger.info(`Using hardcoded address for ${symbol} on ${network}: ${hardcodedAddress}`);
+    return hardcodedAddress.toLowerCase();
+  }
+  
   try {
     const platformId = getPlatformId(network);
     const apiKey = process.env.COINGECKO_API_KEY;
@@ -325,5 +399,32 @@ export function getCacheStats(): { size: number; entries: string[] } {
     size: tokenCache.size,
     entries: Array.from(tokenCache.keys()),
   };
+}
+
+/**
+ * Add a hardcoded token address for a specific network
+ * Useful for tokens not yet in CoinGecko or for faster resolution
+ * 
+ * @param network - Network name
+ * @param symbol - Token symbol (will be converted to lowercase)
+ * @param address - Token contract address
+ */
+export function addHardcodedTokenAddress(
+  network: string,
+  symbol: string,
+  address: string
+): void {
+  if (!HARDCODED_TOKEN_ADDRESSES[network]) {
+    HARDCODED_TOKEN_ADDRESSES[network] = {};
+  }
+  HARDCODED_TOKEN_ADDRESSES[network][symbol.toLowerCase()] = address.toLowerCase();
+  logger.info(`Added hardcoded token address: ${symbol} on ${network} -> ${address}`);
+}
+
+/**
+ * Get hardcoded token addresses for a network
+ */
+export function getHardcodedTokens(network: string): Record<string, string> {
+  return HARDCODED_TOKEN_ADDRESSES[network] || {};
 }
 

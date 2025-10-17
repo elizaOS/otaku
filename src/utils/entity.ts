@@ -146,6 +146,7 @@ export async function getEntityWallet(
       metadata: {
         walletAddress,
         walletEntityId,
+        accountName: walletEntityId
       },
     };
   } catch (error) {
