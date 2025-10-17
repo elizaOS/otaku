@@ -711,7 +711,7 @@ function App() {
                   Agent
                 </h1>
                 <span className="ml-auto text-xs md:text-sm text-muted-foreground block uppercase">
-                    Powered by ElizaOS
+                  Your AI DeFi Assistant
                 </span>
               </div>
               
