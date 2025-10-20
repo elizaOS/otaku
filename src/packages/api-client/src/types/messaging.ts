@@ -186,6 +186,7 @@ export interface MessageSearchParams extends PaginationParams {
 }
 
 export interface ServerCreateParams {
+  id?: UUID;
   name: string;
   sourceType: string;
   sourceId?: string;

@@ -318,12 +318,26 @@ export class MessagingService extends BaseApiClient {
   }
 
   /**
-   * Generate channel title
+   * Generate channel title from a user message
    */
-  async generateChannelTitle(channelId: UUID, agentId: UUID): Promise<{ title: string }> {
+  async generateChannelTitle(userMessage: string, agentId: UUID): Promise<{ title: string }> {
     return this.post<{ title: string }>(
-      `/api/messaging/central-channels/${channelId}/generate-title`,
-      { agentId }
+      `/api/messaging/generate-title`,
+      { userMessage, agentId }
+    );
+  }
+
+  /**
+   * Generate dynamic quick start prompts for a channel based on conversation context
+   */
+  async generateChannelPrompts(
+    channelId: UUID,
+    agentId: UUID,
+    count: number = 4
+  ): Promise<{ prompts: string[] }> {
+    return this.post<{ prompts: string[] }>(
+      `/api/messaging/central-channels/${channelId}/generate-prompts`,
+      { agentId, count }
     );
   }
 

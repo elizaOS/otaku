@@ -11,24 +11,15 @@ import { Bullet } from "@/components/ui/bullet"
 import { cn } from "@/lib/utils"
 import ArrowRightIcon from "@/components/icons/arrow-right"
 
-// Quick start prompts for new conversations
-const QUICK_PROMPTS = [
-  {
-    label: "Market Analysis",
-    message: "What's the current DeFi market situation?"
-  },
-  {
-    label: "Portfolio Review",
-    message: "Analyze my portfolio and suggest optimizations"
-  },
-  {
-    label: "Risk Assessment",
-    message: "Should I invest in this new DeFi protocol? It's promising 300% APY."
-  },
-  {
-    label: "Stablecoins",
-    message: "Explain stablecoin peg dynamics"
-  }
+// Quick start prompts for new conversations (static fallback)
+const DEFAULT_QUICK_PROMPTS = [
+  "Show my wallet",
+  "What's happening in DeFi today?",
+  "Compare EIGEN vs MORPHO",
+  "Latest Ethereum news",
+  "Get Bitcoin price",
+  "What can you help me with?",
+  "Analyze Aave protocol TVL"
 ]
 
 interface Message {
@@ -44,19 +35,30 @@ interface ChatInterfaceProps {
   agent: Agent
   userId: string
   serverId: string
-  channelId: string
+  channelId: string | null
+  isNewChatMode?: boolean
+  onChannelCreated?: (channelId: string, channelName: string) => void
 }
 
-export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterfaceProps) {
+export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMode = false, onChannelCreated }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState("")
   const [isTyping, setIsTyping] = useState(false)
+  const [isCreatingChannel, setIsCreatingChannel] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Clear messages when entering new chat mode
+  useEffect(() => {
+    if (isNewChatMode && !channelId) {
+      console.log('🆕 Entering new chat mode - clearing messages')
+      setMessages([])
+    }
+  }, [isNewChatMode, channelId])
 
   // Load messages when channel changes
   useEffect(() => {
@@ -149,9 +151,74 @@ export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterf
     }
   }, [channelId, agent.id, agent.name, userId])
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!inputValue.trim()) return
+    if (!inputValue.trim() || isCreatingChannel) return
+    
+    // If in new chat mode, create channel first with generated title
+    if (isNewChatMode && !channelId) {
+      console.log('🆕 [ChatInterface] First message in new chat mode, creating channel...')
+      setIsCreatingChannel(true)
+      setIsTyping(true)
+      
+      try {
+        // STEP 1: Generate title from user's message
+        console.log('🏷️ Generating title from user message:', inputValue)
+        const titleResponse = await elizaClient.messaging.generateChannelTitle(
+          inputValue, // Pass the message as string
+          agent.id as UUID
+        )
+        const generatedTitle = titleResponse.title || inputValue.substring(0, 50)
+        console.log('✅ Generated title:', generatedTitle)
+
+        // STEP 2: Create channel in DB with the generated title
+        console.log('💾 Creating channel with title:', generatedTitle)
+        const now = Date.now()
+        const newChannel = await elizaClient.messaging.createGroupChannel({
+          name: generatedTitle,
+          participantIds: [userId as UUID, agent.id as UUID],
+          metadata: {
+            server_id: serverId,
+            type: 'DM',
+            isDm: true,
+            user1: userId,
+            user2: agent.id,
+            forAgent: agent.id,
+            createdAt: new Date(now).toISOString(),
+          },
+        })
+        console.log('✅ Channel created:', newChannel.id)
+
+        // STEP 3: Notify parent component
+        onChannelCreated?.(newChannel.id, generatedTitle)
+
+        // STEP 4: Send the message (channel is now created and will be set as active)
+        // The socket join will happen automatically via App.tsx's useEffect
+        // Wait a brief moment for the channel to be set as active
+        setTimeout(() => {
+          console.log('🚀 Sending initial message to new channel:', newChannel.id)
+          socketManager.sendMessage(newChannel.id, inputValue, serverId, {
+            userId,
+            isDm: true,
+            targetUserId: agent.id,
+          })
+        }, 100)
+
+        setInputValue('')
+      } catch (error: any) {
+        console.error('❌ Failed to create channel:', error)
+        setIsTyping(false)
+      } finally {
+        setIsCreatingChannel(false)
+      }
+      return
+    }
+    
+    // Normal message sending (channel already exists)
+    if (!channelId) {
+      console.warn('⚠️ Cannot send message: No channel ID')
+      return
+    }
     
     console.log('🚀 [ChatInterface] Sending message:', {
       channelId,
@@ -173,8 +240,69 @@ export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterf
   }
 
   // Handle quick prompt click - auto send message
-  const handleQuickPrompt = (message: string) => {
-    if (isTyping || !message.trim()) return
+  const handleQuickPrompt = async (message: string) => {
+    if (isTyping || !message.trim() || isCreatingChannel) return
+    
+    // If in new chat mode, create channel first with generated title
+    if (isNewChatMode && !channelId) {
+      console.log('🆕 [ChatInterface] Quick prompt in new chat mode, creating channel...')
+      setIsCreatingChannel(true)
+      setIsTyping(true)
+      
+      try {
+        // STEP 1: Generate title from user's message
+        console.log('🏷️ Generating title from user message:', message)
+        const titleResponse = await elizaClient.messaging.generateChannelTitle(
+          message, // Pass the message as string
+          agent.id as UUID
+        )
+        const generatedTitle = titleResponse.title || message.substring(0, 50)
+        console.log('✅ Generated title:', generatedTitle)
+
+        // STEP 2: Create channel in DB with the generated title
+        console.log('💾 Creating channel with title:', generatedTitle)
+        const now = Date.now()
+        const newChannel = await elizaClient.messaging.createGroupChannel({
+          name: generatedTitle,
+          participantIds: [userId as UUID, agent.id as UUID],
+          metadata: {
+            server_id: serverId,
+            type: 'DM',
+            isDm: true,
+            user1: userId,
+            user2: agent.id,
+            forAgent: agent.id,
+            createdAt: new Date(now).toISOString(),
+          },
+        })
+        console.log('✅ Channel created:', newChannel.id)
+
+        // STEP 3: Notify parent component
+        onChannelCreated?.(newChannel.id, generatedTitle)
+
+        // STEP 4: Send the message (channel is now created and will be set as active)
+        setTimeout(() => {
+          console.log('🚀 Sending initial message to new channel:', newChannel.id)
+          socketManager.sendMessage(newChannel.id, message, serverId, {
+            userId,
+            isDm: true,
+            targetUserId: agent.id,
+          })
+        }, 100)
+      } catch (error: any) {
+        console.error('❌ Failed to create channel:', error)
+        setIsTyping(false)
+      } finally {
+        setIsCreatingChannel(false)
+      }
+      return
+    }
+    
+    // Normal quick prompt (channel already exists)
+    if (!channelId) {
+      console.warn('⚠️ Cannot send message: No channel ID')
+      return
+    }
     
     console.log('🚀 [ChatInterface] Sending quick prompt:', {
       channelId,
@@ -231,19 +359,20 @@ export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterf
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Quick Prompts - Only show when no messages */}
-            {messages.length === 0 && (
+            {/* Quick Prompts - Only show when no messages and not creating/typing */}
+            {messages.length === 0 && !isCreatingChannel && !isTyping && (
               <div className="pt-4 border-t border-border">
-                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3 font-mono">Quick Start</p>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground mb-3 font-mono">
+                  Quick Start
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {QUICK_PROMPTS.map((prompt) => (
+                  {DEFAULT_QUICK_PROMPTS.map((prompt, index) => (
                     <button
-                      key={prompt.label}
-                      onClick={() => handleQuickPrompt(prompt.message)}
-                      disabled={isTyping}
-                      className="px-3 py-2 text-xs sm:text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                      key={index}
+                      onClick={() => handleQuickPrompt(prompt)}
+                      className="px-3 py-2 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left whitespace-normal"
                     >
-                      {prompt.label}
+                      {prompt}
                     </button>
                   ))}
                 </div>
@@ -258,7 +387,7 @@ export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterf
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           placeholder="Type your message..."
-          disabled={isTyping}
+          disabled={isTyping || isCreatingChannel}
           className="flex-1 rounded-none border-none text-foreground placeholder-foreground/40 text-sm font-mono"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -270,10 +399,10 @@ export function ChatInterface({ agent, userId, serverId, channelId }: ChatInterf
         <Button
           variant={inputValue.trim() ? "default" : "outline"}
           onClick={handleSubmit}
-          disabled={!inputValue.trim() || isTyping}
+          disabled={!inputValue.trim() || isTyping || isCreatingChannel}
           className="absolute right-1.5 top-1.5 h-8 w-12 p-0"
         >
-          {isTyping ? (
+          {isTyping || isCreatingChannel ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
             <ArrowRightIcon className="w-4 h-4" />

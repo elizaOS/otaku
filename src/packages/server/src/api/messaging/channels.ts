@@ -938,11 +938,103 @@ export function createChannelsRouter(
     }
   );
 
+  // Generate title from user message (for new chats)
   (router as any).post(
-    '/central-channels/:channelId/generate-title',
+    '/generate-title',
+    async (req: express.Request, res: express.Response) => {
+      const { userMessage, agentId } = req.body;
+
+      if (!userMessage || typeof userMessage !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'User message is required',
+        });
+      }
+
+      if (!agentId || !validateUuid(agentId)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Valid agent ID is required',
+        });
+      }
+
+      try {
+        const runtime = elizaOS.getAgent(agentId);
+
+        if (!runtime) {
+          return res.status(404).json({
+            success: false,
+            error: 'Agent not found or not active',
+          });
+        }
+
+        logger.info(`[TITLE GENERATION] Generating title from user message: "${userMessage}"`);
+
+        const newTitle = await runtime.useModel(ModelType.TEXT_SMALL, {
+          prompt: `
+Based on this user's first message, generate a short, descriptive title for this chat conversation.
+Rules:
+- Keep it concise (3-4 words)
+- Make it descriptive and specific
+- Avoid generic terms like "Chat" or "Conversation"
+- Focus on the main topic, activity, or subject matter
+- Use natural language, not hashtags or symbols
+Examples:
+- "React Component Help"
+- "Weekend Trip Planning"
+- "Database Design Discussion"
+- "Recipe Exchange"
+- "Career Advice Session"
+User's message:
+${userMessage}
+Respond with just the title, nothing else.
+          `,
+          temperature: 0.3, // Use low temperature for consistent titles
+          maxTokens: 50, // Keep titles short
+        });
+
+        if (!newTitle || newTitle.trim().length === 0) {
+          logger.warn(`[TITLE GENERATION] Failed to generate title from user message`);
+          // Fallback to using the first 50 characters of the message
+          const fallbackTitle = userMessage.substring(0, 50).trim();
+          return res.json({
+            success: true,
+            data: {
+              title: fallbackTitle,
+            },
+          });
+        }
+
+        const cleanTitle = newTitle.trim().replace(/^["']|["']$/g, ''); // Remove quotes if present
+
+        logger.info(`[TITLE GENERATION] Generated title: "${cleanTitle}"`);
+
+        res.json({
+          success: true,
+          data: {
+            title: cleanTitle,
+          },
+        });
+      } catch (error) {
+        logger.error(
+          '[TITLE GENERATION] Error generating title:',
+          error instanceof Error ? error.message : String(error)
+        );
+        res.status(500).json({
+          success: false,
+          error: 'Failed to generate title',
+          details: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  );
+
+  // Generate dynamic quick start prompts based on recent messages
+  (router as any).post(
+    '/central-channels/:channelId/generate-prompts',
     async (req: express.Request, res: express.Response) => {
       const channelId = validateUuid(req.params.channelId);
-      const { agentId } = req.body;
+      const { agentId, count = 4 } = req.body;
 
       if (!channelId) {
         return res.status(400).json({
@@ -968,96 +1060,115 @@ export function createChannelsRouter(
           });
         }
 
-        logger.info(`[CHANNEL SUMMARIZE] Summarizing channel ${channelId}`);
-        const limit = req.query.limit ? Number.parseInt(req.query.limit as string, 10) : 50;
-        const before = req.query.before
-          ? Number.parseInt(req.query.before as string, 10)
-          : undefined;
-        const beforeDate = before ? new Date(before) : undefined;
+        logger.info(`[PROMPT GENERATION] Generating ${count} quick start prompts for channel ${channelId}`);
 
-        const messages = await serverInstance.getMessagesForChannel(channelId, limit, beforeDate);
+        // Get recent messages from the channel
+        const limit = 20; // Look at last 20 messages for context
+        const messages = await serverInstance.getMessagesForChannel(channelId, limit);
 
-        if (!messages || messages.length < 4) {
+        let conversationContext = '';
+        if (messages && messages.length > 0) {
+          conversationContext = messages
+            .reverse() // Show in chronological order
+            .map((msg) => {
+              const isUser = msg.authorId !== runtime.agentId;
+              const role = isUser ? 'User' : 'Agent';
+              return `${role}: ${msg.content}`;
+            })
+            .join('\n');
+        }
+
+        const promptTemplate = `# Task: Generate ${count} contextual quick-start prompts for the user
+
+## Recent Conversation
+${conversationContext || 'No messages yet - this is a new conversation'}
+
+## Instructions
+Based on the conversation above, generate ${count} helpful follow-up prompts that the user might want to ask next.
+
+**Rules:**
+1. Each prompt should be a natural, complete question or request (5-15 words)
+2. Make prompts actionable and specific to the context
+3. Prompts should be ready to send as-is - no labels needed
+4. Vary the types of prompts (questions, requests, clarifications, deeper dives)
+5. If no conversation exists, suggest general prompts related to the agent's expertise
+6. Write in first person as if the user is asking
+
+**Response Format (XML):**
+<response>
+  <prompt>What's the current DeFi market situation?</prompt>
+  <prompt>Analyze the risks in my current portfolio</prompt>
+  <prompt>What are the best yield farming strategies right now?</prompt>
+  <prompt>Tell me about emerging DeFi tokens</prompt>
+  <!-- Repeat for ${count} prompts total -->
+</response>
+
+Generate ${count} contextual prompts now. Each prompt should be a complete, ready-to-send message.`;
+
+        const promptResult = await runtime.useModel(ModelType.TEXT_SMALL, {
+          prompt: promptTemplate,
+          temperature: 0.7, // Higher temperature for more varied suggestions
+          maxTokens: 500,
+        });
+
+        if (!promptResult || promptResult.trim().length === 0) {
+          logger.warn(`[PROMPT GENERATION] Failed to generate prompts for channel ${channelId}`);
           return res.status(200).json({
             success: true,
             data: {
-              title: null,
-              channelId,
-              reason: 'Not enough messages to generate a title',
+              prompts: [],
+              reason: 'Failed to generate prompts',
             },
           });
         }
 
-        const recentMessages = messages
-          .reverse() // Show in chronological order
-          .map((msg) => {
-            const isUser = msg.authorId !== runtime.agentId;
-            const role = isUser ? 'User' : 'Agent';
-            return `${role}: ${msg.content}`;
-          })
-          .join('\n');
-
-        const prompt = composePromptFromState({
-          state: {
-            recentMessages,
-            values: {},
-            data: {},
-            text: recentMessages,
-          },
-          template: `
-Based on the conversation below, generate a short, descriptive title for this chat. The title should capture the main topic or theme of the discussion.
-Rules:
-- Keep it concise (3-6 words)
-- Make it descriptive and specific
-- Avoid generic terms like "Chat" or "Conversation"
-- Focus on the main topic, activity, or subject matter
-- Use natural language, not hashtags or symbols
-Examples:
-- "React Component Help"
-- "Weekend Trip Planning"
-- "Database Design Discussion"
-- "Recipe Exchange"
-- "Career Advice Session"
-Recent conversation:
-{{recentMessages}}
-Respond with just the title, nothing else.
-            `,
-        });
-
-        const newTitle = await runtime.useModel(ModelType.TEXT_SMALL, {
-          prompt,
-          temperature: 0.3, // Use low temperature for consistent titles
-          maxTokens: 50, // Keep titles short
-        });
-
-        if (!newTitle || newTitle.trim().length === 0) {
-          logger.warn(`[ChatTitleEvaluator] Failed to generate title for room ${channelId}`);
-          return;
+        // Parse the XML response
+        const prompts: string[] = [];
+        
+        try {
+          // Extract all <prompt> blocks - now just containing the message directly
+          const promptMatches = promptResult.matchAll(/<prompt>(.*?)<\/prompt>/gs);
+          
+          for (const match of promptMatches) {
+            const promptText = match[1].trim();
+            if (promptText) {
+              prompts.push(promptText);
+            }
+          }
+        } catch (parseError) {
+          logger.error('[PROMPT GENERATION] Error parsing prompt XML:', 
+            parseError instanceof Error ? parseError.message : String(parseError)
+          );
         }
 
-        const cleanTitle = newTitle.trim().replace(/^["']|["']$/g, ''); // Remove quotes if present
+        if (prompts.length === 0) {
+          logger.warn(`[PROMPT GENERATION] No valid prompts extracted from response`);
+          return res.status(200).json({
+            success: true,
+            data: {
+              prompts: [],
+              reason: 'No valid prompts could be extracted',
+            },
+          });
+        }
 
-        logger.info(`[ChatTitleEvaluator] Generated title: "${cleanTitle}" for room ${channelId}`);
-
-        const result = {
-          title: cleanTitle,
-          channelId,
-        };
-
-        logger.success(`[CHANNEL SUMMARIZE] Successfully summarized channel ${channelId}`);
+        logger.info(`[PROMPT GENERATION] Generated ${prompts.length} prompts for channel ${channelId}`);
 
         res.json({
           success: true,
-          data: result,
+          data: {
+            prompts,
+            channelId,
+          },
         });
       } catch (error) {
         logger.error(
-          '[CHANNEL SUMMARIZE] Error summarizing channel:',
+          '[PROMPT GENERATION] Error generating prompts:',
           error instanceof Error ? error.message : String(error)
         );
         res.status(500).json({
           success: false,
-          error: 'Failed to summarize channel',
+          error: 'Failed to generate prompts',
           details: error instanceof Error ? error.message : String(error),
         });
       }

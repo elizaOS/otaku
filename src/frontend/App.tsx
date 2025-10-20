@@ -92,8 +92,12 @@ interface Channel {
 
 function App() {
   // Get CDP wallet info (will be undefined if not configured or not signed in)
-  const { isInitialized, isSignedIn, userEmail, signOut } = useCDPWallet();
-
+  // const { isInitialized, isSignedIn, userEmail, signOut } = useCDPWallet();
+  const isInitialized = true;
+  const isSignedIn = true;
+  const userEmail = "tcm390@nyu.edu"
+  const signOut = () => {}
+  
   const { showLoading, hide } = useLoadingPanel();
   const [userId, setUserId] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -104,6 +108,7 @@ function App() {
   const [currentView, setCurrentView] = useState<'chat' | 'account'>('chat');
   const [totalBalance, setTotalBalance] = useState(0);
   const [isLoadingUserProfile, setIsLoadingUserProfile] = useState(true);
+  const [isNewChatMode, setIsNewChatMode] = useState(false); // Track if we're in "new chat" mode (no channel yet)
 
   // Determine loading state and message
   const getLoadingMessage = (): string[] | null => {
@@ -133,7 +138,7 @@ function App() {
     
     if (loadingMessage && loadingMessage.length > 0) {
       showLoading('Initializing...', loadingMessage, loadingPanelId);
-    } else if (currentView === 'chat' && (!userId || !connected || isLoadingChannels || !activeChannelId)) {
+    } else if (currentView === 'chat' && (!userId || !connected || isLoadingChannels || (!activeChannelId && !isNewChatMode))) {
       const message = !userId ? 'Initializing user...' : 
                      !connected ? 'Connecting to server...' :
                      isLoadingChannels ? 'Loading channels...' : 
@@ -142,7 +147,7 @@ function App() {
     } else {
       hide(loadingPanelId);
     }
-  }, [loadingMessage, currentView, userId, connected, isLoadingChannels, activeChannelId, showLoading, hide]);
+  }, [loadingMessage, currentView, userId, connected, isLoadingChannels, activeChannelId, isNewChatMode, showLoading, hide]);
 
   // Initialize or update user ID when wallet address changes
   // Wait for CDP to initialize before generating user ID
@@ -333,14 +338,16 @@ function App() {
       activeChannelId,
       userId,
       connected,
-      willJoin: !!(activeChannelId && userId && connected)
+      isNewChatMode,
+      willJoin: !!(activeChannelId && userId && connected && !isNewChatMode)
     });
     
-    if (!activeChannelId || !userId || !connected) {
+    if (!activeChannelId || !userId || !connected || isNewChatMode) {
       console.log('⏸️ Skipping channel join - waiting for:', {
         needsChannelId: !activeChannelId,
         needsUserId: !userId,
-        needsConnection: !connected
+        needsConnection: !connected,
+        isNewChat: isNewChatMode
       });
       return;
     }
@@ -352,7 +359,7 @@ function App() {
       console.log('🔌 Leaving channel:', activeChannelId);
       socketManager.leaveChannel(activeChannelId);
     };
-  }, [activeChannelId, userId, connected]); // Join when active channel, userId, or connection changes
+  }, [activeChannelId, userId, connected, isNewChatMode]); // Join when active channel, userId, connection, or new chat mode changes
 
   // Load channels when user ID or agent changes
   useEffect(() => {
@@ -375,7 +382,7 @@ function App() {
         console.log('📝 Creating message server for user:', userId);
         try {
           const serverResult = await elizaClient.messaging.createServer({
-            id: userId as any,
+            id: userId as UUID,
             name: `${userId.substring(0, 8)}'s Server`,
             sourceType: 'custom_ui',
             sourceId: userId,
@@ -460,53 +467,16 @@ function App() {
           console.log(`  ${i + 1}. ${ch.name} (${ch.id.substring(0, 8)}...) - Created: ${createdDate}`);
         });
         
-        // If no channels exist, create one automatically
-        // Note: hasInitialized prevents multiple auto-creates during the same session
+        // If no channels exist and user hasn't seen channels yet, enter new chat mode
         if (sortedChannels.length === 0 && !hasInitialized.current) {
-          console.log('📝 No channels found, creating default channel...');
+          console.log('📝 No channels found, entering new chat mode...');
           hasInitialized.current = true;
-          
-          // Create default channel
-          const timestamp = new Date().toLocaleString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          const channelName = `Chat - ${timestamp}`;
-          const now = Date.now();
-          
-          try {
-            const newChannel = await elizaClient.messaging.createGroupChannel({
-              name: channelName,
-              participantIds: [userId as any, agent.id as any],
-              metadata: {
-                server_id: userId,
-                type: 'DM',
-                isDm: true,
-                user1: userId,
-                user2: agent.id,
-                forAgent: agent.id,
-                createdAt: new Date(now).toISOString(),
-              },
-            });
-            
-            const newChannelData = {
-              id: newChannel.id,
-              name: newChannel.name,
-              createdAt: now,
-              lastMessageAt: 0,
-            };
-            
-            setChannels([newChannelData]);
-            setActiveChannelId(newChannel.id);
-            console.log('✅ Default channel created and selected:', newChannel.id);
-          } catch (error: any) {
-            console.error('❌ Failed to create default channel:', error);
-          }
+          setIsNewChatMode(true);
+          setActiveChannelId(null);
         } else if (sortedChannels.length > 0) {
           // Always select the first (latest) channel after loading
           setActiveChannelId(sortedChannels[0].id);
+          setIsNewChatMode(false);
           hasInitialized.current = true;
           console.log(`✅ Auto-selected latest channel: ${sortedChannels[0].name} (${sortedChannels[0].id.substring(0, 8)}...)`);
         }
@@ -521,54 +491,13 @@ function App() {
   }, [agent?.id, userId]);
 
   const handleNewChat = async () => {
-    if (isCreatingChannel || !agent?.id || !userId) return;
+    if (!agent?.id || !userId) return;
 
-    setIsCreatingChannel(true);
-    try {
-      const timestamp = new Date().toLocaleString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-      const channelName = `Chat - ${timestamp}`;
-
-      const now = Date.now();
-      
-      // Use userId directly as server_id - Socket.IO creates the world/server automatically
-      console.log('Creating channel with serverId:', userId);
-      
-      const newChannel = await elizaClient.messaging.createGroupChannel({
-        name: channelName,
-        participantIds: [userId as any, agent.id as any],
-        metadata: {
-          server_id: userId, // Socket.IO will auto-create this server when joining
-          type: 'DM',
-          isDm: true,
-          user1: userId,
-          user2: agent.id,
-          forAgent: agent.id,
-          createdAt: new Date(now).toISOString(),
-        },
-      });
-
-      setChannels((prev) => [
-        {
-          id: newChannel.id,
-          name: newChannel.name,
-          createdAt: now,
-          lastMessageAt: 0,
-        },
-        ...prev,
-      ]);
-
-      setActiveChannelId(newChannel.id);
-    } catch (error: any) {
-      console.error('❌ Failed to create new chat:', error);
-    } finally {
-      setIsCreatingChannel(false);
-    }
+    // Simply enter "new chat" mode - no channel is created yet
+    // Channel will be created when user sends first message
+    console.log('📝 Entering new chat mode (no channel created yet)');
+    setIsNewChatMode(true);
+    setActiveChannelId(null);
   };
 
   const handleChannelSelect = async (newChannelId: string) => {
@@ -579,6 +508,7 @@ function App() {
     }
 
     setActiveChannelId(newChannelId);
+    setIsNewChatMode(false); // Exit new chat mode when selecting existing channel
   };
 
   // Update user profile (avatar, displayName, bio)
@@ -715,12 +645,28 @@ function App() {
               
               {/* Content Area */}
               <div className="min-h-full flex-1 flex flex-col gap-8 md:gap-14 px-3 lg:px-6 py-6 md:py-10 ring-2 ring-pop bg-background">
-                {userId && connected && !isLoadingChannels && activeChannelId && (
+                {userId && connected && !isLoadingChannels && (activeChannelId || isNewChatMode) && (
                   <ChatInterface
                     agent={agent}
                     userId={userId}
                     serverId={userId} // Use userId as serverId for Socket.IO-level isolation
                     channelId={activeChannelId}
+                    isNewChatMode={isNewChatMode}
+                    onChannelCreated={(channelId, channelName) => {
+                      // Add new channel to the list and set it as active
+                      const now = Date.now();
+                      setChannels((prev) => [
+                        {
+                          id: channelId,
+                          name: channelName,
+                          createdAt: now,
+                          lastMessageAt: now,
+                        },
+                        ...prev,
+                      ]);
+                      setActiveChannelId(channelId);
+                      setIsNewChatMode(false);
+                    }}
                   />
                 )}
               </div>
