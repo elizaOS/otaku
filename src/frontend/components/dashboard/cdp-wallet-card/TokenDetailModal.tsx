@@ -212,6 +212,15 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
     return `$${value.toFixed(2)}`;
   };
 
+  const getEvenlySpacedTimeTicks = (data: PriceDataPoint[], count: number): number[] => {
+    if (data.length === 0) return [];
+    const min = data[0].timestamp;
+    const max = data[data.length - 1].timestamp;
+    if (count <= 1 || min === max) return [min];
+    const step = (max - min) / (count - 1);
+    return Array.from({ length: count }, (_, i) => Math.round(min + i * step));
+  };
+
   if (!isOpen) return null;
 
   return createPortal(
@@ -317,7 +326,7 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
                   <button
                     onClick={() => setActiveTimeFrame('1h')}
                     className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${
-                      activeTimeFrame === '1h' ? 'bg-background text-foreground shadow-sm' : ''
+                      activeTimeFrame === '1h' ? 'bg-primary text-foreground shadow-sm' : ''
                     }`}
                   >
                     1H
@@ -325,7 +334,7 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
                   <button
                     onClick={() => setActiveTimeFrame('24h')}
                     className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${
-                      activeTimeFrame === '24h' ? 'bg-background text-foreground shadow-sm' : ''
+                      activeTimeFrame === '24h' ? 'bg-primary text-foreground shadow-sm' : ''
                     }`}
                   >
                     24H
@@ -333,7 +342,7 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
                   <button
                     onClick={() => setActiveTimeFrame('7d')}
                     className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${
-                      activeTimeFrame === '7d' ? 'bg-background text-foreground shadow-sm' : ''
+                      activeTimeFrame === '7d' ? 'bg-primary text-foreground shadow-sm' : ''
                     }`}
                   >
                     7D
@@ -341,7 +350,7 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
                   <button
                     onClick={() => setActiveTimeFrame('30d')}
                     className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${
-                      activeTimeFrame === '30d' ? 'bg-background text-foreground shadow-sm' : ''
+                      activeTimeFrame === '30d' ? 'bg-primary text-foreground shadow-sm' : ''
                     }`}
                   >
                     30D
@@ -349,7 +358,7 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
                   <button
                     onClick={() => setActiveTimeFrame('1y')}
                     className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1 text-xs font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${
-                      activeTimeFrame === '1y' ? 'bg-background text-foreground shadow-sm' : ''
+                      activeTimeFrame === '1y' ? 'bg-primary text-foreground shadow-sm' : ''
                     }`}
                   >
                     1Y
@@ -396,12 +405,17 @@ export function TokenDetailModal({ isOpen, onClose, token }: TokenDetailModalPro
                         opacity={0.3}
                       />
                       <XAxis
-                        dataKey="date"
+                        dataKey="timestamp"
+                        type="number"
+                        scale="time"
+                        domain={['dataMin', 'dataMax']}
+                        ticks={getEvenlySpacedTimeTicks(priceData, 10)}
+                        tickFormatter={(ts) => formatDateForTimeframe(ts, activeTimeFrame)}
+                        interval={0}
                         tickLine={false}
                         tickMargin={12}
                         strokeWidth={1.5}
                         tick={{ fontSize: 0 }}
-                        className="uppercase text-sm fill-muted-foreground"
                       />
                       <YAxis
                         tickLine={false}
