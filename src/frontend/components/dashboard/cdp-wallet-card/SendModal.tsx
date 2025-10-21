@@ -143,7 +143,6 @@ export function SendModal({ isOpen, onClose, tokens, userId, onSuccess }: SendMo
       }
 
       console.log('📤 Sending transaction:', {
-        userId,
         network: selectedToken.chain,
         to: recipientAddress,
         token: tokenParam,
@@ -152,7 +151,6 @@ export function SendModal({ isOpen, onClose, tokens, userId, onSuccess }: SendMo
       });
 
       const data = await elizaClient.cdp.sendToken({
-        name: userId,
         network: selectedToken.chain,
         to: recipientAddress,
         token: tokenParam,

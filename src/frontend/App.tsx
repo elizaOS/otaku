@@ -122,7 +122,6 @@ function App() {
   }, [loadingMessage, currentView, userId, connected, isLoadingChannels, activeChannelId, isNewChatMode, showLoading, hide]);
 
   // Initialize authentication when CDP sign-in completes
-  // SECURITY: User ID is now generated server-side with JWT authentication
   useEffect(() => {
     // If CDP is not configured, show error (authentication required)
     if (!import.meta.env.VITE_CDP_PROJECT_ID) {
@@ -189,7 +188,6 @@ function App() {
         let entity;
         try {
           entity = await elizaClient.entities.getEntity(userId as any);
-          console.log('✅ Found existing entity:', entity);
         } catch (error: any) {
           // Entity doesn't exist, create it
           if (error?.status === 404 || error?.code === 'NOT_FOUND') {
@@ -207,7 +205,6 @@ function App() {
                 createdAt: new Date().toISOString(),
               },
             });
-            console.log('✅ Created user entity:', entity);
             
             // Set user profile state
             setUserProfile({

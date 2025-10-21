@@ -1131,19 +1131,14 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   });
 
   /**
-   * GET /api/cdp/wallet/tokens/:name
+   * GET /api/cdp/wallet/tokens
    * Get token balances for authenticated user (checks cache first)
-   * SECURITY: Ignores :name parameter, uses authenticated userId
+   * SECURITY: Uses authenticated userId from JWT token
    */
-  router.get('/wallet/tokens/:name', async (req: AuthenticatedRequest, res) => {
+  router.get('/wallet/tokens', async (req: AuthenticatedRequest, res) => {
     try {
-      // SECURITY: Use authenticated userId, ignore URL parameter
+      // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
-      
-      // Log if someone tries to access a different user's wallet
-      if (req.params.name && req.params.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to access tokens of ${req.params.name.substring(0, 8)}...`);
-      }
 
       // Check cache first
       const cached = tokensCache.get(userId);
@@ -1183,18 +1178,14 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   });
 
   /**
-   * POST /api/cdp/wallet/tokens/sync/:name
+   * POST /api/cdp/wallet/tokens/sync
    * Force sync token balances for authenticated user (bypasses cache)
-   * SECURITY: Ignores :name parameter, uses authenticated userId
+   * SECURITY: Uses authenticated userId from JWT token
    */
-  router.post('/wallet/tokens/sync/:name', async (req: AuthenticatedRequest, res) => {
+  router.post('/wallet/tokens/sync', async (req: AuthenticatedRequest, res) => {
     try {
-      // SECURITY: Use authenticated userId, ignore URL parameter
+      // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
-      
-      if (req.params.name && req.params.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to sync tokens of ${req.params.name.substring(0, 8)}...`);
-      }
 
       const client = getCdpClient();
       if (!client) {
@@ -1229,19 +1220,14 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   });
 
   /**
-   * GET /api/cdp/wallet/nfts/:name
+   * GET /api/cdp/wallet/nfts
    * Get NFT holdings for authenticated user (checks cache first)
-   * SECURITY: Ignores :name parameter, uses authenticated userId
+   * SECURITY: Uses authenticated userId from JWT token
    */
-  router.get('/wallet/nfts/:name', async (req: AuthenticatedRequest, res) => {
+  router.get('/wallet/nfts', async (req: AuthenticatedRequest, res) => {
     try {
-      // SECURITY: Use authenticated userId, ignore URL parameter
+      // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
-      
-      // Log if someone tries to access a different user's NFTs
-      if (req.params.name && req.params.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to access NFTs of ${req.params.name.substring(0, 8)}...`);
-      }
 
       // Check cache first
       const cached = nftsCache.get(userId);
@@ -1281,18 +1267,14 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   });
 
   /**
-   * POST /api/cdp/wallet/nfts/sync/:name
+   * POST /api/cdp/wallet/nfts/sync
    * Force sync NFTs for authenticated user (bypasses cache)
-   * SECURITY: Ignores :name parameter, uses authenticated userId
+   * SECURITY: Uses authenticated userId from JWT token
    */
-  router.post('/wallet/nfts/sync/:name', async (req: AuthenticatedRequest, res) => {
+  router.post('/wallet/nfts/sync', async (req: AuthenticatedRequest, res) => {
     try {
-      // SECURITY: Use authenticated userId, ignore URL parameter
+      // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
-      
-      if (req.params.name && req.params.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to sync NFTs of ${req.params.name.substring(0, 8)}...`);
-      }
 
       const client = getCdpClient();
       if (!client) {
@@ -1327,18 +1309,14 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   });
 
   /**
-   * GET /api/cdp/wallet/history/:name
+   * GET /api/cdp/wallet/history
    * Get transaction history for authenticated user across networks using Alchemy API
-   * SECURITY: Ignores :name parameter, uses authenticated userId
+   * SECURITY: Uses authenticated userId from JWT token
    */
-  router.get('/wallet/history/:name', async (req: AuthenticatedRequest, res) => {
+  router.get('/wallet/history', async (req: AuthenticatedRequest, res) => {
     try {
-      // SECURITY: Use authenticated userId, ignore URL parameter
+      // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
-      
-      if (req.params.name && req.params.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to access history of ${req.params.name.substring(0, 8)}...`);
-      }
 
       const client = getCdpClient();
       if (!client) {
@@ -1497,12 +1475,6 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
       // SECURITY: Use authenticated userId, NOT from request body
       const userId = req.userId!;
       const { network, to, token, amount } = req.body;
-      
-      // Log if name is provided and doesn't match (attempted impersonation)
-      if (req.body.name && req.body.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to send from wallet ${req.body.name.substring(0, 8)}...`);
-        return sendError(res, 403, 'FORBIDDEN', 'You can only send from your own wallet');
-      }
 
       if (!network || !to || !token || !amount) {
         return sendError(res, 400, 'INVALID_REQUEST', 'Missing required fields: network, to, token, amount');
@@ -1657,12 +1629,6 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
       // SECURITY: Use authenticated userId, NOT from request body
       const userId = req.userId!;
       const { network, to, contractAddress, tokenId } = req.body;
-      
-      // Log if name is provided and doesn't match (attempted impersonation)
-      if (req.body.name && req.body.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to send NFT from wallet ${req.body.name.substring(0, 8)}...`);
-        return sendError(res, 403, 'FORBIDDEN', 'You can only send NFTs from your own wallet');
-      }
 
       if (!network || !to || !contractAddress || !tokenId) {
         return sendError(res, 400, 'INVALID_REQUEST', 'Missing required fields: network, to, contractAddress, tokenId');
@@ -1768,11 +1734,6 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
       // SECURITY: Use authenticated userId, NOT from request body
       const userId = req.userId!;
       const { network, fromToken, toToken, fromAmount } = req.body;
-      
-      // Log if name is provided and doesn't match
-      if (req.body.name && req.body.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to get swap price for wallet ${req.body.name.substring(0, 8)}...`);
-      }
 
       if (!network || !fromToken || !toToken || !fromAmount) {
         return sendError(res, 400, 'INVALID_REQUEST', 'Missing required fields: network, fromToken, toToken, fromAmount');
@@ -1937,12 +1898,6 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
       // SECURITY: Use authenticated userId, NOT from request body
       const userId = req.userId!;
       const { network, fromToken, toToken, fromAmount, slippageBps } = req.body;
-      
-      // Log if name is provided and doesn't match
-      if (req.body.name && req.body.name !== userId) {
-        logger.warn(`[CDP API Security] User ${userId.substring(0, 8)}... attempted to swap from wallet ${req.body.name.substring(0, 8)}...`);
-        return sendError(res, 403, 'FORBIDDEN', 'You can only swap from your own wallet');
-      }
 
       if (!network || !fromToken || !toToken || !fromAmount || slippageBps === undefined) {
         return sendError(res, 400, 'INVALID_REQUEST', 'Missing required fields: network, fromToken, toToken, fromAmount, slippageBps');

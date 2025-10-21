@@ -71,7 +71,6 @@ export interface TransactionHistoryResponse {
 }
 
 export interface SendTokenRequest {
-  name: string;
   network: string;
   to: string;
   token: string;
@@ -88,7 +87,6 @@ export interface SendTokenResponse {
 }
 
 export interface SendNFTRequest {
-  name: string;
   network: string;
   to: string;
   contractAddress: string;
@@ -105,7 +103,6 @@ export interface SendNFTResponse {
 }
 
 export interface SwapPriceRequest {
-  name: string;
   network: string;
   fromToken: string;
   toToken: string;
@@ -123,7 +120,6 @@ export interface SwapPriceResponse {
 }
 
 export interface SwapRequest {
-  name: string;
   network: string;
   fromToken: string;
   toToken: string;
@@ -176,41 +172,46 @@ export class CdpService extends BaseApiClient {
 
   /**
    * Get token balances across all networks (uses cache if available)
+   * Uses authenticated userId from JWT token
    */
-  async getTokens(name: string): Promise<TokensResponse> {
-    const response = await this.get<TokensResponse>(`/api/cdp/wallet/tokens/${name}`);
+  async getTokens(): Promise<TokensResponse> {
+    const response = await this.get<TokensResponse>('/api/cdp/wallet/tokens');
     return response;
   }
 
   /**
    * Force sync token balances (bypasses cache)
+   * Uses authenticated userId from JWT token
    */
-  async syncTokens(name: string): Promise<TokensResponse> {
-    const response = await this.post<TokensResponse>(`/api/cdp/wallet/tokens/sync/${name}`, {});
+  async syncTokens(): Promise<TokensResponse> {
+    const response = await this.post<TokensResponse>('/api/cdp/wallet/tokens/sync', {});
     return response;
   }
 
   /**
    * Get NFT holdings across networks (uses cache if available)
+   * Uses authenticated userId from JWT token
    */
-  async getNFTs(name: string): Promise<NFTsResponse> {
-    const response = await this.get<NFTsResponse>(`/api/cdp/wallet/nfts/${name}`);
+  async getNFTs(): Promise<NFTsResponse> {
+    const response = await this.get<NFTsResponse>('/api/cdp/wallet/nfts');
     return response;
   }
 
   /**
    * Force sync NFTs (bypasses cache)
+   * Uses authenticated userId from JWT token
    */
-  async syncNFTs(name: string): Promise<NFTsResponse> {
-    const response = await this.post<NFTsResponse>(`/api/cdp/wallet/nfts/sync/${name}`, {});
+  async syncNFTs(): Promise<NFTsResponse> {
+    const response = await this.post<NFTsResponse>('/api/cdp/wallet/nfts/sync', {});
     return response;
   }
 
   /**
    * Get transaction history across networks
+   * Uses authenticated userId from JWT token
    */
-  async getHistory(name: string): Promise<TransactionHistoryResponse> {
-    const response = await this.get<TransactionHistoryResponse>(`/api/cdp/wallet/history/${name}`);
+  async getHistory(): Promise<TransactionHistoryResponse> {
+    const response = await this.get<TransactionHistoryResponse>('/api/cdp/wallet/history');
     return response;
   }
 

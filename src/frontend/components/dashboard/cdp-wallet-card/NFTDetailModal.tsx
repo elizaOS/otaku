@@ -104,7 +104,6 @@ export function NFTDetailModal({ nft, isOpen, onClose, userId, onSuccess }: NFTD
       });
 
       const result = await elizaClient.cdp.sendNFT({
-        name: userId,
         network: nft.chain,
         to: recipientAddress,
         contractAddress: nft.contractAddress,

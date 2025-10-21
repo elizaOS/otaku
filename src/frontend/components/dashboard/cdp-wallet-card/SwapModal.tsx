@@ -236,7 +236,6 @@ export function SwapModal({ isOpen, onClose, tokens, userId, onSuccess }: SwapMo
       const toTokenAddress = toToken.contractAddress || 'eth';
 
       const result = await elizaClient.cdp.getSwapPrice({
-        name: userId,
         network: fromToken.chain,
         fromToken: fromTokenAddress,
         toToken: toTokenAddress,
@@ -302,7 +301,6 @@ export function SwapModal({ isOpen, onClose, tokens, userId, onSuccess }: SwapMo
       const toTokenAddress = toToken.contractAddress || 'eth';
 
       const result = await elizaClient.cdp.swap({
-        name: userId,
         network: fromToken.chain,
         fromToken: fromTokenAddress,
         toToken: toTokenAddress,

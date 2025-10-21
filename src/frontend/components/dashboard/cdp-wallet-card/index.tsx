@@ -98,7 +98,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     setTokensError(null);
     
     try {
-      const data = await elizaClient.cdp.getTokens(userId);
+      const data = await elizaClient.cdp.getTokens();
       setTokens(data.tokens || []);
       setTotalUsdValue(data.totalUsdValue || 0);
     } catch (error) {
@@ -119,7 +119,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     setNftsError(null);
     
     try {
-      const data = await elizaClient.cdp.getNFTs(userId);
+      const data = await elizaClient.cdp.getNFTs();
       setNfts(data.nfts || []);
     } catch (error) {
       console.error('Error fetching NFTs:', error);
@@ -138,7 +138,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     setHistoryError(null);
     
     try {
-      const data = await elizaClient.cdp.getHistory(userId);
+      const data = await elizaClient.cdp.getHistory();
       setTransactions(data.transactions || []);
     } catch (error) {
       console.error('Error fetching history:', error);
@@ -178,11 +178,11 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     try {
       // Use sync APIs to force fresh data
       if (activeTab === 'tokens') {
-        const data = await elizaClient.cdp.syncTokens(userId);
+        const data = await elizaClient.cdp.syncTokens();
         setTokens(data.tokens || []);
         setTotalUsdValue(data.totalUsdValue || 0);
       } else if (activeTab === 'collections') {
-        const data = await elizaClient.cdp.syncNFTs(userId);
+        const data = await elizaClient.cdp.syncNFTs();
         setNfts(data.nfts || []);
       } else if (activeTab === 'history') {
         await fetchHistory();
