@@ -65,7 +65,6 @@ interface Channel {
   id: string;
   name: string;
   createdAt?: number;
-  lastMessageAt?: number;
 }
 
 function App() {
@@ -403,38 +402,19 @@ function App() {
                   createdAt = ch.metadata.createdAt;
                 }
               }
-
-              let lastMessageAt = 0;
-              try {
-                const msgs = await elizaClient.messaging.getChannelMessages(ch.id, { limit: 1 });
-                if (msgs.messages.length > 0) {
-                  const msg = msgs.messages[0];
-                  if (msg.createdAt instanceof Date) {
-                    lastMessageAt = msg.createdAt.getTime();
-                  } else if (typeof msg.createdAt === 'number') {
-                    lastMessageAt = msg.createdAt;
-                  } else if (typeof msg.createdAt === 'string') {
-                    lastMessageAt = Date.parse(msg.createdAt);
-                  }
-                }
-              } catch (err) {
-                console.warn(`Could not load last message for channel ${ch.id}`);
-              }
-
               return {
                 id: ch.id,
                 name: ch.name || `Chat ${ch.id.substring(0, 8)}`,
                 createdAt: createdAt || Date.now(),
-                lastMessageAt,
               };
             })
         );
 
-        const sortedChannels = dmChannels.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        const sortedChannels = dmChannels.sort((a: Channel, b: Channel) => (b.createdAt || 0) - (a.createdAt || 0));
         setChannels(sortedChannels);
         
         console.log(`✅ Loaded ${sortedChannels.length} DM channels (sorted by creation time)`);
-        sortedChannels.forEach((ch, i) => {
+        sortedChannels.forEach((ch: Channel, i: number) => {
           const createdDate = ch.createdAt ? new Date(ch.createdAt).toLocaleString() : 'Unknown';
           console.log(`  ${i + 1}. ${ch.name} (${ch.id.substring(0, 8)}...) - Created: ${createdDate}`);
         });
@@ -632,7 +612,6 @@ function App() {
                           id: channelId,
                           name: channelName,
                           createdAt: now,
-                          lastMessageAt: now,
                         },
                         ...prev,
                       ]);

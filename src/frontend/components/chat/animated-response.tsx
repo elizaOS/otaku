@@ -7,6 +7,7 @@ interface AnimatedResponseProps {
   shouldAnimate?: boolean;
   messageId?: string;
   maxDurationMs?: number;
+  onTextUpdate?: () => void;
 }
 
 export const AnimatedResponse: React.FC<AnimatedResponseProps> = ({
@@ -15,6 +16,7 @@ export const AnimatedResponse: React.FC<AnimatedResponseProps> = ({
   shouldAnimate = false,
   messageId,
   maxDurationMs = 10000,
+  onTextUpdate,
 }) => {
   const [visibleText, setVisibleText] = React.useState(shouldAnimate ? '' : children);
 
@@ -42,10 +44,12 @@ export const AnimatedResponse: React.FC<AnimatedResponseProps> = ({
       } else {
         setVisibleText(children.slice(0, visibleCharCount));
       }
+      // Notify parent that text was updated so it can handle scrolling
+      onTextUpdate?.();
     }, TYPING_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [children, shouldAnimate, messageId, maxDurationMs]);
+  }, [children, shouldAnimate, messageId, maxDurationMs, onTextUpdate]);
 
   return (
     <Response className={className}>

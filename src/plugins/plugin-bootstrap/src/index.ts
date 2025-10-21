@@ -1048,111 +1048,6 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
   ]);
   accumulatedState.data.actionResults = traceActionResult;
 
-  // Short-circuit wallet flow outside the loop
-  const hasWallet: boolean = !!accumulatedState?.data?.providers?.WALLET_STATE?.data?.hasWallet;
-  if (!hasWallet) {
-    const wcPrompt = composePromptFromState({
-      state: accumulatedState,
-      template: runtime.character.templates?.walletCreationTemplate || walletCreationTemplate,
-    });
-    const wcRaw = await runtime.useModel(ModelType.TEXT_LARGE, { prompt: wcPrompt });
-    const wc = parseKeyValueXml(wcRaw) || {};
-    const { isCreateWallet, thought, text } = wc as any;
-
-    if (isCreateWallet === 'true' || isCreateWallet === true) {
-      const actionContent = {
-        text: `🔎 Executing action: CDP_CREATE_WALLET`,
-        actions: ['CDP_CREATE_WALLET'],
-        thought: thought ?? '',
-      };
-      await runtime.processActions(
-        message,
-        [
-          {
-            id: v4() as UUID,
-            entityId: runtime.agentId,
-            roomId: message.roomId,
-            createdAt: Date.now(),
-            content: actionContent,
-          },
-        ],
-        accumulatedState,
-        async () => {
-          return [];
-        }
-      );
-
-      const cachedState = (runtime as any).stateCache.get(`${message.id}_action_results`);
-      const actionResults = cachedState?.values?.actionResults || [];
-      const result = actionResults.length > 0 ? actionResults[0] : null;
-      const success = result?.success ?? false;
-
-      traceActionResult.push({
-        data: { actionName: 'CDP_CREATE_WALLET' },
-        success,
-        text: result?.text,
-        values: result?.values,
-        error: success ? undefined : result?.text,
-      });
-
-      // After creation, go straight to summary
-      const summaryPromptAfterWallet = composePromptFromState({
-        state: await runtime.composeState(message, [
-          'RECENT_MESSAGES',
-          'ACTION_STATE',
-          'ACTIONS',
-          'PROVIDERS',
-          'WALLET_STATE',
-        ]),
-        template: runtime.character.templates?.multiStepSummaryTemplate || multiStepSummaryTemplate,
-      });
-      const finalOutputAfterWallet = await runtime.useModel(ModelType.TEXT_LARGE, { prompt: summaryPromptAfterWallet });
-      const summaryAfterWallet = parseKeyValueXml(finalOutputAfterWallet);
-
-      if (summaryAfterWallet?.text) {
-        const responseContent: Content = {
-          actions: ['MULTI_STEP_SUMMARY'],
-          text: summaryAfterWallet.text,
-          thought: summaryAfterWallet.thought || 'Final user-facing message after wallet creation.',
-          simple: true,
-        };
-        const responseMessages: Memory[] = [
-          {
-            id: asUUID(v4()),
-            entityId: runtime.agentId,
-            agentId: runtime.agentId,
-            content: responseContent,
-            roomId: message.roomId,
-            createdAt: Date.now(),
-          },
-        ];
-        return { responseContent, responseMessages, state: accumulatedState, mode: 'simple' };
-      }
-
-      return { responseContent: null, responseMessages: [], state: accumulatedState, mode: 'none' };
-    }
-
-    // No intent: immediate reply
-    const replyText = typeof text === 'string' ? text : '';
-    const replyContent: Content = {
-      actions: ['MULTI_STEP_SUMMARY'],
-      text: replyText,
-      thought: thought || 'Prompting user to create a wallet before proceeding.',
-      simple: true,
-    };
-    const responseMessages: Memory[] = [
-      {
-        id: asUUID(v4()),
-        entityId: runtime.agentId,
-        agentId: runtime.agentId,
-        content: replyContent,
-        roomId: message.roomId,
-        createdAt: Date.now(),
-      },
-    ];
-    return { responseContent: replyContent, responseMessages, state: accumulatedState, mode: 'simple' };
-  }
-
   // Standard multi-step loop (wallet already exists)
   while (iterationCount < maxIterations) {
     iterationCount++;
@@ -1261,7 +1156,7 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       if (action) {
         const actionContent = {
           text: `🔎 Executing action: ${action}`,
-          actions: [action],
+          actions: [action, ""],
           thought: thought ?? '',
         };
         await runtime.processActions(
@@ -1722,44 +1617,17 @@ const events: PluginEvents = {
   [EventType.ACTION_STARTED]: [
     async (payload: ActionEventPayload) => {
       try {
-        // Only notify for client_chat messages
-        if (payload.content?.source === 'client_chat') {
-          const messageBusService = payload.runtime.getService('message-bus-service') as any;
-          if (messageBusService) {
-            await messageBusService.notifyActionStart(
-              payload.roomId,
-              payload.world,
-              payload.content,
-              payload.messageId
-            );
-          }
+        const messageBusService = payload.runtime.getService('message-bus-service') as any;
+        if (messageBusService) {
+          await messageBusService.notifyActionStart(
+            payload.roomId,
+            payload.world,
+            payload.content,
+            payload.messageId
+          );
         }
       } catch (error) {
         logger.error(`[Bootstrap] Error sending refetch request: ${error}`);
-      }
-    },
-    async (payload: ActionEventPayload) => {
-      try {
-        await payload.runtime.log({
-          entityId: payload.runtime.agentId,
-          roomId: payload.roomId,
-          type: 'action_event',
-          body: {
-            runId: payload.content?.runId,
-            actionId: payload.content?.actionId,
-            actionName: payload.content?.actions?.[0],
-            roomId: payload.roomId,
-            messageId: payload.messageId,
-            timestamp: Date.now(),
-            planStep: payload.content?.planStep,
-            source: 'actionHandler',
-          },
-        });
-        logger.debug(
-          `[Bootstrap] Logged ACTION_STARTED event for action ${payload.content?.actions?.[0]}`
-        );
-      } catch (error) {
-        logger.error(`[Bootstrap] Failed to log ACTION_STARTED event: ${error}`);
       }
     },
   ],
@@ -1767,17 +1635,14 @@ const events: PluginEvents = {
   [EventType.ACTION_COMPLETED]: [
     async (payload: ActionEventPayload) => {
       try {
-        // Only notify for client_chat messages
-        if (payload.content?.source === 'client_chat') {
-          const messageBusService = payload.runtime.getService('message-bus-service') as any;
-          if (messageBusService) {
-            await messageBusService.notifyActionUpdate(
-              payload.roomId,
-              payload.world,
-              payload.content,
-              payload.messageId
-            );
-          }
+        const messageBusService = payload.runtime.getService('message-bus-service') as any;
+        if (messageBusService) {
+          await messageBusService.notifyActionUpdate(
+            payload.roomId,
+            payload.world,
+            payload.content,
+            payload.messageId
+          );
         }
       } catch (error) {
         logger.error(`[Bootstrap] Error sending refetch request: ${error}`);

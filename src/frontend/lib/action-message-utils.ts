@@ -1,0 +1,73 @@
+import type { ToolPart } from "@/components/action-tool"
+
+/**
+ * Convert an agent action message to ToolPart format for display
+ * This handles messages with type/sourceType 'agent_action' and parses their rawMessage
+ */
+export function convertActionMessageToToolPart(message: any): ToolPart {
+  // rawMessage contains the action details from the server
+  const rawMessage = message.rawMessage || message.metadata || {}
+
+  // Map actionStatus to ToolPart state
+  const mapActionStatusToState = (status: string): ToolPart["state"] => {
+    switch (status) {
+      case "pending":
+      case "executing":
+      case "running":
+        return "input-streaming"
+      case "completed":
+      case "success":
+        return "output-available"
+      case "failed":
+      case "error":
+        return "output-error"
+      default:
+        return "input-available"
+    }
+  }
+
+  // Get the primary action name (first action or fallback to message type)
+  const actionName = rawMessage.actions?.[0] || rawMessage.action || "ACTION"
+  const actionStatus = rawMessage.actionStatus || "completed"
+  const actionId = rawMessage.actionId
+
+  // Create input data from available action properties
+  const inputData: Record<string, unknown> = {}
+  if (rawMessage.actions) inputData.actions = rawMessage.actions
+  if (rawMessage.action) inputData.action = rawMessage.action
+  if (rawMessage.thought) inputData.thought = rawMessage.thought
+
+  // Create output data based on status and content
+  const outputData: Record<string, unknown> = {}
+  if (rawMessage.text || message.content) {
+    outputData.result = rawMessage.text || message.content
+  }
+  if (actionStatus) outputData.status = actionStatus
+  if (rawMessage.thought) outputData.thought = rawMessage.thought
+  if (rawMessage.actionResult) outputData.actionResult = rawMessage.actionResult
+
+  // Handle error cases
+  const isError = actionStatus === "failed" || actionStatus === "error"
+  const errorText = isError ? rawMessage.text || message.content || "Action failed" : undefined
+
+  return {
+    type: actionName,
+    state: mapActionStatusToState(actionStatus),
+    toolCallId: actionId,
+    input: Object.keys(inputData).length > 0 ? inputData : undefined,
+    output: Object.keys(outputData).length > 0 ? outputData : undefined,
+    errorText,
+  }
+}
+
+/**
+ * Check if a message is an agent action message
+ */
+export function isActionMessage(message: any): boolean {
+  return (
+    message.sourceType === "agent_action" ||
+    message.metadata?.sourceType === "agent_action" ||
+    message.type === "agent_action"
+  )
+}
+

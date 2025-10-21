@@ -11,10 +11,10 @@ import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
 
 export const cdpWalletInfo: Action = {
-  name: "CDP_WALLET_INFO",
+  name: "USER_WALLET_INFO",
   similes: [
-    "CDP_WALLET_DETAILS",
-    "CDP_ADDRESS",
+    "USER_WALLET_DETAILS",
+    "USER_ADDRESS",
     "COINBASE_WALLET_INFO",
     "CHECK_WALLET",
     "WALLET_BALANCE",
@@ -27,8 +27,7 @@ export const cdpWalletInfo: Action = {
     "WALLET_ASSETS",
   ],
   description: 
-    "Use this action only when you need the up-to-date user wallet balance, NFTs, and tokens. " +
-    "This fetches fresh wallet data including all token balances across chains, NFT holdings, and total USD value.",
+    "Use this action only when you need the user's wallet balance, NFTs, and tokens.",
   validate: async (_runtime: IAgentRuntime, message: Memory) => {
     try {
       // Check if CDP service is available
@@ -61,7 +60,7 @@ export const cdpWalletInfo: Action = {
       const wallet = await getEntityWallet(
         runtime,
         message,
-        "CDP_WALLET_INFO",
+        "USER_WALLET_INFO",
         callback,
       );
 
@@ -87,7 +86,7 @@ export const cdpWalletInfo: Action = {
       }
 
       // Fetch comprehensive wallet info (always fresh data)
-      logger.info(`[CDP_WALLET_INFO] Fetching fresh wallet info for account: ${accountName}`);
+      logger.info(`[USER_WALLET_INFO] Fetching fresh wallet info for account: ${accountName}`);
       callback?.({ text: "🔍 Fetching your wallet information..." });
 
       const walletInfo = await cdpService.fetchWalletInfo(accountName);
@@ -183,7 +182,7 @@ export const cdpWalletInfo: Action = {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error("[CDP_WALLET_INFO] Error:", errorMessage);
+      logger.error("[USER_WALLET_INFO] Error:", errorMessage);
       
       const errorText = `❌ Failed to fetch wallet info: ${errorMessage}`;
       callback?.({ text: errorText });
@@ -193,23 +192,23 @@ export const cdpWalletInfo: Action = {
   examples: [
     [
       { name: "{{user}}", content: { text: "show my wallet" } },
-      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "CDP_WALLET_INFO" } },
+      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "USER_WALLET_INFO" } },
     ],
     [
       { name: "{{user}}", content: { text: "check my wallet balance" } },
-      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "CDP_WALLET_INFO" } },
+      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "USER_WALLET_INFO" } },
     ],
     [
       { name: "{{user}}", content: { text: "what tokens do I have?" } },
-      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "CDP_WALLET_INFO" } },
+      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "USER_WALLET_INFO" } },
     ],
     [
       { name: "{{user}}", content: { text: "show my NFTs" } },
-      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "CDP_WALLET_INFO" } },
+      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "USER_WALLET_INFO" } },
     ],
     [
       { name: "{{user}}", content: { text: "what's in my wallet?" } },
-      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "CDP_WALLET_INFO" } },
+      { name: "{{agent}}", content: { text: "🔍 Fetching your wallet information...", action: "USER_WALLET_INFO" } },
     ],
   ],
 };
