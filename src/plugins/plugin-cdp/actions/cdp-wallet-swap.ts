@@ -244,7 +244,7 @@ const resolveTokenToAddress = async (
  */
 
 export const cdpWalletSwap: Action = {
-  name: "WALLET_SWAP",
+  name: "USER_WALLET_SWAP",
   similes: [
     "SWAP",
     "TRADE",
@@ -282,7 +282,7 @@ export const cdpWalletSwap: Action = {
     _options?: Record<string, unknown>,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
-    logger.info("WALLET_SWAP handler invoked");
+    logger.info("USER_WALLET_SWAP handler invoked");
     logger.debug(`Message content: ${JSON.stringify(message.content)}`);
     
     try {
@@ -300,7 +300,7 @@ export const cdpWalletSwap: Action = {
       const walletResult = await getEntityWallet(
         runtime,
         message,
-        "WALLET_SWAP",
+        "USER_WALLET_SWAP",
         callback,
       );
       if (walletResult.success === false) {
@@ -464,7 +464,7 @@ export const cdpWalletSwap: Action = {
         },
       };
     } catch (error) {
-      logger.error("WALLET_SWAP error:", error instanceof Error ? error.message : String(error));
+      logger.error("USER_WALLET_SWAP error:", error instanceof Error ? error.message : String(error));
       logger.error("Error stack:", error instanceof Error ? error.stack : "No stack trace available");
       
       let errorMessage = "Failed to execute swap.";
@@ -484,7 +484,7 @@ export const cdpWalletSwap: Action = {
       logger.debug(`Sending error callback: ${errorMessage}`);
       callback?.({
         text: errorMessage,
-        content: { error: "wallet_swap_failed" },
+        content: { error: "user_wallet_swap_failed" },
       });
       
       logger.debug("Returning error result");
@@ -504,7 +504,7 @@ export const cdpWalletSwap: Action = {
         name: "{{agent}}",
         content: {
           text: "I'll swap 3 USDC to BNKR on Base for you.",
-          action: "WALLET_SWAP",
+          action: "USER_WALLET_SWAP",
         },
       },
     ],
@@ -517,7 +517,7 @@ export const cdpWalletSwap: Action = {
         name: "{{agent}}",
         content: {
           text: "I'll swap 100 USDC to ETH on Base network for you.",
-          action: "WALLET_SWAP",
+          action: "USER_WALLET_SWAP",
         },
       },
     ],
@@ -530,7 +530,7 @@ export const cdpWalletSwap: Action = {
         name: "{{agent}}",
         content: {
           text: "I'll swap 50% of your USDC to ETH on Base.",
-          action: "WALLET_SWAP",
+          action: "USER_WALLET_SWAP",
         },
       },
     ],
@@ -543,7 +543,7 @@ export const cdpWalletSwap: Action = {
         name: "{{agent}}",
         content: {
           text: "I'll swap 80% of your ETH to DAI.",
-          action: "WALLET_SWAP",
+          action: "USER_WALLET_SWAP",
         },
       },
     ],
@@ -556,7 +556,7 @@ export const cdpWalletSwap: Action = {
         name: "{{agent}}",
         content: {
           text: "I'll swap 100% of your MATIC to USDC on Polygon.",
-          action: "WALLET_SWAP",
+          action: "USER_WALLET_SWAP",
         },
       },
     ],

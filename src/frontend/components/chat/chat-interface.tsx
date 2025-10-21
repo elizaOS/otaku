@@ -1,5 +1,5 @@
 import type React from "react"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback, ReactNode } from "react"
 import { elizaClient } from '@/lib/elizaClient'
 import { socketManager } from '@/lib/socketManager'
 import type { UUID, Agent } from '@elizaos/core'
@@ -11,6 +11,9 @@ import { Bullet } from "@/components/ui/bullet"
 import { cn } from "@/lib/utils"
 import ArrowRightIcon from "@/components/icons/arrow-right"
 import { AnimatedResponse } from "@/components/chat/animated-response"
+import { Tool } from "@/components/action-tool"
+import { ToolGroup, AnimatedDots } from "@/components/action-tool-group"
+import { convertActionMessageToToolPart, isActionMessage } from "@/lib/action-message-utils"
 
 // Quick start prompts for new conversations (static fallback)
 const DEFAULT_QUICK_PROMPTS = [
@@ -30,6 +33,11 @@ interface Message {
   createdAt: number
   isAgent: boolean
   senderName?: string
+  sourceType?: string
+  type?: string
+  rawMessage?: any
+  metadata?: any
+  thought?: string
 }
 
 interface ChatInterfaceProps {
@@ -48,12 +56,59 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
   const [isCreatingChannel, setIsCreatingChannel] = useState(false)
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showDummyToolGroup, setShowDummyToolGroup] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const isUserScrollingRef = useRef(false) // Track if user is actively scrolling
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Scroll to bottom when messages change
+  // Helper function to check if user is near bottom of the chat
+  const checkIfNearBottom = () => {
+    const container = messagesContainerRef.current
+    if (!container) return true
+    
+    const threshold = 50 // pixels from bottom to consider "near bottom"
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    return distanceFromBottom < threshold
+  }
+
+
+  // Helper function to scroll to bottom
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior })
+  }
+
+  // Track scroll position - detect when user is actively scrolling
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      // User is actively scrolling - disable auto-scroll
+      isUserScrollingRef.current = true
+      
+      // Clear previous timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+      
+      // After user stops scrolling for 150ms, check position
+      scrollTimeoutRef.current = setTimeout(() => {
+        const nearBottom = checkIfNearBottom()
+        // User stopped scrolling - enable auto-scroll only if near bottom
+        isUserScrollingRef.current = !nearBottom
+        console.log('📍 Scroll stopped. Near bottom:', nearBottom, '- isUserScrolling:', isUserScrollingRef.current)
+      }, 150)
+    }
+
+    container.addEventListener('scroll', handleScroll)
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+    }
+  }, [])
 
   // Clear messages when entering new chat mode
   useEffect(() => {
@@ -94,12 +149,19 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
             createdAt: timestamp,
             isAgent: msg.authorId === agent.id,
             senderName: msg.metadata?.authorDisplayName || (msg.authorId === agent.id ? agent.name : 'User'),
+            sourceType: msg.sourceType,
+            type: msg.sourceType,
+            rawMessage: msg.rawMessage,
+            metadata: msg.metadata,
+            thought: (msg as any).thought,
           }
         })
 
         const sortedMessages = formattedMessages.sort((a, b) => a.createdAt - b.createdAt)
         setMessages(sortedMessages)
         setIsLoadingMessages(false)
+        isUserScrollingRef.current = false // User is not scrolling when loading messages
+        setTimeout(() => scrollToBottom('smooth'), 0)
         console.log(`✅ Loaded ${sortedMessages.length} messages`)
       } catch (error: any) {
         console.error('❌ Failed to load messages:', error)
@@ -126,26 +188,54 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
         createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.parse(data.createdAt as string),
         isAgent: data.senderId === agent.id,
         senderName: data.senderName || (data.senderId === agent.id ? agent.name : 'User'),
+        sourceType: data.sourceType || data.source,
+        type: data.type || data.sourceType || data.source,
+        rawMessage: data.rawMessage || data,
+        metadata: data.metadata,
+      }
+
+      // Show dummy tool group when user message arrives
+      if (!newMessage.isAgent) {
+        setShowDummyToolGroup(true)
+        isUserScrollingRef.current = false // User is not scrolling when sending message
+        // Wait for DOM to update before scrolling
+        setTimeout(() => scrollToBottom('smooth'), 0)
       }
 
       setMessages((prev) => {
-        // Avoid duplicates
-        if (prev.some((m) => m.id === messageId)) {
-          return prev
+        // Check if message exists - if so, update it (for action status changes)
+        const existingIndex = prev.findIndex((m) => m.id === messageId)
+        if (existingIndex !== -1) {
+          const updated = [...prev]
+          updated[existingIndex] = newMessage
+          return updated.sort((a, b) => a.createdAt - b.createdAt)
         }
         // Add new message and sort by timestamp
         const updated = [...prev, newMessage]
         return updated.sort((a, b) => a.createdAt - b.createdAt)
       })
       
-      // Stop typing indicator when agent responds (including error messages)
+      // Stop typing indicator only for final summary messages or error messages
       if (newMessage.isAgent) {
-        setIsTyping(false)
+        // Hide dummy tool group when agent message arrives
+        setShowDummyToolGroup(false)
         
-        // If it's an error message, also clear the local error state
-        if (newMessage.content.startsWith('⚠️ Error:')) {
-          // The error is already shown in the message, so clear any pending local errors
-          setError(null)
+        // Check if this is a multi-step summary message
+        const actions = newMessage.rawMessage?.actions || newMessage.metadata?.actions || []
+        const isSummaryMessage = actions.includes('MULTI_STEP_SUMMARY')
+        const isErrorMessage = newMessage.content.startsWith('⚠️ Error:')
+        
+        // Only stop typing for summary or error messages
+        if (isSummaryMessage || isErrorMessage) {
+          setIsTyping(false)
+          // Wait for DOM to update before scrolling
+          setTimeout(() => scrollToBottom('smooth'), 0)
+          
+          // If it's an error message, also clear the local error state
+          if (isErrorMessage) {
+            // The error is already shown in the message, so clear any pending local errors
+            setError(null)
+          }
         }
       }
     }
@@ -257,6 +347,14 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     setIsTyping(true)
   }
 
+  // Callback for when animated text updates - auto-scroll only if user is not scrolling
+  const handleAnimationTextUpdate = useCallback(() => {
+    // Only auto-scroll if user is not actively scrolling and is near bottom
+    if (!isUserScrollingRef.current && checkIfNearBottom()) {
+      scrollToBottom('auto')
+    }
+  }, []) // Empty deps - scrollToBottom and isUserScrollingRef are stable
+
   // Handle quick prompt click - auto send message
   const handleQuickPrompt = async (message: string) => {
     if (isTyping || !message.trim() || isCreatingChannel) return
@@ -345,16 +443,102 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     setIsTyping(true)
   }
 
+  // Group consecutive action messages together
+  const groupedMessages = messages.reduce<Array<Message | Message[]>>((acc, message, index) => {
+    const isAction = isActionMessage(message)
+    const prevItem = acc[acc.length - 1]
+    
+    // If this is an action message and the previous item is an array of actions, add to that array
+    if (isAction && Array.isArray(prevItem) && prevItem.length > 0 && isActionMessage(prevItem[0])) {
+      prevItem.push(message)
+    } 
+    // If this is an action message but previous was not, start a new array
+    else if (isAction) {
+      acc.push([message])
+    }
+    // If this is not an action message, add it as a single message
+    else {
+      acc.push(message)
+    }
+    
+    return acc
+  }, [])
+
   return (
     <div className="flex flex-col h-[calc(100vh-12rem)] gap-6">
       <Card className="flex-1 overflow-hidden">
-        <CardContent className="h-full overflow-y-auto p-6">
-          <div className="space-y-4 h-full flex flex-col">
+        <CardContent className="h-full p-0">
+          <div ref={messagesContainerRef} className="h-full overflow-y-auto p-6">
+            <div className="space-y-4 h-full flex flex-col">
             {/* Messages */}
             <div className="flex-1 space-y-4">
-              {messages.map((message, index) => {
-                // Only animate the last AI message if it's recent (< 10 seconds old)
-                const isLastMessage = index === messages.length - 1
+              {groupedMessages.map((item, groupIndex) => {
+                // Handle grouped action messages
+                if (Array.isArray(item)) {
+                  const actionGroup = item
+                  const firstAction = actionGroup[0]
+                  const isLastGroup = groupIndex === groupedMessages.length - 1
+                  
+                  // Get the latest action's status and name for label
+                  const latestAction = actionGroup[actionGroup.length - 1]
+                  const latestActionStatus = latestAction.metadata?.actionStatus || latestAction.rawMessage?.actionStatus
+                  const latestActionName = latestAction.metadata?.actions?.[0] || latestAction.rawMessage?.actions?.[0] || 'action'
+                  // Determine label based on state
+                  let groupLabel: ReactNode = "See working steps"
+                  if (isLastGroup && isTyping) {
+                    if (latestActionStatus === 'executing' && latestActionName) {
+                      groupLabel = (
+                        <span className="flex items-center gap-1">
+                          executing {latestActionName} action<AnimatedDots />
+                        </span>
+                      )
+                    } else if (isTyping) {
+                      groupLabel = (
+                        <span className="flex items-center gap-1">
+                          OTAKU is thinking<AnimatedDots />
+                        </span>
+                      )
+                    }
+                  }
+                  
+                  return (
+                    <div
+                      key={`action-group-${groupIndex}-${firstAction.id}`}
+                      className="flex flex-col gap-1 items-start"
+                    >
+                      <div className="max-w-[85%] w-full">
+                        <ToolGroup 
+                          defaultOpen={false}
+                          label={groupLabel}
+                        >
+                          {actionGroup.map((message) => {
+                            // Extract thought from rawMessage
+                            const thought = message.thought || message.rawMessage?.thought || message.metadata?.thought
+                            
+                            return (
+                              <div key={message.id} className="space-y-2">
+                                {thought && (
+                                  <div className="text-sm text-muted-foreground italic px-2">
+                                    {thought}
+                                  </div>
+                                )}
+                                <Tool 
+                                  toolPart={convertActionMessageToToolPart(message)}
+                                  defaultOpen={false}
+                                />
+                              </div>
+                            )
+                          })}
+                        </ToolGroup>
+                      </div>
+                    </div>
+                  )
+                }
+                
+                // Handle single messages (user or agent text messages)
+                const message = item
+                const messageIndex = messages.indexOf(message)
+                const isLastMessage = messageIndex === messages.length - 1
                 const messageAge = Date.now() - message.createdAt
                 const isRecent = messageAge < 10000 // Less than 10 seconds
                 const shouldAnimate = message.isAgent && isLastMessage && isRecent
@@ -382,6 +566,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                         shouldAnimate={shouldAnimate && !isErrorMessage}
                         messageId={message.id}
                         maxDurationMs={10000}
+                        onTextUpdate={handleAnimationTextUpdate}
                       >
                         {message.content}
                       </AnimatedResponse>
@@ -392,10 +577,25 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                   </div>
                 )
               })}
-              {isTyping && (
+             
+              {/* Dummy Tool Group - Shows while waiting for agent actions */}
+              {isTyping && showDummyToolGroup && (
                 <div className="flex flex-col gap-1 items-start">
-                  <div className="max-w-[70%] rounded-lg px-3 py-2 bg-accent text-foreground">
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <div className="max-w-[85%] w-full">
+                    <ToolGroup 
+                      defaultOpen={false}
+                      animate={true}
+                      label={
+                        <span className="flex items-center gap-1">
+                          Analyzing your request<AnimatedDots />
+                        </span>
+                      }
+                    >
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                        <Loader2 className="size-4 animate-spin" />
+                        <span>Processing your request...</span>
+                      </div>
+                    </ToolGroup>
                   </div>
                 </div>
               )}
@@ -439,6 +639,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                 </div>
               </div>
             )}
+            </div>
           </div>
         </CardContent>
       </Card>
