@@ -1165,6 +1165,18 @@ export class AgentServer {
         }
       }
 
+      const pluginNames = (runtime.plugins ?? [])
+        .map((plugin) => plugin.name?.trim() ?? '')
+        .filter((pluginName): pluginName is string => pluginName.length > 0);
+
+      if (pluginNames.length > 0) {
+        logger.info(
+          `[AgentServer] Plugins loaded for agent ${runtime.character.name}: ${pluginNames.join(', ')}`
+        );
+      } else {
+        logger.info(`[AgentServer] No plugins loaded for agent ${runtime.character.name}`);
+      }
+
       logger.success(
         `Successfully registered agent ${runtime.character.name} (${runtime.agentId}) with core services.`
       );

@@ -71,7 +71,7 @@ export class CdpService extends Service {
     data: WalletInfo;
     timestamp: number;
   }> = new Map();
-  private readonly CACHE_DURATION_MS = 300 * 1000;
+  private readonly CACHE_DURATION_MS = 60 * 1000;
 
   constructor(runtime: IAgentRuntime) {
     super(runtime);
