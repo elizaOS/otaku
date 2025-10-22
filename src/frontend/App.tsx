@@ -197,17 +197,39 @@ function App() {
           // Entity doesn't exist, create it
           if (error?.status === 404 || error?.code === 'NOT_FOUND') {
             console.log('📝 Creating new user entity in database...');
-            console.log('👤 Username from CDP:', userName || 'User');
-            console.log('📧 Email from CDP:', userEmail);
+            
+            // Extract email and username directly from CDP currentUser for better visibility
+            const cdpEmail = 
+              (currentUser as any)?.authenticationMethods?.google?.email ||
+              (currentUser as any)?.authenticationMethods?.oauth?.email ||
+              (currentUser as any)?.authenticationMethods?.email?.email ||
+              (currentUser as any)?.email;
+            
+            const cdpUsername = 
+              (currentUser as any)?.authenticationMethods?.google?.name ||
+              (currentUser as any)?.authenticationMethods?.oauth?.name ||
+              (currentUser as any)?.authenticationMethods?.email?.name ||
+              (currentUser as any)?.name ||
+              (currentUser as any)?.displayName;
+            
+            // Use extracted values with fallbacks
+            const finalEmail = cdpEmail || userEmail || `${currentUser?.userId}@cdp.local`;
+            const finalUsername = cdpUsername || (cdpEmail ? cdpEmail.split('@')[0] : userName) || 'User';
+            
+            console.log('👤 CDP provided username:', cdpUsername || '(not found)');
+            console.log('📧 CDP provided email:', cdpEmail || '(not found)');
+            console.log('💾 Saving to database - Username:', finalUsername);
+            console.log('💾 Saving to database - Email:', finalEmail);
+            
             entity = await elizaClient.entities.createEntity({
               id: userId as any,
               agentId: agentId as any,
-              names: [userName || 'User'], // Use CDP username
+              names: [finalUsername],
               metadata: {
                 avatarUrl: '/avatars/user_krimson.png',
-                email: userEmail || '',
+                email: finalEmail,
                 walletAddress,
-                displayName: userName || 'User',
+                displayName: finalUsername,
                 bio: 'DeFi Enthusiast • Blockchain Explorer',
                 createdAt: new Date().toISOString(),
               },
@@ -216,9 +238,9 @@ function App() {
             // Set user profile state
             setUserProfile({
               avatarUrl: entity.metadata?.avatarUrl || '/avatars/user_krimson.png',
-              displayName: entity.metadata?.displayName || userName || 'User',
+              displayName: entity.metadata?.displayName || finalUsername,
               bio: entity.metadata?.bio || 'DeFi Enthusiast • Blockchain Explorer',
-              email: userEmail || '',
+              email: entity.metadata?.email || finalEmail,
               walletAddress,
               memberSince: entity.metadata?.createdAt || new Date().toISOString(),
             });
