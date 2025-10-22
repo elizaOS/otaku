@@ -22,8 +22,8 @@ export function createAgentCrudRouter(
   const router = express.Router();
   const db = serverInstance?.database;
 
-  // List all agents with minimal details
-  router.get('/', requireAuth, async (_: AuthenticatedRequest, res) => {
+  // List all agents with minimal details (public)
+  router.get('/', async (_: express.Request, res) => {
     try {
       if (!db) {
         return sendError(res, 500, 'DB_ERROR', 'Database not available');
