@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 import ArrowRightIcon from "@/components/icons/arrow-right"
 import { AnimatedResponse } from "@/components/chat/animated-response"
 import { Tool } from "@/components/action-tool"
-import { ToolGroup, AnimatedDots } from "@/components/action-tool-group"
+import { ToolGroup } from "@/components/action-tool-group"
 import { convertActionMessageToToolPart, isActionMessage } from "@/lib/action-message-utils"
 
 // Quick start prompts for new conversations (static fallback)
@@ -47,6 +47,20 @@ interface ChatInterfaceProps {
   channelId: string | null
   isNewChatMode?: boolean
   onChannelCreated?: (channelId: string, channelName: string) => void
+}
+
+const AnimatedDots = () => {
+  const [dotCount, setDotCount] = useState(1)
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDotCount((prev) => (prev % 3) + 1)
+    }, 500)
+    
+    return () => clearInterval(interval)
+  }, [])
+  
+  return <span>{'.'.repeat(dotCount)}</span>
 }
 
 export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMode = false, onChannelCreated }: ChatInterfaceProps) {
@@ -484,19 +498,41 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                   const latestActionStatus = latestAction.metadata?.actionStatus || latestAction.rawMessage?.actionStatus
                   const latestActionName = latestAction.metadata?.actions?.[0] || latestAction.rawMessage?.actions?.[0] || 'action'
                   // Determine label based on state
-                  let groupLabel: ReactNode = "See working steps"
+                  const baseClasses = "px-2 py-1 rounded-full text-xs font-medium"
+                  let groupLabel = (
+                    <div className="flex items-center justify-between w-full">
+                      <div className="flex items-center gap-1">
+                        See working steps
+                      </div>
+                      <div
+                        className={cn(
+                          baseClasses,
+                          "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        )}
+                      >
+                        Completed
+                      </div>
+                    </div>
+                  )
+
                   if (isLastGroup && isTyping) {
                     if (latestActionStatus === 'executing' && latestActionName) {
                       groupLabel = (
-                        <span className="flex items-center gap-1">
-                          executing {latestActionName} action<AnimatedDots />
-                        </span>
+                        <div className="flex items-center w-full">
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-500 mr-2" />
+                          <div className="flex items-center gap-1">
+                            executing {latestActionName} action<AnimatedDots />
+                          </div>
+                        </div>
                       )
                     } else if (isTyping) {
                       groupLabel = (
-                        <span className="flex items-center gap-1">
-                          OTAKU is thinking<AnimatedDots />
-                        </span>
+                        <div className="flex items-center w-full">
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-500 mr-2" />
+                          <div className="flex items-center gap-1">
+                            OTAKU is thinking<AnimatedDots />
+                          </div>
+                        </div>
                       )
                     }
                   }
@@ -586,14 +622,16 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                       defaultOpen={false}
                       animate={true}
                       label={
-                        <span className="flex items-center gap-1">
-                          Analyzing your request<AnimatedDots />
-                        </span>
+                        <div className="flex items-center w-full">
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-500 mr-2" />
+                          <div className="flex items-center gap-1">
+                            Analyzing your request<AnimatedDots />
+                          </div>
+                        </div>
                       }
                     >
                       <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                        <Loader2 className="size-4 animate-spin" />
-                        <span>Processing your request...</span>
+                        <span>Processing your request<AnimatedDots /></span>
                       </div>
                     </ToolGroup>
                   </div>

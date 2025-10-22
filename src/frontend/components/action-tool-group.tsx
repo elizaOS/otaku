@@ -15,20 +15,6 @@ export type ToolGroupProps = {
   animate?: boolean
 }
 
-export const AnimatedDots = () => {
-  const [dotCount, setDotCount] = useState(1)
-  
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDotCount((prev) => (prev % 3) + 1)
-    }, 500)
-    
-    return () => clearInterval(interval)
-  }, [])
-  
-  return <span>{'.'.repeat(dotCount)}</span>
-}
-
 const ToolGroup = ({ 
   children, 
   defaultOpen = false, 
@@ -58,7 +44,7 @@ const ToolGroup = ({
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full p-3 cursor-pointer">
           <ChevronRight className={cn("h-4 w-4 transition-transform", isOpen && "rotate-90")} />
-          <span>{label}</span>
+          {label}
         </CollapsibleTrigger>
         <CollapsibleContent
           className={cn(
