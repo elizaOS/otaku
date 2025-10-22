@@ -1,4 +1,5 @@
 import { useIsSignedIn, useSignOut, useIsInitialized, useCurrentUser } from "@coinbase/cdp-hooks";
+import { resolveCdpUserInfo } from "@/lib/cdpUser";
 
 /**
  * Custom hook to access CDP wallet information
@@ -50,26 +51,8 @@ export function useCDPWallet() {
   const cdpProjectId = import.meta.env.VITE_CDP_PROJECT_ID;
   const isCdpConfigured = Boolean(cdpProjectId);
 
-  // Get user email from CDP currentUser
-  // Try multiple possible locations for email
-  const userEmail = 
-    (currentUser as any)?.authenticationMethods?.email?.email || 
-    (currentUser as any)?.authenticationMethods?.oauth?.email ||
-    (currentUser as any)?.authenticationMethods?.google?.email ||
-    (currentUser as any)?.email ||
-    // Fallback: generate email from userId for OAuth users
-    (isSignedIn && currentUser?.userId ? `${currentUser.userId}@cdp.local` : undefined);
-
-  // Get username/name from CDP currentUser
-  // Try multiple possible locations similar to email
-  const userName = 
-    (currentUser as any)?.authenticationMethods?.oauth?.name ||
-    (currentUser as any)?.authenticationMethods?.google?.name ||
-    (currentUser as any)?.authenticationMethods?.email?.name ||
-    (currentUser as any)?.name ||
-    (currentUser as any)?.displayName ||
-    // Fallback: extract from email or use generic
-    (userEmail ? userEmail.split('@')[0] : undefined);
+  // Normalize user info using shared helper (DRY)
+  const { email: userEmail, username: userName } = resolveCdpUserInfo(currentUser as any, { isSignedIn });
 
   return {
     // Loading state

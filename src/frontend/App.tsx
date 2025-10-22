@@ -18,6 +18,7 @@ import { ModalProvider } from './contexts/ModalContext';
 import { MessageSquare } from 'lucide-react';
 import mockDataJson from './mock.json';
 import type { MockData } from './types/dashboard';
+import { extractEmailFromCdpUser, extractUsernameFromCdpUser } from '@/lib/cdpUser';
 import { UUID } from '@elizaos/core';
 
 const mockData = mockDataJson as MockData;
@@ -198,19 +199,9 @@ function App() {
           if (error?.status === 404 || error?.code === 'NOT_FOUND') {
             console.log('📝 Creating new user entity in database...');
             
-            // Extract email and username directly from CDP currentUser for better visibility
-            const cdpEmail = 
-              (currentUser as any)?.authenticationMethods?.google?.email ||
-              (currentUser as any)?.authenticationMethods?.oauth?.email ||
-              (currentUser as any)?.authenticationMethods?.email?.email ||
-              (currentUser as any)?.email;
-            
-            const cdpUsername = 
-              (currentUser as any)?.authenticationMethods?.google?.name ||
-              (currentUser as any)?.authenticationMethods?.oauth?.name ||
-              (currentUser as any)?.authenticationMethods?.email?.name ||
-              (currentUser as any)?.name ||
-              (currentUser as any)?.displayName;
+            // Extract email and username using shared helper (DRY)
+            const cdpEmail = extractEmailFromCdpUser(currentUser as any, true);
+            const cdpUsername = extractUsernameFromCdpUser(currentUser as any, cdpEmail || undefined);
             
             // Use extracted values with fallbacks
             const finalEmail = cdpEmail || userEmail || `${currentUser?.userId}@cdp.local`;
