@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
-import { CheckCircle, ChevronDown, Loader2, Settings, XCircle } from "lucide-react"
+import { CheckCircle2, ChevronDown, Loader2, Settings, XCircle } from "lucide-react"
 import { useState } from "react"
 
 export type ToolPart = {
@@ -33,7 +33,7 @@ const Tool = ({ toolPart, defaultOpen = false, className }: ToolProps) => {
       case "input-available":
         return <Settings className="h-4 w-4 text-orange-500" />
       case "output-available":
-        return <CheckCircle className="h-4 w-4 text-green-500" />
+        return <CheckCircle2 className="h-4 w-4 text-green-500" />
       case "output-error":
         return <XCircle className="h-4 w-4 text-red-500" />
       default:

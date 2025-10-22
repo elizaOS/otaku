@@ -1,19 +1,18 @@
-import type React from "react"
-import { useEffect, useState, useRef, useCallback, ReactNode } from "react"
-import { elizaClient } from '@/lib/elizaClient'
-import { socketManager } from '@/lib/socketManager'
-import type { UUID, Agent } from '@elizaos/core'
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Bot, Loader2 } from "lucide-react"
-import { Bullet } from "@/components/ui/bullet"
-import { cn } from "@/lib/utils"
-import ArrowRightIcon from "@/components/icons/arrow-right"
-import { AnimatedResponse } from "@/components/chat/animated-response"
 import { Tool } from "@/components/action-tool"
 import { ToolGroup } from "@/components/action-tool-group"
+import { AnimatedResponse } from "@/components/chat/animated-response"
+import ArrowRightIcon from "@/components/icons/arrow-right"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { convertActionMessageToToolPart, isActionMessage } from "@/lib/action-message-utils"
+import { elizaClient } from '@/lib/elizaClient'
+import { socketManager } from '@/lib/socketManager'
+import { cn } from "@/lib/utils"
+import type { Agent, UUID } from '@elizaos/core'
+import { Loader2 } from "lucide-react"
+import type React from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Textarea } from "../ui/textarea"
 
 // Quick start prompts for new conversations (static fallback)
 const DEFAULT_QUICK_PROMPTS = [
@@ -523,7 +522,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                       <div
                         className={cn(
                           baseClasses,
-                          "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                          "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 uppercase"
                         )}
                       >
                         Completed
