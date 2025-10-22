@@ -71,13 +71,6 @@ export function useCDPWallet() {
     // Fallback: extract from email or use generic
     (userEmail ? userEmail.split('@')[0] : undefined);
 
-  // Debug log to see currentUser structure when signed in
-  if (isSignedIn && currentUser && !(currentUser as any)?.authenticationMethods?.email?.email) {
-    console.warn('⚠️ CDP user signed in but email not found in standard location. currentUser:', currentUser);
-    console.log('📧 Using fallback email:', userEmail);
-    console.log('👤 Using username:', userName);
-  }
-
   return {
     // Loading state
     isInitialized,

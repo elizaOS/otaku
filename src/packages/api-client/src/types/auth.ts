@@ -3,6 +3,7 @@
  */
 export interface LoginRequest {
   email: string;
+  username: string; // User's display name from CDP
   cdpUserId: string; // CDP's user identifier (UUID)
 }
 
@@ -12,6 +13,7 @@ export interface LoginRequest {
 export interface LoginResponse {
   token: string; // JWT authentication token
   userId: string; // Secure user ID generated from email
+  username: string; // User's display name
   expiresIn: string; // Token expiration time (e.g., "7d")
 }
 
@@ -21,6 +23,7 @@ export interface LoginResponse {
 export interface RefreshTokenResponse {
   token: string; // New JWT authentication token
   userId: string;
+  username: string; // User's display name
   expiresIn: string;
 }
 
@@ -30,5 +33,6 @@ export interface RefreshTokenResponse {
 export interface CurrentUserResponse {
   userId: string;
   email: string;
+  username: string; // User's display name
 }
 

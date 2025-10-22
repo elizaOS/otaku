@@ -27,10 +27,12 @@ const mockData = mockDataJson as MockData;
  * Uses CDP's userId as the primary identifier
  * 
  * @param email User's email from CDP authentication
+ * @param username User's display name from CDP
  * @param currentUser CDP currentUser object (to extract userId)
  */
 async function authenticateUser(
-  email: string, 
+  email: string,
+  username: string, 
   currentUser?: any
 ): Promise<{ userId: string; token: string }> {
   try {
@@ -43,9 +45,10 @@ async function authenticateUser(
       throw new Error('CDP userId not available - user may not be authenticated with CDP');
     }
 
-    // Login with backend - send email and CDP userId
+    // Login with backend - send email, username, and CDP userId
     const { token, userId } = await elizaClient.auth.login({
       email,
+      username,
       cdpUserId, // Use CDP's userId directly
     });
     
@@ -69,7 +72,7 @@ interface Channel {
 }
 
 function App() {
-  const { isInitialized, isSignedIn, userEmail, signOut, currentUser } = useCDPWallet();
+  const { isInitialized, isSignedIn, userEmail, userName, signOut, currentUser } = useCDPWallet();
   const { showLoading, hide } = useLoadingPanel();
   const [userId, setUserId] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -147,7 +150,7 @@ function App() {
     // User is signed in with CDP, authenticate with backend
     async function initAuth() {
       try {
-        const { userId, token } = await authenticateUser(userEmail, currentUser);
+        const { userId, token } = await authenticateUser(userEmail, userName || 'User', currentUser);
         setUserId(userId);
       } catch (error) {
         console.error('❌ Failed to authenticate:', error);
@@ -155,7 +158,7 @@ function App() {
       }
     }
     initAuth();
-  }, [isInitialized, isSignedIn, userEmail, currentUser]); // Re-run when CDP state changes
+  }, [isInitialized, isSignedIn, userEmail, userName, currentUser]); // Re-run when CDP state changes
 
   // Fetch the agent list first to get the ID
   const { data: agentsData } = useQuery({
@@ -189,19 +192,22 @@ function App() {
         let entity;
         try {
           entity = await elizaClient.entities.getEntity(userId as any);
+          console.log('✅ Found existing user entity in database');
         } catch (error: any) {
           // Entity doesn't exist, create it
           if (error?.status === 404 || error?.code === 'NOT_FOUND') {
-            console.log('📝 Creating new user entity...');
+            console.log('📝 Creating new user entity in database...');
+            console.log('👤 Username from CDP:', userName || 'User');
+            console.log('📧 Email from CDP:', userEmail);
             entity = await elizaClient.entities.createEntity({
               id: userId as any,
               agentId: agentId as any,
-              names: ['KRIMSON'], // Default name
+              names: [userName || 'User'], // Use CDP username
               metadata: {
                 avatarUrl: '/avatars/user_krimson.png',
                 email: userEmail || '',
                 walletAddress,
-                displayName: 'KRIMSON',
+                displayName: userName || 'User',
                 bio: 'DeFi Enthusiast • Blockchain Explorer',
                 createdAt: new Date().toISOString(),
               },
@@ -210,7 +216,7 @@ function App() {
             // Set user profile state
             setUserProfile({
               avatarUrl: entity.metadata?.avatarUrl || '/avatars/user_krimson.png',
-              displayName: entity.metadata?.displayName || 'KRIMSON',
+              displayName: entity.metadata?.displayName || userName || 'User',
               bio: entity.metadata?.bio || 'DeFi Enthusiast • Blockchain Explorer',
               email: userEmail || '',
               walletAddress,
@@ -239,7 +245,7 @@ function App() {
               avatarUrl: entity.metadata?.avatarUrl || '/avatars/user_krimson.png',
               email: userEmail || entity.metadata?.email || '',
               walletAddress: walletAddress || entity.metadata?.walletAddress || '',
-              displayName: entity.metadata?.displayName || 'KRIMSON',
+              displayName: entity.metadata?.displayName || userName || 'User',
               bio: entity.metadata?.bio || 'DeFi Enthusiast • Blockchain Explorer',
               updatedAt: new Date().toISOString(),
             },
@@ -253,7 +259,7 @@ function App() {
         // Set user profile state from entity
         setUserProfile({
           avatarUrl: entity.metadata?.avatarUrl || '/avatars/user_krimson.png',
-          displayName: entity.metadata?.displayName || 'KRIMSON',
+          displayName: entity.metadata?.displayName || userName || 'User',
           bio: entity.metadata?.bio || 'DeFi Enthusiast • Blockchain Explorer',
           email: userEmail || '',
           walletAddress: walletAddress || '',
