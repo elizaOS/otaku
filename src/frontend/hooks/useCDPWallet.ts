@@ -1,4 +1,5 @@
 import { useIsSignedIn, useSignOut, useIsInitialized, useCurrentUser } from "@coinbase/cdp-hooks";
+import { resolveCdpUserInfo } from "@/lib/cdpUser";
 
 /**
  * Custom hook to access CDP wallet information
@@ -50,9 +51,8 @@ export function useCDPWallet() {
   const cdpProjectId = import.meta.env.VITE_CDP_PROJECT_ID;
   const isCdpConfigured = Boolean(cdpProjectId);
 
-  // Get user email from CDP currentUser
-  // Email is nested in authenticationMethods.email.email
-  const userEmail = (currentUser as any)?.authenticationMethods?.email?.email;
+  // Normalize user info using shared helper (DRY)
+  const { email: userEmail, username: userName } = resolveCdpUserInfo(currentUser as any, { isSignedIn });
 
   return {
     // Loading state
@@ -64,6 +64,7 @@ export function useCDPWallet() {
     
     // User info
     userEmail,
+    userName,
     currentUser, // Export currentUser for userId extraction
 
     // Actions

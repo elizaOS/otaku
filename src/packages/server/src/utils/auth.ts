@@ -11,6 +11,7 @@ if (!JWT_SECRET) {
 export interface AuthTokenPayload {
   userId: string;
   email: string;
+  username: string;
   iat: number;
   exp: number;
 }
@@ -18,19 +19,20 @@ export interface AuthTokenPayload {
 export interface AuthenticatedRequest extends Request {
   userId?: string;
   userEmail?: string;
+  username?: string;
 }
 
 /**
  * Generate JWT authentication token
  * Uses CDP's userId directly (no generation or salting needed)
  */
-export function generateAuthToken(userId: string, email: string): string {
+export function generateAuthToken(userId: string, email: string, username: string): string {
   if (!JWT_SECRET) {
     throw new Error('JWT_SECRET not configured');
   }
   
   return jwt.sign(
-    { userId, email },
+    { userId, email, username },
     JWT_SECRET,
     { expiresIn: '7d' } // Token expires in 7 days
   );
@@ -70,9 +72,10 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
     const decoded = jwt.verify(token, JWT_SECRET) as AuthTokenPayload;
     req.userId = decoded.userId;
     req.userEmail = decoded.email;
+    req.username = decoded.username;
     
     // Log successful auth (debug level to avoid spam)
-    logger.debug(`[Auth] Authenticated request from user: ${decoded.userId.substring(0, 8)}...`);
+    logger.debug(`[Auth] Authenticated request from user: ${decoded.username} (${decoded.userId.substring(0, 8)}...)`);
     
     next();
   } catch (error: any) {
@@ -120,6 +123,7 @@ export function optionalAuth(req: AuthenticatedRequest, res: Response, next: Nex
     const decoded = jwt.verify(token, JWT_SECRET) as AuthTokenPayload;
     req.userId = decoded.userId;
     req.userEmail = decoded.email;
+    req.username = decoded.username;
   } catch (error) {
     // Ignore invalid tokens for optional auth
     logger.debug('[Auth] Optional auth - invalid token ignored');

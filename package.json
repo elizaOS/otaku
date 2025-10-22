@@ -20,9 +20,9 @@
     "src/packages/*"
   ],
   "dependencies": {
-    "@coinbase/cdp-core": "^0.0.45",
-    "@coinbase/cdp-hooks": "^0.0.45",
-    "@coinbase/cdp-react": "^0.0.45",
+    "@coinbase/cdp-core": "latest",
+    "@coinbase/cdp-hooks": "latest",
+    "@coinbase/cdp-react": "latest",
     "@coinbase/cdp-sdk": "^1.38.4",
     "@elizaos/api-client": "workspace:*",
     "@elizaos/cli": "latest",

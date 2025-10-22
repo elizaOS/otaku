@@ -246,3 +246,27 @@
 .group:hover .animate-marquee-down {
   animation-play-state: paused;
 }
+
+/* CDP Modal z-index fix - ensure it's always on top */
+/* Target the root app container */
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* Target CDP's modal portal and overlays */
+body > div[style*="position: fixed"],
+body > div[style*="position:fixed"],
+body > div[class*="Modal"],
+body > div[class*="overlay"],
+body > .Modal-module__overlay,
+[data-radix-portal],
+dialog {
+  z-index: 99999 !important;
+}
+
+/* Hide CDP SignInModal's trigger button - we control it via state */
+.SignInModal-module__trigger___IcJ8x,
+button[class*="SignInModal-module__trigger"] {
+  display: none !important;
+}

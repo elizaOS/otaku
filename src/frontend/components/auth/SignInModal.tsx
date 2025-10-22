@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSignInWithEmail, useVerifyEmailOTP } from "@coinbase/cdp-hooks";
+import { SignInModal as CDPSignInModal } from '@coinbase/cdp-react';
 import { useCDPWallet } from '@/hooks/useCDPWallet';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ interface SignInModalProps {
  * 
  * Features:
  * - Email-based authentication with OTP
+ * - "More Options" button to access CDP's native modal (Google OAuth, SMS, etc.)
  * - Full-screen overlay with dimmed background
  * - Cannot be dismissed until authenticated
  * - Clear step-by-step flow
@@ -36,6 +38,7 @@ export function SignInModal({ isOpen }: SignInModalProps) {
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showCDPModal, setShowCDPModal] = useState(false);
 
   // Don't render if not open
   if (!isOpen) return null;
@@ -86,8 +89,18 @@ export function SignInModal({ isOpen }: SignInModalProps) {
     setError('');
   };
 
+  // Handle CDP modal success
+  const handleCDPModalSuccess = () => {
+    console.log("✅ CDP modal authentication successful");
+    setShowCDPModal(false);
+    // The authentication state will be picked up by App.tsx useEffect
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+    <>
+      {/* Custom Email OTP Modal - Hide when CDP modal is open */}
+      {!showCDPModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
        <Card className="w-full max-w-md mx-4 bg-background">
          <CardHeader className="flex items-center justify-between pl-3 pr-1">
             <CardTitle className="flex items-center gap-2.5 text-sm font-medium uppercase">
@@ -173,6 +186,28 @@ export function SignInModal({ isOpen }: SignInModalProps) {
               >
                 {isLoading ? 'Sending...' : 'Send Verification Code'}
               </Button>
+
+              {/* Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-pop px-2 text-muted-foreground">
+                    Or
+                  </span>
+                </div>
+              </div>
+
+              {/* More Options Button - Opens CDP Modal with Google OAuth */}
+              <Button 
+                onClick={() => setShowCDPModal(true)} 
+                variant="outline"
+                className="w-full"
+                disabled={!isInitialized || isLoading}
+              >
+                {!isInitialized ? 'Initializing...' : 'More Options (Google, SMS)'}
+              </Button>
             </div>
           )}
 
@@ -192,6 +227,17 @@ export function SignInModal({ isOpen }: SignInModalProps) {
         </CardContent>
       </Card>
     </div>
+      )}
+
+      {/* CDP Native Modal - Opens when "More Options" is clicked */}
+      {showCDPModal && (
+        <CDPSignInModal 
+          open={showCDPModal}
+          setIsOpen={setShowCDPModal}
+          onSuccess={handleCDPModalSuccess}
+        />
+      )}
+    </>
   );
 }
 

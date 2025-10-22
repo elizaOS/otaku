@@ -1,10 +1,9 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import { logger } from '@elizaos/core';
 import { sendError, sendSuccess } from '../shared/response-utils';
 import { generateAuthToken, type AuthenticatedRequest } from '../../utils/auth';
-import jwt from 'jsonwebtoken';
-
-export function createAuthRouter() {
+export function createAuthRouter(): express.Router {
   const router = express.Router();
   
   /**
@@ -15,16 +14,18 @@ export function createAuthRouter() {
    * 
    * Request body:
    * - email: string (user's email from CDP)
+   * - username: string (user's display name from CDP)
    * - cdpUserId: string (CDP's user identifier - UUID)
    * 
    * Response:
    * - token: string (JWT token for authenticated requests)
    * - userId: string (same as cdpUserId)
+   * - username: string (user's display name)
    * - expiresIn: string (token expiration time)
    */
   router.post('/login', async (req, res) => {
     try {
-      const { email, cdpUserId } = req.body;
+      const { email, username, cdpUserId } = req.body;
       
       // Validate email
       if (!email || typeof email !== 'string') {
@@ -34,6 +35,11 @@ export function createAuthRouter() {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
         return sendError(res, 400, 'INVALID_EMAIL', 'Invalid email format');
+      }
+      
+      // Validate username
+      if (!username || typeof username !== 'string') {
+        return sendError(res, 400, 'INVALID_REQUEST', 'Username is required');
       }
       
       // Validate CDP userId
@@ -50,14 +56,15 @@ export function createAuthRouter() {
       // Use CDP's userId directly (no generation needed)
       const userId = cdpUserId;
       
-      // Generate JWT token
-      const token = generateAuthToken(userId, email);
+      // Generate JWT token with email and username
+      const token = generateAuthToken(userId, email, username);
       
-      logger.info(`[Auth] User authenticated: ${email} (userId: ${userId.substring(0, 8)}...)`);
+      logger.info(`[Auth] User authenticated: ${username} (${email}) (userId: ${userId.substring(0, 8)}...)`);
       
       return sendSuccess(res, {
         token,
         userId,
+        username,
         expiresIn: '7d'
       });
     } catch (error: any) {
@@ -100,13 +107,14 @@ export function createAuthRouter() {
         const decoded = jwt.verify(oldToken, JWT_SECRET) as any;
         
         // Issue new token with extended expiration
-        const newToken = generateAuthToken(decoded.userId, decoded.email);
+        const newToken = generateAuthToken(decoded.userId, decoded.email, decoded.username);
         
-        logger.info(`[Auth] Token refreshed for userId: ${decoded.userId.substring(0, 8)}...`);
+        logger.info(`[Auth] Token refreshed for: ${decoded.username} (userId: ${decoded.userId.substring(0, 8)}...)`);
         
         return sendSuccess(res, {
           token: newToken,
           userId: decoded.userId,
+          username: decoded.username,
           expiresIn: '7d'
         });
       } catch (error: any) {
@@ -153,7 +161,8 @@ export function createAuthRouter() {
         
         return sendSuccess(res, {
           userId: decoded.userId,
-          email: decoded.email
+          email: decoded.email,
+          username: decoded.username
         });
       } catch (error: any) {
         return sendError(res, 401, 'INVALID_TOKEN', 'Invalid or expired token');
