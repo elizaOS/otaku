@@ -6,64 +6,14 @@ import {
   type HandlerCallback,
   type ActionResult,
   logger,
-  ModelType,
-  composePromptFromState,
-  parseKeyValueXml,
 } from "@elizaos/core";
 import { parseUnits } from "viem";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
 import { type CdpNetwork } from "../types";
 
-const transferTemplate = `# Token Transfer Request
+import { ActionWithParams } from "../../../types";
 
-## Conversation Context
-{{recentMessages}}
-
-## Supported Networks
-- base (default - use if not specified)
-- ethereum
-- arbitrum
-- optimism
-- polygon
-
-## Instructions
-Extract the transfer details EXACTLY as the user stated them. Do not modify or normalize token names.
-
-**Rules:**
-1. **To Address**: Must be a valid 0x address (42 characters)
-2. **Token**: Extract token symbol EXACTLY as user typed it (e.g., if user says "USDC", output "USDC"; if user says "wlfi", output "wlfi")
-3. **Network**: Omit the <network> tag if user doesn't mention a specific network
-4. **Amount vs Percentage**:
-   - Specific amount (e.g., "send 10 USDC") → use <amount>10</amount>
-   - Percentage (e.g., "send half my tokens", "send all my USDC") → use <percentage> tag
-   - For "all"/"max"/"everything" → <percentage>100</percentage>
-   - For "half" → <percentage>50</percentage>
-   - Use ONLY ONE: <amount> OR <percentage>, never both
-
-Respond with the transfer parameters in this exact format:
-
-Example 1 (specific amount):
-<response>
-  <to>0x1234567890123456789012345678901234567890</to>
-  <token>USDC</token>
-  <amount>10.5</amount>
-</response>
-
-Example 2 (percentage with network):
-<response>
-  <network>base</network>
-  <to>0x1234567890123456789012345678901234567890</to>
-  <token>wlfi</token>
-  <percentage>50</percentage>
-</response>
-
-Example 3 (user input: "send 5 eth to 0xabc..."):
-<response>
-  <to>0xabc123...</to>
-  <token>eth</token>
-  <amount>5</amount>
-</response>`;
 
 interface TransferParams {
   network?: CdpNetwork;
@@ -73,58 +23,7 @@ interface TransferParams {
   percentage?: number; // Percentage of balance (mutually exclusive with amount)
 }
 
-const parseTransferParams = (text: string): TransferParams | null => {
-  const parsed = parseKeyValueXml(text);
-  
-  if (!parsed?.to || !parsed?.token) {
-    logger.warn(`Missing required transfer parameters: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  // Must have either amount OR percentage, but not both
-  const hasAmount = !!parsed.amount;
-  const hasPercentage = !!parsed.percentage;
-
-  if (!hasAmount && !hasPercentage) {
-    logger.warn(`Must specify either amount or percentage: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  if (hasAmount && hasPercentage) {
-    logger.warn(`Cannot specify both amount and percentage: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  // Validate recipient address
-  const to = parsed.to.trim();
-  if (!to.startsWith("0x") || to.length !== 42) {
-    logger.warn(`Invalid recipient address: ${to}`);
-    return null;
-  }
-
-  const transferParams: TransferParams = {
-    network: parsed.network ? (parsed.network as CdpNetwork) : undefined,
-    to: to as `0x${string}`,
-    token: parsed.token.toLowerCase(),
-  };
-
-  if (hasAmount) {
-    transferParams.amount = parsed.amount;
-  } else {
-    transferParams.percentage = parseFloat(parsed.percentage);
-    // Validate percentage is between 0 and 100
-    if (transferParams.percentage <= 0 || transferParams.percentage > 100) {
-      logger.warn(`Invalid percentage value: ${transferParams.percentage}`);
-      return null;
-    }
-  }
-
-  return transferParams;
-};
-
-// use strict resolver from utils
-
-export const cdpWalletTransfer: Action = {
+export const cdpWalletTransfer: ActionWithParams = {
   name: "USER_WALLET_TRANSFER",
   similes: [
     "SEND",
@@ -134,7 +33,37 @@ export const cdpWalletTransfer: Action = {
     "TRANSFER_TOKENS_CDP",
     "PAY_WITH_CDP",
   ],
-  description: "Use this action when you need to transfer tokens.",
+  description: "Use this action when you need to transfer tokens from user's wallet.",
+  
+  // Parameter schema for tool calling
+  parameters: {
+    to: {
+      type: "string",
+      description: "Recipient wallet address (must be a valid 0x address, 42 characters)",
+      required: true,
+    },
+    token: {
+      type: "string",
+      description: "Token symbol or address to transfer (e.g., 'USDC', 'ETH', 'wlfi', or '0x...')",
+      required: true,
+    },
+    amount: {
+      type: "string",
+      description: "Specific amount to transfer (e.g., '10.5'). Use this OR percentage, not both.",
+      required: false,
+    },
+    percentage: {
+      type: "number",
+      description: "Percentage of balance to transfer (0-100). Use this OR amount, not both. For 'all'/'max' use 100, for 'half' use 50.",
+      required: false,
+    },
+    network: {
+      type: "string",
+      description: "Network to execute transfer on: 'base', 'ethereum', 'arbitrum', 'optimism', or 'polygon' (optional, will auto-detect from wallet if not specified)",
+      required: false,
+    },
+  },
+  
   validate: async (_runtime: IAgentRuntime, message: Memory) => {
     try {
       // Check if CDP service is available
@@ -143,14 +72,14 @@ export const cdpWalletTransfer: Action = {
       ) as CdpService;
 
       if (!cdpService) {
-        logger.warn("CDP service not available for transfer");
+        logger.warn("[USER_WALLET_TRANSFER] CDP service not available");
         return false;
       }
 
       return true;
     } catch (error) {
       logger.error(
-        "Error validating transfer action:",
+        "[USER_WALLET_TRANSFER] Error validating action:",
         error instanceof Error ? error.message : String(error),
       );
       return false;
@@ -163,14 +92,30 @@ export const cdpWalletTransfer: Action = {
     _options?: Record<string, unknown>,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
+    logger.info("[USER_WALLET_TRANSFER] Handler invoked");
+    
     try {
+      logger.debug("[USER_WALLET_TRANSFER] Retrieving CDP service");
       const cdpService = runtime.getService(CdpService.serviceType) as CdpService;
       
       if (!cdpService) {
-        throw new Error("CDP Service not initialized");
+        const errorMsg = "CDP Service not initialized";
+        logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "service_unavailable",
+          input: {},
+        } as ActionResult & { input: {} };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "service_unavailable", details: errorMsg }
+        });
+        return errorResult;
       }
 
       // Ensure the user has a wallet saved
+      logger.debug("[USER_WALLET_TRANSFER] Verifying entity wallet");
       const walletResult = await getEntityWallet(
         runtime,
         message,
@@ -178,30 +123,163 @@ export const cdpWalletTransfer: Action = {
         callback,
       );
       if (walletResult.success === false) {
-        return walletResult.result;
+        logger.warn("[USER_WALLET_TRANSFER] Entity wallet verification failed");
+        return {
+          ...walletResult.result,
+          input: {},
+        } as ActionResult & { input: {} };
       }
 
       const accountName = walletResult.metadata?.accountName as string;
       if (!accountName) {
-        throw new Error("Could not find account name for wallet");
+        const errorMsg = "Could not find account name for wallet";
+        logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_account_name",
+          input: {},
+        } as ActionResult & { input: {} };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_account_name", details: errorMsg }
+        });
+        return errorResult;
+      }
+      logger.debug("[USER_WALLET_TRANSFER] Entity wallet verified successfully");
+
+      // Read parameters from state (extracted by multiStepDecisionTemplate)
+      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+      const params = composedState?.data?.actionParams || {};
+
+      // Validate required parameters
+      const toParam = params?.to?.trim();
+      const tokenParam = params?.token?.trim();
+
+      if (!toParam) {
+        const errorMsg = "Missing required parameter 'to'. Please specify the recipient wallet address (0x...).";
+        logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_required_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_required_parameter", details: errorMsg }
+        });
+        return errorResult;
       }
 
-      // Compose state and get transfer parameters from LLM
-      const composedState = await runtime.composeState(message, ["RECENT_MESSAGES"], true);
-      const context = composePromptFromState({
-        state: composedState,
-        template: transferTemplate,
-      });
-
-      const xmlResponse = await runtime.useModel(ModelType.TEXT_LARGE, {
-        prompt: context,
-      });
-
-      const transferParams = parseTransferParams(xmlResponse);
-      
-      if (!transferParams) {
-        throw new Error("Failed to parse transfer parameters from request");
+      // Validate recipient address format
+      if (!toParam.startsWith("0x") || toParam.length !== 42) {
+        const errorMsg = `Invalid recipient address: ${toParam}. Address must start with '0x' and be 42 characters long.`;
+        logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "invalid_address",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "invalid_address", details: errorMsg }
+        });
+        return errorResult;
       }
+
+      if (!tokenParam) {
+        const errorMsg = "Missing required parameter 'token'. Please specify which token to transfer (e.g., 'USDC', 'ETH').";
+        logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_required_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_required_parameter", details: errorMsg }
+        });
+        return errorResult;
+      }
+
+      // Validate that we have either amount OR percentage
+      const hasAmount = !!params?.amount;
+      const hasPercentage = !!params?.percentage;
+
+      if (!hasAmount && !hasPercentage) {
+        const errorMsg = "Must specify either 'amount' or 'percentage'. Please specify how much to transfer (e.g., '10' or 50%).";
+        logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_required_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_required_parameter", details: errorMsg }
+        });
+        return errorResult;
+      }
+
+      if (hasAmount && hasPercentage) {
+        const errorMsg = "Cannot specify both 'amount' and 'percentage'. Please use only one.";
+        logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "invalid_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "invalid_parameter", details: errorMsg }
+        });
+        return errorResult;
+      }
+
+      // Parse transfer parameters
+      const transferParams: TransferParams = {
+        network: params?.network ? (params.network as CdpNetwork) : undefined,
+        to: toParam as `0x${string}`,
+        token: tokenParam.toLowerCase(),
+      };
+
+      if (hasAmount) {
+        transferParams.amount = params.amount;
+      } else {
+        transferParams.percentage = parseFloat(params.percentage);
+        // Validate percentage is between 0 and 100
+        if (transferParams.percentage <= 0 || transferParams.percentage > 100) {
+          const errorMsg = `Invalid percentage value: ${transferParams.percentage}. Must be between 0 and 100.`;
+          logger.error(`[USER_WALLET_TRANSFER] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "invalid_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "invalid_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+      }
+
+      // Store input parameters for return
+      const inputParams = {
+        to: transferParams.to,
+        token: transferParams.token,
+        amount: transferParams.amount,
+        percentage: transferParams.percentage,
+        network: transferParams.network,
+      };
+
+      logger.info(`[USER_WALLET_TRANSFER] Transfer parameters: ${JSON.stringify(transferParams)}`);
 
       logger.info(`[USER_WALLET_TRANSFER] Looking up token in wallet: ${transferParams.token}`);
 
@@ -359,33 +437,53 @@ export const cdpWalletTransfer: Action = {
           amount: amountToTransfer,
           percentage: transferParams.percentage,
         },
-      };
+        input: inputParams,
+      } as ActionResult & { input: typeof inputParams };
     } catch (error) {
-      logger.error("[USER_WALLET_TRANSFER] Error:", error instanceof Error ? error.message : String(error));
+      logger.error("[USER_WALLET_TRANSFER] Action failed:", error instanceof Error ? error.message : String(error));
       
-      let errorMessage = "❌ Transfer failed";
+      let errorMessage = "Transfer failed";
+      let errorCode = "action_failed";
+      
       if (error instanceof Error) {
         if (error.message.includes("insufficient")) {
-          errorMessage = "❌ Insufficient balance for this transfer";
+          errorMessage = "Insufficient balance for this transfer";
+          errorCode = "insufficient_balance";
         } else if (error.message.includes("invalid address")) {
-          errorMessage = "❌ Invalid recipient address";
+          errorMessage = "Invalid recipient address";
+          errorCode = "invalid_address";
         } else if (error.message.includes("not found in your wallet")) {
-          errorMessage = `❌ ${error.message}`;
+          errorMessage = error.message;
+          errorCode = "token_not_found";
         } else {
-          errorMessage = `❌ Transfer failed: ${error.message}`;
+          errorMessage = `Transfer failed: ${error.message}`;
         }
       }
       
+      const errorText = `❌ ${errorMessage}`;
+      
+      // Try to capture input params even in failure
+      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+      const params = composedState?.data?.actionParams || {};
+      const failureInputParams = {
+        to: params?.to,
+        token: params?.token,
+        amount: params?.amount,
+        percentage: params?.percentage,
+        network: params?.network,
+      };
+      
       callback?.({
-        text: errorMessage,
-        content: { error: errorMessage },
+        text: errorText,
+        content: { error: errorCode, details: errorMessage },
       });
       
       return {
-        text: errorMessage,
+        text: errorText,
         success: false,
-        error: error as Error,
-      };
+        error: errorCode,
+        input: failureInputParams,
+      } as ActionResult & { input: typeof failureInputParams };
     }
   },
   examples: [

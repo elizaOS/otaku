@@ -1,39 +1,16 @@
 import {
-    type Action,
     type ActionResult,
-    composePromptFromState,
     type HandlerCallback,
     type IAgentRuntime,
     type Memory,
-    ModelType,
-    parseKeyValueXml,
     type State,
     logger,
 } from "@elizaos/core";
+import { ActionWithParams } from "../../../../types";
 import { WebSearchService } from "../services/webSearchService";
 import type { SearchResult } from "../types";
 
 const DEFAULT_MAX_WEB_SEARCH_CHARS = 16000;
-
-const webSearchTemplate = `# Web Search Request
-
-## Conversation Context
-{{recentMessages}}
-
-## Instructions
-- Determine the user's intended web search query from the conversation context.
-- If applicable, include optional parameters. Keep them simple and only when clearly requested by the user.
-
-Respond ONLY with the following XML format:
-<response>
-    <query>the exact query to search</query>
-    <type>news|general</type>
-    <limit>3</limit>
-    <includeImages>false</includeImages>
-    <searchDepth>basic</searchDepth>
-    <days>3</days>
-    <includeAnswer>true</includeAnswer>
-</response>`;
 
 function MaxTokens(
     data: string,
@@ -43,7 +20,7 @@ function MaxTokens(
     return data.length > maxTokens ? data.slice(0, maxTokens) : data;
 }
 
-export const webSearch: Action = {
+export const webSearch: ActionWithParams = {
     name: "WEB_SEARCH",
     similes: [
         "SEARCH_WEB",
@@ -58,7 +35,17 @@ export const webSearch: Action = {
     ],
     suppressInitialMessage: true,
     description:
-        "Use this action when other actions/providers can’t provide accurate or current info, or when facts must be confirmed via the web.",
+        "Use this action when other actions/providers can't provide accurate or current info, or when facts must be confirmed via the web.",
+    
+    // Parameter schema for tool calling
+    parameters: {
+        query: {
+            type: "string",
+            description: "The search query to look up on the web",
+            required: true,
+        },
+    },
+    
     validate: async (
         runtime: IAgentRuntime,
         _message: Memory,
@@ -85,48 +72,45 @@ export const webSearch: Action = {
                 throw new Error("WebSearchService not initialized");
             }
 
-            // Prefer query from working memory if set by multiStepDecisionTemplate
-            const composedState = await runtime.composeState(message, ["ACTION_STATE", "RECENT_MESSAGES"], true);
-            const memQuery: string | undefined = composedState?.data?.webSearch?.query;
-
-            let query: string | undefined = memQuery?.trim();
-            let parsed: Record<string, any> | null = null;
-
+            // Read parameters from state (extracted by multiStepDecisionTemplate)
+            const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+            
+            // Support both actionParams (new pattern) and webSearch (legacy pattern)
+            const params = composedState?.data?.actionParams || composedState?.data?.webSearch || {};
+            
+            // Extract and validate query parameter (required)
+            const query: string | undefined = params?.query?.trim();
+            
             if (!query) {
-                // Fallback: Build query via template + XML parsing
-                const context = composePromptFromState({ state: composedState, template: webSearchTemplate });
-                const xmlResponse = await runtime.useModel(ModelType.TEXT_LARGE, { prompt: context });
-                parsed = parseKeyValueXml(xmlResponse || "");
-                query = parsed?.query?.trim();
-            }
-            if (!query) {
+                const errorMsg = "Missing required parameter 'query'. Please specify what to search for.";
+                logger.error(`[WEB_SEARCH] ${errorMsg}`);
                 const emptyResult: ActionResult = {
-                    text: "Please specify what to search for.",
+                    text: errorMsg,
                     success: false,
-                    error: "empty_query",
+                    error: "missing_required_parameter",
                 };
                 if (callback) {
-                    callback({ text: emptyResult.text, content: { error: "empty_query" } });
+                    callback({ 
+                        text: emptyResult.text, 
+                        content: { error: "missing_required_parameter", details: errorMsg } 
+                    });
                 }
                 return emptyResult;
             }
 
-            logger.info("WEB_SEARCH query:", query);
+            logger.info(`[WEB_SEARCH] Searching for: "${query}"`);
 
-            const limit = parsed?.limit ? Number(parsed.limit) : undefined;
-            const type = (parsed?.type as "news" | "general" | undefined) ?? undefined;
-            const includeImages = typeof parsed?.includeImages === "string" ? parsed.includeImages.toLowerCase() === "true" : undefined;
-            const days = parsed?.days ? Number(parsed.days) : undefined;
-            const searchDepth = (parsed?.searchDepth as "basic" | "advanced" | undefined) ?? undefined;
-            const includeAnswer = typeof parsed?.includeAnswer === "string" ? parsed.includeAnswer.toLowerCase() === "true" : undefined;
+            // Store input parameters for return
+            const inputParams = { query };
 
+            // Use default values for all optional parameters
             const searchResponse = await webSearchService.search(query, {
-                limit,
-                type,
-                includeImages,
-                days,
-                searchDepth,
-                includeAnswer,
+                limit: 3,
+                type: undefined,
+                includeImages: false,
+                days: undefined,
+                searchDepth: "basic",
+                includeAnswer: true,
             });
 
             if (searchResponse && searchResponse.results.length) {
@@ -148,7 +132,8 @@ export const webSearch: Action = {
                     text: MaxTokens(responseList, DEFAULT_MAX_WEB_SEARCH_CHARS),
                     success: true,
                     data: searchResponse,
-                };
+                    input: inputParams,
+                } as ActionResult & { input: typeof inputParams };
 
                 if (callback) {
                     callback({ text: result.text, actions: ["WEB_SEARCH"], data: result.data });
@@ -160,22 +145,36 @@ export const webSearch: Action = {
             const noResult: ActionResult = {
                 text: "I couldn't find relevant results for that query.",
                 success: false,
-            };
+                input: inputParams,
+            } as ActionResult & { input: typeof inputParams };
 
             if (callback) {
                 callback({ text: noResult.text });
             }
             return noResult;
         } catch (error) {
-            const errMsg = (error as Error).message;
-            logger.error("WEB_SEARCH failed:", errMsg);
+            const errMsg = error instanceof Error ? error.message : String(error);
+            logger.error(`[WEB_SEARCH] Action failed: ${errMsg}`);
+            
+            // Try to capture input params even in failure
+            const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+            const params = composedState?.data?.actionParams || composedState?.data?.webSearch || {};
+            const failureInputParams = {
+                query: params?.query,
+            };
+            
             const errorResult: ActionResult = {
                 text: `Web search failed: ${errMsg}`,
                 success: false,
                 error: errMsg,
-            };
+                input: failureInputParams,
+            } as ActionResult & { input: typeof failureInputParams };
+            
             if (callback) {
-                callback({ text: errorResult.text, content: { error: "web_search_failed", details: errMsg } });
+                callback({ 
+                    text: errorResult.text, 
+                    content: { error: "web_search_failed", details: errMsg } 
+                });
             }
             return errorResult;
         }
@@ -283,4 +282,4 @@ export const webSearch: Action = {
             },
         ],
     ],
-} as Action;
+} as ActionWithParams;

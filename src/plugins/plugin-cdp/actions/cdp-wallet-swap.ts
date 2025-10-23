@@ -6,69 +6,13 @@ import {
   type HandlerCallback,
   type ActionResult,
   logger,
-  ModelType,
-  composePromptFromState,
-  parseKeyValueXml,
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
 import { getTokenMetadata, getTokenDecimals, resolveTokenSymbol } from "../utils/coingecko";
 import { type CdpNetwork } from "../types";
+import { ActionWithParams } from "../../../types";
 
-const swapTemplate = `# CDP Token Swap Request
-
-## Conversation Context
-{{recentMessages}}
-
-## Available Networks
-- base (default - use if not specified)
-- ethereum
-- arbitrum
-- optimism
-- polygon
-
-## Instructions
-Extract the swap details EXACTLY as the user stated them. Do not modify, normalize, or convert token names.
-
-**Rules:**
-1. **Network**: Use "base" if user doesn't mention a network
-2. **Tokens**: Extract token symbols or addresses EXACTLY as user typed them (e.g., if user says "MATIC", output "MATIC"; if user says "lgns", output "lgns")
-3. **Amount vs Percentage**:
-   - Specific amount (e.g., "swap 2 MATIC") → use <amount>2</amount>
-   - Percentage (e.g., "swap half my MATIC", "swap all my tokens", "swap 80%") → use <percentage> tag
-   - For "all"/"max"/"everything" → <percentage>100</percentage>
-   - For "half" → <percentage>50</percentage>
-   - Use ONLY ONE: <amount> OR <percentage>, never both
-4. **Slippage**: Always use <slippageBps>100</slippageBps> (1% slippage)
-
-Respond with the swap parameters in this exact format:
-
-Example 1 (specific amount):
-<response>
-  <network>base</network>
-  <fromToken>USDC</fromToken>
-  <toToken>ETH</toToken>
-  <amount>100</amount>
-  <slippageBps>100</slippageBps>
-</response>
-
-Example 2 (percentage):
-<response>
-  <network>polygon</network>
-  <fromToken>MATIC</fromToken>
-  <toToken>lgns</toToken>
-  <percentage>50</percentage>
-  <slippageBps>100</slippageBps>
-</response>
-
-Example 3 (user input: "swap 2 matic to lgns"):
-<response>
-  <network>base</network>
-  <fromToken>matic</fromToken>
-  <toToken>lgns</toToken>
-  <amount>2</amount>
-  <slippageBps>100</slippageBps>
-</response>`;
 
 interface SwapParams {
   network: CdpNetwork;
@@ -78,53 +22,6 @@ interface SwapParams {
   percentage?: number; // Percentage of balance (mutually exclusive with amount)
   slippageBps?: number;
 }
-
-const parseSwapParams = (text: string): SwapParams | null => {
-  console.log("Parsing swap parameters from XML response");
-  const parsed = parseKeyValueXml(text);
-  console.log(`Parsed XML data: ${JSON.stringify(parsed)}`);
-  
-  // Network defaults to "base" if not provided
-  if (!parsed?.fromToken || !parsed?.toToken) {
-    logger.warn(`Missing required swap parameters: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  // Must have either amount OR percentage, but not both
-  const hasAmount = !!parsed.amount;
-  const hasPercentage = !!parsed.percentage;
-
-  if (!hasAmount && !hasPercentage) {
-    logger.warn(`Must specify either amount or percentage: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  if (hasAmount && hasPercentage) {
-    logger.warn(`Cannot specify both amount and percentage: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  const swapParams: SwapParams = {
-    network: (parsed.network || "base") as SwapParams["network"],
-    fromToken: parsed.fromToken.trim(),
-    toToken: parsed.toToken.trim(),
-    slippageBps: parsed.slippageBps ? parseInt(parsed.slippageBps) : 100,
-  };
-
-  if (hasAmount) {
-    swapParams.amount = parsed.amount;
-  } else {
-    swapParams.percentage = parseFloat(parsed.percentage);
-    // Validate percentage is between 0 and 100
-    if (swapParams.percentage <= 0 || swapParams.percentage > 100) {
-      logger.warn(`Invalid percentage value: ${swapParams.percentage}`);
-      return null;
-    }
-  }
-  
-  logger.debug(`Formatted swap parameters: ${JSON.stringify(swapParams)}`);
-  return swapParams;
-};
 
 /**
  * Native token placeholder address for CDP swaps
@@ -243,7 +140,7 @@ const resolveTokenToAddress = async (
  * Reference: https://docs.cdp.coinbase.com/trade-api/quickstart#3-execute-a-swap
  */
 
-export const cdpWalletSwap: Action = {
+export const cdpWalletSwap: ActionWithParams = {
   name: "USER_WALLET_SWAP",
   similes: [
     "SWAP",
@@ -253,7 +150,37 @@ export const cdpWalletSwap: Action = {
     "TRADE_TOKENS_CDP",
     "EXCHANGE_TOKENS_CDP",
   ],
-  description: "Use this action when you need to swap tokens.",
+  description: "Use this action when you need to swap tokens from user's wallet.",
+  
+  // Parameter schema for tool calling
+  parameters: {
+    fromToken: {
+      type: "string",
+      description: "Source token symbol or address to swap from (e.g., 'USDC', 'ETH', or '0x...')",
+      required: true,
+    },
+    toToken: {
+      type: "string",
+      description: "Destination token symbol or address to swap to (e.g., 'ETH', 'USDC', or '0x...')",
+      required: true,
+    },
+    amount: {
+      type: "string",
+      description: "Specific amount to swap (e.g., '100'). Use this OR percentage, not both.",
+      required: false,
+    },
+    percentage: {
+      type: "number",
+      description: "Percentage of balance to swap (0-100). Use this OR amount, not both. For 'all'/'max' use 100, for 'half' use 50.",
+      required: false,
+    },
+    network: {
+      type: "string",
+      description: "Network to execute swap on: 'base', 'ethereum', 'arbitrum', 'optimism', or 'polygon' (default: 'base')",
+      required: false,
+    },
+  },
+  
   validate: async (_runtime: IAgentRuntime, message: Memory) => {
     try {
       // Check if services are available
@@ -262,14 +189,14 @@ export const cdpWalletSwap: Action = {
       ) as CdpService;
 
       if (!cdpService) {
-        logger.warn("Required services not available for token deployment");
+        logger.warn("[USER_WALLET_SWAP] CDP service not available");
         return false;
       }
 
       return true;
     } catch (error) {
       logger.error(
-        "Error validating token deployment action:",
+        "[USER_WALLET_SWAP] Error validating action:",
         error instanceof Error ? error.message : String(error),
       );
       return false;
@@ -282,21 +209,31 @@ export const cdpWalletSwap: Action = {
     _options?: Record<string, unknown>,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
-    logger.info("USER_WALLET_SWAP handler invoked");
-    logger.debug(`Message content: ${JSON.stringify(message.content)}`);
+    logger.info("[USER_WALLET_SWAP] Handler invoked");
     
     try {
-      logger.debug("Retrieving CDP service");
+      logger.debug("[USER_WALLET_SWAP] Retrieving CDP service");
       const cdpService = runtime.getService(CdpService.serviceType) as CdpService;
       
       if (!cdpService) {
-        logger.error("CDP Service not initialized");
-        throw new Error("CDP Service not initialized");
+        const errorMsg = "CDP Service not initialized";
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "service_unavailable",
+          input: {},
+        } as ActionResult & { input: {} };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "service_unavailable", details: errorMsg }
+        });
+        return errorResult;
       }
-      logger.debug("CDP service retrieved successfully");
+      logger.debug("[USER_WALLET_SWAP] CDP service retrieved successfully");
 
       // Ensure the user has a wallet saved
-      logger.debug("Verifying entity wallet for:", message.entityId);
+      logger.debug("[USER_WALLET_SWAP] Verifying entity wallet");
       const walletResult = await getEntityWallet(
         runtime,
         message,
@@ -304,60 +241,191 @@ export const cdpWalletSwap: Action = {
         callback,
       );
       if (walletResult.success === false) {
-        logger.warn("Entity wallet verification failed");
-        return walletResult.result;
+        logger.warn("[USER_WALLET_SWAP] Entity wallet verification failed");
+        return {
+          ...walletResult.result,
+          input: {},
+        } as ActionResult & { input: {} };
       }
       const accountName = walletResult.metadata?.accountName as string;
       if (!accountName) {
-        throw new Error("Could not find account name for wallet");
+        const errorMsg = "Could not find account name for wallet";
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_account_name",
+          input: {},
+        } as ActionResult & { input: {} };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_account_name", details: errorMsg }
+        });
+        return errorResult;
       }
-      logger.debug("Entity wallet verified successfully");
+      logger.debug("[USER_WALLET_SWAP] Entity wallet verified successfully");
 
-      // Compose state and get swap parameters from LLM
-      logger.debug("Composing state for LLM prompt");
-      const composedState = await runtime.composeState(message, ["RECENT_MESSAGES"], true);
-      const context = composePromptFromState({
-        state: composedState,
-        template: swapTemplate,
-      });
-      logger.debug("Composed prompt context");
+      // Read parameters from state (extracted by multiStepDecisionTemplate)
+      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+      const params = composedState?.data?.actionParams || {};
 
-      logger.debug("Calling LLM to extract swap parameters");
-      const xmlResponse = await runtime.useModel(ModelType.TEXT_LARGE, {
-        prompt: context,
-      });
-      logger.debug("LLM response received:", xmlResponse);
+      // Validate required parameters
+      const fromTokenParam = params?.fromToken?.trim();
+      const toTokenParam = params?.toToken?.trim();
 
-      const swapParams = parseSwapParams(xmlResponse);
-      
-      if (!swapParams) {
-        logger.error("Failed to parse swap parameters from LLM response");
-        throw new Error("Failed to parse swap parameters from request");
+      if (!fromTokenParam) {
+        const errorMsg = "Missing required parameter 'fromToken'. Please specify which token to swap from (e.g., 'USDC', 'ETH').";
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_required_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_required_parameter", details: errorMsg }
+        });
+        return errorResult;
       }
-      logger.info(`Swap parameters parsed successfully: ${JSON.stringify(swapParams)}`);
+
+      if (!toTokenParam) {
+        const errorMsg = "Missing required parameter 'toToken'. Please specify which token to swap to (e.g., 'ETH', 'USDC').";
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_required_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_required_parameter", details: errorMsg }
+        });
+        return errorResult;
+      }
+
+      // Validate that we have either amount OR percentage
+      const hasAmount = !!params?.amount;
+      const hasPercentage = !!params?.percentage;
+
+      if (!hasAmount && !hasPercentage) {
+        const errorMsg = "Must specify either 'amount' or 'percentage'. Please specify how much to swap (e.g., '100' or 50%).";
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_required_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_required_parameter", details: errorMsg }
+        });
+        return errorResult;
+      }
+
+      if (hasAmount && hasPercentage) {
+        const errorMsg = "Cannot specify both 'amount' and 'percentage'. Please use only one.";
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "invalid_parameter",
+          input: params,
+        } as ActionResult & { input: typeof params };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "invalid_parameter", details: errorMsg }
+        });
+        return errorResult;
+      }
+
+      // Parse swap parameters with defaults
+      const swapParams: SwapParams = {
+        network: (params?.network || "base") as CdpNetwork,
+        fromToken: fromTokenParam,
+        toToken: toTokenParam,
+        slippageBps: 100, // Default 1% slippage
+      };
+
+      if (hasAmount) {
+        swapParams.amount = params.amount;
+      } else {
+        swapParams.percentage = parseFloat(params.percentage);
+        // Validate percentage is between 0 and 100
+        if (swapParams.percentage <= 0 || swapParams.percentage > 100) {
+          const errorMsg = `Invalid percentage value: ${swapParams.percentage}. Must be between 0 and 100.`;
+          logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "invalid_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "invalid_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+      }
+
+      // Store input parameters for return
+      const inputParams = {
+        fromToken: swapParams.fromToken,
+        toToken: swapParams.toToken,
+        amount: swapParams.amount,
+        percentage: swapParams.percentage,
+        network: swapParams.network,
+      };
+
+      logger.info(`[USER_WALLET_SWAP] Swap parameters: ${JSON.stringify(swapParams)}`);
 
       // Resolve token symbols to addresses using CoinGecko
-      logger.debug("Resolving token addresses");
+      logger.debug("[USER_WALLET_SWAP] Resolving token addresses");
       const fromTokenResolved = await resolveTokenToAddress(swapParams.fromToken, swapParams.network);
       const toTokenResolved = await resolveTokenToAddress(swapParams.toToken, swapParams.network);
       
       if (!fromTokenResolved) {
-        logger.error(`Could not resolve source token: ${swapParams.fromToken}`);
-        throw new Error(`Could not resolve source token: ${swapParams.fromToken}`);
+        const errorMsg = `Could not resolve source token: ${swapParams.fromToken}`;
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "token_resolution_failed",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "token_resolution_failed", details: errorMsg }
+        });
+        return errorResult;
       }
       if (!toTokenResolved) {
-        logger.error(`Could not resolve destination token: ${swapParams.toToken}`);
-        throw new Error(`Could not resolve destination token: ${swapParams.toToken}`);
+        const errorMsg = `Could not resolve destination token: ${swapParams.toToken}`;
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "token_resolution_failed",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "token_resolution_failed", details: errorMsg }
+        });
+        return errorResult;
       }
 
       const fromToken = fromTokenResolved;
       const toToken = toTokenResolved;
-      logger.debug(`Token addresses resolved: ${JSON.stringify({ fromToken, toToken })}`);
+      logger.debug(`[USER_WALLET_SWAP] Token addresses resolved: ${fromToken} -> ${toToken}`);
 
       // Get decimals for the source token from CoinGecko
-      logger.debug(`Fetching decimals for source token: ${fromToken}`);
+      logger.debug(`[USER_WALLET_SWAP] Fetching decimals for source token: ${fromToken}`);
       const decimals = await getTokenDecimals(fromToken, swapParams.network);
-      logger.debug(`Token decimals: ${decimals}`);
+      logger.debug(`[USER_WALLET_SWAP] Token decimals: ${decimals}`);
 
       // Determine the amount to swap (either specific amount or percentage of balance)
       let amountToSwap: string;
@@ -411,10 +479,10 @@ export const cdpWalletSwap: Action = {
       const amountInWei = parseUnits(amountToSwap, decimals);
       logger.debug(`Amount in wei: ${amountInWei.toString()}`);
 
-      logger.info(`Executing CDP swap: network=${swapParams.network}, fromToken=${fromToken}, toToken=${toToken}, amount=${amountToSwap}, slippageBps=${swapParams.slippageBps}`);
+      logger.info(`[USER_WALLET_SWAP] Executing CDP swap: network=${swapParams.network}, fromToken=${fromToken}, toToken=${toToken}, amount=${amountToSwap}, slippageBps=${swapParams.slippageBps}`);
 
       // Execute the swap using CDP service
-      logger.debug(`Calling CDP service swap method`);
+      logger.debug(`[USER_WALLET_SWAP] Calling CDP service swap method`);
       
       const result = await cdpService.swap({
         accountName,
@@ -425,15 +493,15 @@ export const cdpWalletSwap: Action = {
         slippageBps: swapParams.slippageBps,
       });
       
-      logger.info("CDP swap executed successfully");
-      logger.debug(`Swap result: ${JSON.stringify(result)}`);
+      logger.info("[USER_WALLET_SWAP] CDP swap executed successfully");
+      logger.debug(`[USER_WALLET_SWAP] Swap result: ${JSON.stringify(result)}`);
 
       const successText = `✅ Successfully swapped ${amountToSwap} tokens on ${swapParams.network}\n` +
                          `Transaction Hash: ${result.transactionHash}\n` +
                          `From: ${fromToken}\n` +
                          `To: ${toToken}`;
 
-      logger.debug("Sending success callback");
+      logger.debug("[USER_WALLET_SWAP] Sending success callback");
       callback?.({
         text: successText,
         content: {
@@ -446,7 +514,7 @@ export const cdpWalletSwap: Action = {
         },
       });
 
-      logger.debug("Returning success result");
+      logger.debug("[USER_WALLET_SWAP] Returning success result");
       return {
         text: successText,
         success: true,
@@ -462,14 +530,15 @@ export const cdpWalletSwap: Action = {
           swapSuccess: true,
           transactionHash: result.transactionHash,
         },
-      };
+        input: inputParams,
+      } as ActionResult & { input: typeof inputParams };
     } catch (error) {
-      logger.error("USER_WALLET_SWAP error:", error instanceof Error ? error.message : String(error));
-      logger.error("Error stack:", error instanceof Error ? error.stack : "No stack trace available");
+      logger.error("[USER_WALLET_SWAP] Action failed:", error instanceof Error ? error.message : String(error));
+      logger.error("[USER_WALLET_SWAP] Error stack:", error instanceof Error ? error.stack : "No stack trace available");
       
       let errorMessage = "Failed to execute swap.";
       if (error instanceof Error) {
-        logger.debug(`Processing error message: ${error.message}`);
+        logger.debug(`[USER_WALLET_SWAP] Processing error message: ${error.message}`);
         if (error.message.includes("insufficient")) {
           errorMessage = "Insufficient balance for this swap.";
         } else if (error.message.includes("slippage")) {
@@ -481,17 +550,30 @@ export const cdpWalletSwap: Action = {
         }
       }
       
-      logger.debug(`Sending error callback: ${errorMessage}`);
+      // Try to capture input params even in failure
+      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+      const params = composedState?.data?.actionParams || {};
+      const failureInputParams = {
+        fromToken: params?.fromToken,
+        toToken: params?.toToken,
+        amount: params?.amount,
+        percentage: params?.percentage,
+        network: params?.network,
+      };
+      
+      logger.debug(`[USER_WALLET_SWAP] Sending error callback: ${errorMessage}`);
       callback?.({
-        text: errorMessage,
-        content: { error: "user_wallet_swap_failed" },
+        text: `❌ ${errorMessage}`,
+        content: { error: "action_failed", details: errorMessage },
       });
       
-      logger.debug("Returning error result");
+      logger.debug("[USER_WALLET_SWAP] Returning error result");
       return {
-        text: errorMessage,
+        text: `❌ ${errorMessage}`,
         success: false,
-      };
+        error: errorMessage,
+        input: failureInputParams,
+      } as ActionResult & { input: typeof failureInputParams };
     }
   },
   examples: [

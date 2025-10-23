@@ -1,5 +1,44 @@
 import type { Action, IAgentRuntime, Memory, Provider, State } from '@elizaos/core';
-import { addHeader, composeActionExamples, formatActionNames, formatActions } from '@elizaos/core';
+import { addHeader, composeActionExamples, formatActionNames } from '@elizaos/core';
+
+// Extend Action type to include parameters for tool calling
+interface ActionWithParams extends Action {
+  parameters?: Record<string, {
+    type: string;
+    description: string;
+    required: boolean;
+  }>;
+}
+
+/**
+ * Formats actions with their parameter schemas for tool calling.
+ * This is an enhanced version that includes parameter information.
+ */
+function formatActionsWithParams(actions: Action[]): string {
+  return actions.map(action => {
+    const actionWithParams = action as ActionWithParams;
+    let formatted = `## ${action.name}\n${action.description}`;
+    
+    // Check if action has parameters defined
+    if (actionWithParams.parameters !== undefined) {
+      const paramEntries = Object.entries(actionWithParams.parameters);
+      
+      if (paramEntries.length === 0) {
+        // Action explicitly has no parameters
+        formatted += '\n\n**Parameters:** None (can be called directly without parameters)';
+      } else {
+        // Action has parameters - list them
+        formatted += '\n\n**Parameters:**';
+        for (const [paramName, paramDef] of paramEntries) {
+          const required = paramDef.required ? '(required)' : '(optional)';
+          formatted += `\n- \`${paramName}\` ${required}: ${paramDef.type} - ${paramDef.description}`;
+        }
+      }
+    }
+    
+    return formatted;
+  }).join('\n\n---\n\n');
+}
 
 /**
  * A provider object that fetches possible response actions based on the provided runtime, message, and state.
@@ -58,8 +97,14 @@ export const actionsProvider: Provider = {
     // Format action-related texts
     const actionNames = `Possible response actions: ${formatActionNames(actionsData)}`;
 
+    // Use the enhanced formatter that includes parameter schemas
     const actionsWithDescriptions =
-      actionsData.length > 0 ? addHeader('# Available Actions (List of callable tools/functions the assistant can execute)', formatActions(actionsData)) : '';
+      actionsData.length > 0 
+        ? addHeader(
+            '# Available Actions (List of callable tools/functions the assistant can execute)', 
+            formatActionsWithParams(actionsData)
+          ) 
+        : '';
 
     const actionExamples =
       actionsData.length > 0

@@ -9,8 +9,9 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
+import { ActionWithParams } from "../../../types";
 
-export const cdpWalletInfo: Action = {
+export const cdpWalletInfo: ActionWithParams = {
   name: "USER_WALLET_INFO",
   similes: [
     "USER_WALLET_DETAILS",
@@ -26,8 +27,12 @@ export const cdpWalletInfo: Action = {
     "VIEW_WALLET",
     "WALLET_ASSETS",
   ],
-  description: 
-    "Use this action only when you need the user's wallet balance, NFTs, and tokens.",
+  description:
+    "Retrieves the user's latest wallet data including balances, tokens, and NFTs. Use this action to get up-to-date wallet information or to confirm wallet status after a transaction.",
+
+  // No parameters needed - operates on the user's own wallet
+  parameters: {},
+  
   validate: async (_runtime: IAgentRuntime, message: Memory) => {
     try {
       // Check if CDP service is available
@@ -36,14 +41,14 @@ export const cdpWalletInfo: Action = {
       ) as CdpService;
 
       if (!cdpService) {
-        logger.warn("CDP service not available for wallet info");
+        logger.warn("[USER_WALLET_INFO] CDP service not available");
         return false;
       }
 
       return true;
     } catch (error) {
       logger.error(
-        "Error validating wallet info action:",
+        "[USER_WALLET_INFO] Error validating action:",
         error instanceof Error ? error.message : String(error),
       );
       return false;
@@ -57,6 +62,11 @@ export const cdpWalletInfo: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
+      logger.info("[USER_WALLET_INFO] Fetching user wallet information");
+      
+      // Store input parameters for return (empty for this action)
+      const inputParams = {};
+
       const wallet = await getEntityWallet(
         runtime,
         message,
@@ -65,24 +75,48 @@ export const cdpWalletInfo: Action = {
       );
 
       if (wallet.success === false) {
-        return wallet.result;
+        logger.error("[USER_WALLET_INFO] Failed to get entity wallet");
+        return {
+          ...wallet.result,
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
       }
 
       const accountName = wallet.metadata?.accountName as string;
 
       if (!accountName) {
-        const errorText = "❌ Could not find account name for wallet";
-        callback?.({ text: errorText });
-        return { text: errorText, success: false };
+        const errorMsg = "Could not find account name for wallet";
+        logger.error(`[USER_WALLET_INFO] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "missing_account_name",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "missing_account_name", details: errorMsg }
+        });
+        return errorResult;
       }
       
       // Get CDP service
       const cdpService = runtime.getService(CdpService.serviceType) as CdpService;
       
       if (!cdpService) {
-        const errorText = "❌ CDP service not available";
-        callback?.({ text: errorText });
-        return { text: errorText, success: false };
+        const errorMsg = "CDP service not available";
+        logger.error(`[USER_WALLET_INFO] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "service_unavailable",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "service_unavailable", details: errorMsg }
+        });
+        return errorResult;
       }
 
       // Fetch comprehensive wallet info (always fresh data)
@@ -90,6 +124,8 @@ export const cdpWalletInfo: Action = {
       callback?.({ text: "🔍 Fetching your wallet information..." });
 
       const walletInfo = await cdpService.fetchWalletInfo(accountName);
+
+      logger.info(`[USER_WALLET_INFO] Successfully fetched wallet info: ${walletInfo.tokens.length} tokens, ${walletInfo.nfts.length} NFTs, $${walletInfo.totalUsdValue.toFixed(2)} total value`);
 
       // Format the response
       let text = `💼 **Wallet Information**\n\n`;
@@ -157,36 +193,43 @@ export const cdpWalletInfo: Action = {
         }
       }
 
-      callback?.({ 
-        text, 
-        content: { 
-          address: walletInfo.address,
-          tokens: walletInfo.tokens,
-          nfts: walletInfo.nfts,
-          totalUsdValue: walletInfo.totalUsdValue,
-        } 
-      });
-
       const data = {
         address: walletInfo.address,
-          tokens: walletInfo.tokens,
-          nfts: walletInfo.nfts,
-          totalUsdValue: walletInfo.totalUsdValue,
-      }
+        tokens: walletInfo.tokens,
+        nfts: walletInfo.nfts,
+        totalUsdValue: walletInfo.totalUsdValue,
+      };
+
+      callback?.({ 
+        text, 
+        content: data
+      });
 
       return { 
         text, 
         success: true, 
         data,
-        values: data
-      };
+        values: data,
+        input: inputParams,
+      } as ActionResult & { input: typeof inputParams };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error("[USER_WALLET_INFO] Error:", errorMessage);
+      logger.error("[USER_WALLET_INFO] Action failed:", errorMessage);
       
       const errorText = `❌ Failed to fetch wallet info: ${errorMessage}`;
-      callback?.({ text: errorText });
-      return { text: errorText, success: false };
+      const errorResult: ActionResult = {
+        text: errorText,
+        success: false,
+        error: errorMessage,
+        input: {},
+      } as ActionResult & { input: {} };
+      
+      callback?.({ 
+        text: errorText,
+        content: { error: "action_failed", details: errorMessage }
+      });
+      
+      return errorResult;
     }
   },
   examples: [

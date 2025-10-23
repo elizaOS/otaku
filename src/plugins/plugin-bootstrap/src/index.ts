@@ -105,7 +105,8 @@ This indicates whether the user has a configured Coinbase CDP wallet and include
 In each step, decide:
 
 1. **Which action (if any)** should be executed after providers return.
-2. Decide whether the task is complete. If so, set \`isFinish: true\`.
+2. **Extract the parameters** needed for that action from the conversation context.
+3. Decide whether the task is complete. If so, set \`isFinish: true\`.
 
 You can select at most **one action** per step.
 
@@ -120,13 +121,17 @@ These are the actions calls that have already been used in this run. Use this to
 {{actionResults}}
 
 <keys>
-"thought" Clearly explain your reasoning for the selected providers and/or action, and how this step contributes to resolving the user's request.
-"action"  Name of the action to execute after providers return (must be selected from the list of **Available Actions** shown above; can be empty if no action is needed).
+"thought" Clearly explain your reasoning for the selected action and parameters, and how this step contributes to resolving the user's request.
+"action"  Name of the action to execute (must be selected from the list of **Available Actions** shown above; can be empty if no action is needed).
+"parameters" JSON object containing the parameters for the action. Follow the parameter schema defined in the action above. Extract values from the conversation context. Required parameters must be provided. If the action has "Parameters: None", provide an empty object: {}
 "isFinish" Set to true only if the task is fully complete.
-"searchQuery" If the selected action is WEB_SEARCH, optionally provide the precise web search query to run.
 </keys>
 
-⚠️ IMPORTANT: Do **not** mark the task as \`isFinish: true\` immediately after calling an action. Wait for the action to complete before deciding the task is finished.
+⚠️ IMPORTANT: 
+- Extract all required parameters from the user's message and conversation context
+- Follow the exact parameter names and types defined in the action's parameter schema
+- If an action says "Parameters: None", provide an empty parameters object: {}
+- Do **not** mark the task as \`isFinish: true\` immediately after calling an action. Wait for the action to complete before deciding the task is finished.
 
 - Your final output MUST be in this XML format:
 
@@ -134,8 +139,13 @@ These are the actions calls that have already been used in this run. Use this to
 <response>
   <thought>Your thought here</thought>
   <action>ACTION</action>
+  <parameters>
+    {
+      "param1": "value1",
+      "param2": value2
+    }
+  </parameters>
   <isFinish>true | false</isFinish>
-  <searchQuery>Optional specific query for WEB_SEARCH</searchQuery>
 </response>
 </output>`;
 
@@ -1064,7 +1074,6 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       state: accumulatedState,
       template: runtime.character.templates?.multiStepDecisionTemplate || multiStepDecisionTemplate,
     });
-
     const stepResultRaw = await runtime.useModel(ModelType.TEXT_LARGE, { prompt });
     const parsedStep = parseKeyValueXml(stepResultRaw);
 
@@ -1078,7 +1087,7 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       break;
     }
 
-    const { thought, providers = [], action, isFinish, searchQuery } = parsedStep as any;
+    const { thought, providers = [], action, isFinish, parameters } = parsedStep as any;
 
     // Check for completion condition
     if (isFinish === 'true' || isFinish === true) {
@@ -1105,13 +1114,38 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       if (!accumulatedState.data) accumulatedState.data = {} as any;
       if (!accumulatedState.data.workingMemory) accumulatedState.data.workingMemory = {} as any;
 
-      // If action is WEB_SEARCH and we have an explicit searchQuery from the template, store it
-      if (typeof action === 'string' && action.toUpperCase() === 'WEB_SEARCH' && searchQuery) {
-        accumulatedState.data.webSearch = {
-          query: String(searchQuery),
+      // Parse and store parameters if provided
+      let actionParams = {};
+      if (parameters) {
+        if (typeof parameters === 'string') {
+          try {
+            actionParams = JSON.parse(parameters);
+            runtime.logger.debug(`[MultiStep] Parsed parameters: ${JSON.stringify(actionParams)}`);
+          } catch (e) {
+            runtime.logger.warn(`[MultiStep] Failed to parse parameters JSON: ${parameters}`);
+          }
+        } else if (typeof parameters === 'object') {
+          actionParams = parameters;
+          runtime.logger.debug(`[MultiStep] Using parameters object: ${JSON.stringify(actionParams)}`);
+        }
+      }
+
+      // Store parameters in state for action to consume
+      if (action && Object.keys(actionParams).length > 0) {
+        accumulatedState.data.actionParams = actionParams;
+        
+        // Also support action-specific namespaces for backwards compatibility
+        // e.g., webSearch for WEB_SEARCH action
+        const actionKey = action.toLowerCase().replace(/_/g, '');
+        accumulatedState.data[actionKey] = {
+          ...actionParams,
           source: 'multiStepDecisionTemplate',
           timestamp: Date.now(),
         };
+        
+        runtime.logger.info(
+          `[MultiStep] Stored parameters for ${action}: ${JSON.stringify(actionParams)}`
+        );
       }
       for (const providerName of providers) {
         const provider = runtime.providers.find((p: Provider) => p.name === providerName);

@@ -1,13 +1,10 @@
 import {
   type Action,
   type ActionResult,
-  composePromptFromState,
   type HandlerCallback,
   type IAgentRuntime,
   logger,
   type Memory,
-  ModelType,
-  parseKeyValueXml,
   type State
 } from "@elizaos/core";
 import type { Execute } from "@relayprotocol/relay-sdk";
@@ -29,6 +26,7 @@ import { getTokenDecimals, resolveTokenToAddress } from "../utils/token-resolver
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
+import { ActionWithParams } from "../../../../types";
 
 // Supported chains mapping
 const SUPPORTED_CHAINS: Record<string, Chain> = {
@@ -78,25 +76,6 @@ interface QuoteParams {
   tradeType?: "EXACT_INPUT" | "EXACT_OUTPUT";
 }
 
-const parseQuoteParams = (text: string): QuoteParams | null => {
-  const parsed = parseKeyValueXml(text);
-  
-  if (!parsed?.originChain || !parsed?.destinationChain || !parsed?.currency || !parsed?.amount) {
-    console.warn(`Missing required quote parameters: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  return {
-    originChain: parsed.originChain.toLowerCase().trim(),
-    destinationChain: parsed.destinationChain.toLowerCase().trim(),
-    currency: parsed.currency.toLowerCase().trim(),
-    toCurrency: parsed.toCurrency?.toLowerCase().trim(),
-    amount: parsed.amount,
-    recipient: parsed.recipient?.trim(),
-    tradeType: (parsed.tradeType || "EXACT_INPUT") as "EXACT_INPUT" | "EXACT_OUTPUT",
-  };
-};
-
 /**
  * Resolve chain name to chain ID using viem chains
  */
@@ -112,42 +91,7 @@ const resolveChainNameToId = (chainName: string): number | null => {
   return chain.id;
 };
 
-const quoteTemplate = `# Cross-Chain Quote Request
-
-## Conversation Context
-{{recentMessages}}
-
-## Available Networks
-- ethereum (Ethereum Mainnet)
-- base (Base)
-- arbitrum (Arbitrum One)
-- polygon (Polygon)
-- optimism (Optimism)
-- zora (Zora)
-- blast (Blast)
-- scroll (Scroll)
-- linea (Linea)
-
-## Instructions
-Determine and extract the user's quote details from the conversation context.
-
-**Important Notes:**
-- Use lowercase chain names ONLY (e.g., "ethereum", "base", "arbitrum")
-- Do NOT provide chain IDs - only chain names
-- For amounts, use human-readable format (e.g., "0.1" for 0.1 ETH, NOT in wei)
-- Use token symbols (eth, usdc, usdt, weth, etc.)
-
-Respond with the quote parameters in this exact format:
-<response>
-  <originChain>ethereum</originChain>
-  <destinationChain>base</destinationChain>
-  <currency>eth</currency>
-  <toCurrency>eth</toCurrency>
-  <amount>0.1</amount>
-  <tradeType>EXACT_INPUT</tradeType>
-</response>`;
-
-export const relayQuoteAction: Action = {
+export const relayQuoteAction: ActionWithParams = {
   name: "GET_RELAY_QUOTE",
   description: "Use this action when you need a cross-chain bridge/swap quote.",
   similes: [
@@ -158,6 +102,45 @@ export const relayQuoteAction: Action = {
     "ESTIMATE_BRIDGE_COST",
   ],
 
+  // Parameter schema for tool calling
+  parameters: {
+    originChain: {
+      type: "string",
+      description: "Origin chain name (ethereum, base, arbitrum, polygon, optimism, zora, blast, scroll, or linea)",
+      required: true,
+    },
+    destinationChain: {
+      type: "string",
+      description: "Destination chain name (ethereum, base, arbitrum, polygon, optimism, zora, blast, scroll, or linea)",
+      required: true,
+    },
+    currency: {
+      type: "string",
+      description: "Token symbol to bridge (e.g., 'eth', 'usdc', 'usdt', 'weth')",
+      required: true,
+    },
+    toCurrency: {
+      type: "string",
+      description: "Destination token symbol (defaults to same as currency if not specified)",
+      required: false,
+    },
+    amount: {
+      type: "string",
+      description: "Amount to bridge in human-readable format (e.g., '0.1' for 0.1 ETH, not in wei)",
+      required: true,
+    },
+    recipient: {
+      type: "string",
+      description: "Recipient address on destination chain (defaults to user's address if not specified)",
+      required: false,
+    },
+    tradeType: {
+      type: "string",
+      description: "Trade type: 'EXACT_INPUT' or 'EXACT_OUTPUT' (default: 'EXACT_INPUT')",
+      required: false,
+    },
+  },
+
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
     try {
       // Check if services are available
@@ -166,14 +149,14 @@ export const relayQuoteAction: Action = {
       ) as RelayService;
 
       if (!relayService) {
-        logger.warn("Required services not available for token deployment");
+        logger.warn("[GET_RELAY_QUOTE] Relay service not available");
         return false;
       }
 
       return true;
     } catch (error) {
       logger.error(
-        "Error validating token deployment action:",
+        "[GET_RELAY_QUOTE] Error validating action:",
         error instanceof Error ? error.message : String(error),
       );
       return false;
@@ -183,40 +166,166 @@ export const relayQuoteAction: Action = {
     handler: async (
       runtime: IAgentRuntime,
       message: Memory,
-      state: State,
+      state?: State,
       options?: { [key: string]: unknown },
       callback?: HandlerCallback
     ): Promise<ActionResult> => {
+      logger.info("[GET_RELAY_QUOTE] Handler invoked");
+      
       try {
         // Get Relay service
         const relayService = runtime.getService<RelayService>(RelayService.serviceType);
 
         if (!relayService) {
-          throw new Error("Relay service not initialized");
+          const errorMsg = "Relay service not initialized";
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          
+          // Try to capture input params even in early failure
+          let earlyFailureInput = {};
+          try {
+            const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+            const params = composedState?.data?.actionParams || {};
+            earlyFailureInput = {
+              originChain: params?.originChain,
+              destinationChain: params?.destinationChain,
+              currency: params?.currency,
+              toCurrency: params?.toCurrency,
+              amount: params?.amount,
+              recipient: params?.recipient,
+              tradeType: params?.tradeType,
+            };
+          } catch (e) {
+            // If we can't get params, just use empty object
+          }
+          
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "service_unavailable",
+            input: earlyFailureInput,
+          } as ActionResult & { input: typeof earlyFailureInput };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "service_unavailable", details: errorMsg }
+          });
+          return errorResult;
         }
 
-        // Compose state and get quote parameters from LLM
-        const composedState = await runtime.composeState(message, ["RECENT_MESSAGES"], true);
-        const context = composePromptFromState({
-          state: composedState,
-          template: quoteTemplate,
-        });
+        // Read parameters from state (extracted by multiStepDecisionTemplate)
+        const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+        const params = composedState?.data?.actionParams || {};
 
-        // Extract quote parameters using LLM
-        const xmlResponse = await runtime.useModel(ModelType.TEXT_LARGE, {
-          prompt: context,
-        });
+        // Validate required parameters
+        const originChain = params?.originChain?.toLowerCase().trim();
+        const destinationChain = params?.destinationChain?.toLowerCase().trim();
+        const currency = params?.currency?.toLowerCase().trim();
+        const amount = params?.amount?.trim();
 
-        const quoteParams = parseQuoteParams(xmlResponse);
-
-        if (!quoteParams) {
-          throw new Error("Failed to parse quote parameters from request");
+        if (!originChain) {
+          const errorMsg = "Missing required parameter 'originChain'. Please specify the origin chain (e.g., 'ethereum', 'base').";
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
         }
+
+        if (!destinationChain) {
+          const errorMsg = "Missing required parameter 'destinationChain'. Please specify the destination chain (e.g., 'base', 'arbitrum').";
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+
+        if (!currency) {
+          const errorMsg = "Missing required parameter 'currency'. Please specify the token to bridge (e.g., 'eth', 'usdc').";
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+
+        if (!amount) {
+          const errorMsg = "Missing required parameter 'amount'. Please specify the amount to bridge (e.g., '0.1').";
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+
+        // Parse quote parameters with defaults
+        const quoteParams: QuoteParams = {
+          originChain,
+          destinationChain,
+          currency,
+          toCurrency: params?.toCurrency?.toLowerCase().trim() || currency,
+          amount,
+          recipient: params?.recipient?.trim(),
+          tradeType: (params?.tradeType || "EXACT_INPUT") as "EXACT_INPUT" | "EXACT_OUTPUT",
+        };
+
+        // Store input parameters for return
+        const inputParams = {
+          originChain: quoteParams.originChain,
+          destinationChain: quoteParams.destinationChain,
+          currency: quoteParams.currency,
+          toCurrency: quoteParams.toCurrency,
+          amount: quoteParams.amount,
+          recipient: quoteParams.recipient,
+          tradeType: quoteParams.tradeType,
+        };
+
+        logger.info(`[GET_RELAY_QUOTE] Quote parameters: ${JSON.stringify(quoteParams)}`);
 
         const cdp = runtime.getService?.("CDP_SERVICE") as CdpService;
         if (!cdp || typeof cdp.getViemClientsForAccount !== "function") {
-          throw new Error("CDP not available");
+          const errorMsg = "CDP service not available";
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "service_unavailable",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "service_unavailable", details: errorMsg }
+          });
+          return errorResult;
         }
+
         const wallet = await getEntityWallet(
           runtime,
           message,
@@ -225,13 +334,29 @@ export const relayQuoteAction: Action = {
         );
 
         if (wallet.success === false) {
-          return wallet.result;
+          logger.warn("[GET_RELAY_QUOTE] Entity wallet verification failed");
+          return {
+            ...wallet.result,
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
         }
 
         const accountName = wallet.metadata?.accountName as string | undefined;
 
         if (!accountName) {
-          throw new Error("Could not resolve user wallet for quote generation");
+          const errorMsg = "Could not resolve user wallet for quote generation";
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_account_name",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_account_name", details: errorMsg }
+          });
+          return errorResult;
         }
 
         const cdpNetwork = resolveCdpNetwork(quoteParams.originChain);
@@ -247,11 +372,35 @@ export const relayQuoteAction: Action = {
         const destinationChainId = resolveChainNameToId(quoteParams.destinationChain);
 
         if (!originChainId) {
-          throw new Error(`Unsupported origin chain: ${quoteParams.originChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`);
+          const errorMsg = `Unsupported origin chain: ${quoteParams.originChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`;
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "unsupported_chain",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "unsupported_chain", details: errorMsg }
+          });
+          return errorResult;
         }
 
         if (!destinationChainId) {
-          throw new Error(`Unsupported destination chain: ${quoteParams.destinationChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`);
+          const errorMsg = `Unsupported destination chain: ${quoteParams.destinationChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`;
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "unsupported_chain",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "unsupported_chain", details: errorMsg }
+          });
+          return errorResult;
         }
 
         // Resolve token symbols to contract addresses
@@ -260,11 +409,35 @@ export const relayQuoteAction: Action = {
         const toCurrencyAddress = await resolveTokenToAddress(toCurrencySymbol, quoteParams.destinationChain);
 
         if (!currencyAddress) {
-          throw new Error(`Could not resolve currency: ${quoteParams.currency} on ${quoteParams.originChain}`);
+          const errorMsg = `Could not resolve currency: ${quoteParams.currency} on ${quoteParams.originChain}`;
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "token_resolution_failed",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "token_resolution_failed", details: errorMsg }
+          });
+          return errorResult;
         }
 
         if (!toCurrencyAddress) {
-          throw new Error(`Could not resolve destination currency: ${toCurrencySymbol} on ${quoteParams.destinationChain}`);
+          const errorMsg = `Could not resolve destination currency: ${toCurrencySymbol} on ${quoteParams.destinationChain}`;
+          logger.error(`[GET_RELAY_QUOTE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "token_resolution_failed",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "token_resolution_failed", details: errorMsg }
+          });
+          return errorResult;
         }
 
         // Get token decimals for proper amount conversion
@@ -304,14 +477,16 @@ export const relayQuoteAction: Action = {
       };
 
       // Format response
+      const responseText = formatQuoteResponse(
+        quote as Execute, 
+        originChainId, 
+        destinationChainId,
+        quoteParams.amount,
+        quoteParams.currency
+      );
+      
       const response: ActionResult = {
-        text: formatQuoteResponse(
-          quote as Execute, 
-          originChainId, 
-          destinationChainId,
-          quoteParams.amount,
-          quoteParams.currency
-        ),
+        text: responseText,
         success: true,
         data: serializeBigInt({
           quote,
@@ -322,34 +497,51 @@ export const relayQuoteAction: Action = {
             amountInWei: amountInWei.toString(),
           },
         }),
-      };
+        input: inputParams,
+      } as ActionResult & { input: typeof inputParams };
 
-      if (callback) {
-        callback({
-          text: response.text,
-          actions: ["GET_RELAY_QUOTE"],
-          source: message.content.source,
-          data: response.data,
-        });
-      }
+      callback?.({
+        text: response.text,
+        actions: ["GET_RELAY_QUOTE"],
+        source: message.content.source,
+        data: response.data,
+      });
 
         return response;
       } catch (error: unknown) {
         const errorMessage = (error as Error).message;
-        logger.error(`Relay quote failed: ${errorMessage}`);
+        logger.error(`[GET_RELAY_QUOTE] Action failed: ${errorMessage}`);
       
-      const errorResponse: ActionResult = {
-        text: `Failed to get Relay quote: ${errorMessage}`,
-        success: false,
-        error: errorMessage,
-      };
-
-      if (callback) {
-        callback({
-          text: errorResponse.text,
-          content: { error: "relay_quote_failed", details: errorMessage },
-        });
+      // Try to capture input params even in failure
+      let catchFailureInput = {};
+      try {
+        const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+        const params = composedState?.data?.actionParams || {};
+        catchFailureInput = {
+          originChain: params?.originChain,
+          destinationChain: params?.destinationChain,
+          currency: params?.currency,
+          toCurrency: params?.toCurrency,
+          amount: params?.amount,
+          recipient: params?.recipient,
+          tradeType: params?.tradeType,
+        };
+      } catch (e) {
+        // If we can't get params, just use empty object
       }
+      
+      const errorText = `❌ Failed to get Relay quote: ${errorMessage}`;
+      const errorResponse: ActionResult = {
+        text: errorText,
+        success: false,
+        error: "action_failed",
+        input: catchFailureInput,
+      } as ActionResult & { input: typeof catchFailureInput };
+
+      callback?.({
+        text: errorResponse.text,
+        content: { error: "relay_quote_failed", details: errorMessage },
+      });
 
       return errorResponse;
     }

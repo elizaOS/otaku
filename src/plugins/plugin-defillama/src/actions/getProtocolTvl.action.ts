@@ -5,41 +5,14 @@ import {
   IAgentRuntime,
   Memory,
   State,
-  ModelType,
-  composePromptFromState,
-  parseKeyValueXml,
   logger,
 } from "@elizaos/core";
 import { DefiLlamaService } from "../services/defillama.service";
+import { ActionWithParams } from "../../../../types";
 
-function getProtocolNamesXmlTemplate(userText: string): string {
-  return `<task>
-Identify the DeFi protocol names or symbols requested by the user, using recent context to disambiguate, but selecting only what the latest user request asks to fetch now.
-</task>
+// Extend Action type to support parameter schemas for tool calling
 
-## Recent Conversation
-{{recentMessages}}
-
-## Latest User Message
-${userText}
-
-<instructions>
-Return only this exact XML (no extra text):
-
-<response>
-  <names>PROTOCOL1, PROTOCOL2</names>
-</response>
-
-Rules:
-- Focus on the latest user message intent; extract only the protocols the user is asking to fetch or compare now (e.g., "Compare EIGEN/MORPHO TVL").
-- Use earlier messages only to resolve pronouns or vague references (e.g., "those", "same ones").
-- Extract DeFi protocol names or tickers/symbols (e.g., MORPHO, EIGEN, Aave, Curve). Do NOT extract token contract addresses here.
-- Use comma-separated values, no explanations.
-- Remove duplicates while preserving order of mention.
-</instructions>`;
-}
-
-export const getProtocolTvlAction: Action = {
+export const getProtocolTvlAction: ActionWithParams = {
   name: "GET_PROTOCOL_TVL",
   similes: [
     "PROTOCOL_TVL",
@@ -49,6 +22,15 @@ export const getProtocolTvlAction: Action = {
   ],
   description:
     "Use this action to fetch DeFi protocol TVL and change metrics by protocol name or symbol.",
+
+  // Parameter schema for tool calling
+  parameters: {
+    protocols: {
+      type: "string",
+      description: "Comma-separated list of DeFi protocol names or symbols (e.g., 'Aave,Curve' or 'EIGEN,MORPHO')",
+      required: true,
+    },
+  },
 
   validate: async (runtime: IAgentRuntime): Promise<boolean> => {
     const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
@@ -68,32 +50,102 @@ export const getProtocolTvlAction: Action = {
   ): Promise<ActionResult> => {
     try {
       const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
-      if (!svc) throw new Error("DefiLlamaService not available");
+      if (!svc) {
+        throw new Error("DefiLlamaService not available");
+      }
 
-      const composedState = await runtime.composeState(message, ["RECENT_MESSAGES"], true);
-      const userText = message.content.text || "";
-      const prompt = composePromptFromState({ state: composedState, template: getProtocolNamesXmlTemplate(userText) });
-      const raw = await runtime.useModel(ModelType.TEXT_LARGE, { prompt });
-      const parsed = parseKeyValueXml(raw);
+      // Read parameters from state (extracted by multiStepDecisionTemplate)
+      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+      const params = composedState?.data?.actionParams || {};
 
-      const namesRaw: string = parsed?.names || "";
-      if (!namesRaw) throw new Error("No protocol names found in user message");
+      // Extract and validate protocols parameter (required)
+      const protocolsRaw: string | undefined = params?.protocols?.trim();
 
-      const names = namesRaw
+      if (!protocolsRaw) {
+        const errorMsg = "Missing required parameter 'protocols'. Please specify which DeFi protocol(s) to fetch TVL for (e.g., 'Aave,Curve' or 'EIGEN,MORPHO').";
+        logger.error(`[GET_PROTOCOL_TVL] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: errorMsg,
+          success: false,
+          error: "missing_required_parameter",
+        };
+        if (callback) {
+          await callback({
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg },
+          });
+        }
+        return errorResult;
+      }
+
+      // Parse comma-separated protocol names
+      const names = protocolsRaw
         .split(",")
         .map((s: string) => s.trim())
         .filter(Boolean);
-      if (!names.length) throw new Error("No valid protocol names parsed from message");
 
+      if (!names.length) {
+        const errorMsg = "No valid protocol names found. Please provide DeFi protocol names or symbols.";
+        logger.error(`[GET_PROTOCOL_TVL] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: errorMsg,
+          success: false,
+          error: "invalid_parameter",
+        };
+        if (callback) {
+          await callback({
+            text: errorResult.text,
+            content: { error: "invalid_parameter", details: errorMsg },
+          });
+        }
+        return errorResult;
+      }
+
+      logger.info(`[GET_PROTOCOL_TVL] Fetching TVL for: ${names.join(", ")}`);
+
+      // Store input parameters for return
+      const inputParams = { protocols: protocolsRaw };
+
+      // Fetch protocol TVL data
       const results = await svc.getProtocolsByNames(names);
+      
       if (!Array.isArray(results) || results.length === 0) {
-        throw new Error("No protocols matched the provided names");
+        const errorMsg = "No protocols matched the provided names";
+        logger.error(`[GET_PROTOCOL_TVL] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: errorMsg,
+          success: false,
+          error: "no_results",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+        if (callback) {
+          await callback({
+            text: errorResult.text,
+            content: { error: "no_results", details: errorMsg },
+          });
+        }
+        return errorResult;
       }
 
       const successes = results.filter((r: any) => r && r.success && r.data);
       const failed = results.filter((r: any) => !r || !r.success);
+      
       if (successes.length === 0) {
-        throw new Error("No protocols matched the provided names");
+        const errorMsg = "No protocols matched the provided names";
+        logger.error(`[GET_PROTOCOL_TVL] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: errorMsg,
+          success: false,
+          error: "no_matches",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+        if (callback) {
+          await callback({
+            text: errorResult.text,
+            content: { error: "no_matches", details: errorMsg },
+          });
+        }
+        return errorResult;
       }
 
       const messageText = failed.length > 0
@@ -114,15 +166,33 @@ export const getProtocolTvlAction: Action = {
         success: true,
         data: results, // full per-input results including errors
         values: successes.map((r: any) => r.data), // successful shaped protocols only
-      };
+        input: inputParams,
+      } as ActionResult & { input: typeof inputParams };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      logger.error(`[GET_PROTOCOL_TVL] ${msg}`);
-      return {
-        text: `Failed: ${msg}`,
-        success: false,
-        error: error as Error,
+      logger.error(`[GET_PROTOCOL_TVL] Action failed: ${msg}`);
+      
+      // Try to capture input params even in failure
+      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+      const params = composedState?.data?.actionParams || {};
+      const failureInputParams = {
+        protocols: params?.protocols,
       };
+      
+      const errorResult: ActionResult = {
+        text: `Failed to fetch protocol TVL: ${msg}`,
+        success: false,
+        error: msg,
+        input: failureInputParams,
+      } as ActionResult & { input: typeof failureInputParams };
+      
+      if (callback) {
+        await callback({
+          text: errorResult.text,
+          content: { error: "action_failed", details: msg },
+        });
+      }
+      return errorResult;
     }
   },
 
@@ -130,7 +200,7 @@ export const getProtocolTvlAction: Action = {
     [
       {
         name: "{{user}}",
-        content: { text: "Compare EIGEN/MORPHO TVL" },
+        content: { text: "Compare EIGEN and MORPHO TVL" },
       },
       {
         name: "{{agent}}",
@@ -143,7 +213,7 @@ export const getProtocolTvlAction: Action = {
     [
       {
         name: "{{user}}",
-        content: { text: "What is the TVL of Aave and Curve right now?" },
+        content: { text: "What is the TVL of Aave and Curve?" },
       },
       {
         name: "{{agent}}",

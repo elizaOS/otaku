@@ -6,9 +6,6 @@ import {
   type State,
   type HandlerCallback,
   type ActionResult,
-  composePromptFromState,
-  parseKeyValueXml,
-  ModelType,
 } from "@elizaos/core";
 import { 
   mainnet, 
@@ -30,61 +27,7 @@ import type { ProgressData } from "@relayprotocol/relay-sdk";
 import { resolveTokenToAddress, getTokenDecimals } from "../utils/token-resolver";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
-
-const parseBridgeParams = (text: string): BridgeRequest | null => {
-  const parsed = parseKeyValueXml(text);
-  
-  if (!parsed?.originChain || !parsed?.destinationChain || !parsed?.currency || !parsed?.amount) {
-    console.warn(`Missing required bridge parameters: ${JSON.stringify({ parsed })}`);
-    return null;
-  }
-
-  return {
-    originChain: parsed.originChain.toLowerCase().trim(),
-    destinationChain: parsed.destinationChain.toLowerCase().trim(),
-    currency: parsed.currency.toLowerCase().trim(),
-    amount: parsed.amount,
-    recipient: parsed.recipient?.trim() || undefined,
-    useExactInput: parsed.useExactInput !== "false",
-    useExternalLiquidity: parsed.useExternalLiquidity === "true",
-    referrer: parsed.referrer?.trim() || undefined,
-  };
-};
-
-const bridgeTemplate = `# Cross-Chain Bridge Request
-
-## Conversation Context
-{{recentMessages}}
-
-## Available Networks
-- ethereum (Ethereum Mainnet)
-- base (Base)
-- arbitrum (Arbitrum One)
-- polygon (Polygon)
-- optimism (Optimism)
-- zora (Zora)
-- blast (Blast)
-- scroll (Scroll)
-- linea (Linea)
-
-## Instructions
-Determine and extract the user's bridge details from the conversation context.
-
-**Important Notes:**
-- Use lowercase chain names ONLY (e.g., "ethereum", "base", "arbitrum")
-- Do NOT provide chain IDs - only chain names
-- For amounts, use human-readable format (e.g., "0.5" for 0.5 ETH, NOT in wei)
-- Use token symbols (eth, usdc, usdt, weth, etc.)
-
-Respond with the bridge parameters in this exact format:
-<response>
-  <originChain>ethereum</originChain>
-  <destinationChain>base</destinationChain>
-  <currency>eth</currency>
-  <amount>0.5</amount>
-  <useExactInput>true</useExactInput>
-  <useExternalLiquidity>false</useExternalLiquidity>
-</response>`;
+import { ActionWithParams } from "../../../../types";
 
 // Supported chains mapping
 const SUPPORTED_CHAINS: Record<string, Chain> = {
@@ -140,7 +83,7 @@ const resolveChainNameToId = (chainName: string): number | null => {
   return chain.id;
 };
 
-export const relayBridgeAction: Action = {
+export const relayBridgeAction: ActionWithParams = {
   name: "EXECUTE_RELAY_BRIDGE",
   description: "Use this action when you need to execute a cross-chain bridge.",
   similes: [
@@ -151,6 +94,50 @@ export const relayBridgeAction: Action = {
     "TRANSFER_CROSS_CHAIN",
   ],
 
+  // Parameter schema for tool calling
+  parameters: {
+    originChain: {
+      type: "string",
+      description: "Origin chain name (ethereum, base, arbitrum, polygon, optimism, zora, blast, scroll, or linea)",
+      required: true,
+    },
+    destinationChain: {
+      type: "string",
+      description: "Destination chain name (ethereum, base, arbitrum, polygon, optimism, zora, blast, scroll, or linea)",
+      required: true,
+    },
+    currency: {
+      type: "string",
+      description: "Token symbol to bridge (e.g., 'eth', 'usdc', 'usdt', 'weth')",
+      required: true,
+    },
+    amount: {
+      type: "string",
+      description: "Amount to bridge in human-readable format (e.g., '0.5' for 0.5 ETH, not in wei)",
+      required: true,
+    },
+    recipient: {
+      type: "string",
+      description: "Recipient address on destination chain (defaults to user's address if not specified)",
+      required: false,
+    },
+    useExactInput: {
+      type: "boolean",
+      description: "Whether to use exact input amount (default: true)",
+      required: false,
+    },
+    useExternalLiquidity: {
+      type: "boolean",
+      description: "Whether to use external liquidity (default: false)",
+      required: false,
+    },
+    referrer: {
+      type: "string",
+      description: "Referrer address for the bridge (optional)",
+      required: false,
+    },
+  },
+
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
     try {
       // Check if services are available
@@ -159,14 +146,14 @@ export const relayBridgeAction: Action = {
       ) as RelayService;
 
       if (!relayService) {
-        logger.warn("Required services not available for token deployment");
+        logger.warn("[EXECUTE_RELAY_BRIDGE] Relay service not available");
         return false;
       }
 
       return true;
     } catch (error) {
       logger.error(
-        "Error validating token deployment action:",
+        "[EXECUTE_RELAY_BRIDGE] Error validating action:",
         error instanceof Error ? error.message : String(error),
       );
       return false;
@@ -176,40 +163,169 @@ export const relayBridgeAction: Action = {
   handler: async (
     runtime: IAgentRuntime,
     message: Memory,
-    state: State,
+    state?: State,
     options?: { [key: string]: unknown },
     callback?: HandlerCallback
     ): Promise<ActionResult> => {
+      logger.info("[EXECUTE_RELAY_BRIDGE] Handler invoked");
+      
       try {
         // Get Relay service
         const relayService = runtime.getService<RelayService>(RelayService.serviceType);
 
         if (!relayService) {
-          throw new Error("Relay service not initialized");
+          const errorMsg = "Relay service not initialized";
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          
+          // Try to capture input params even in early failure
+          let earlyFailureInput = {};
+          try {
+            const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+            const params = composedState?.data?.actionParams || {};
+            earlyFailureInput = {
+              originChain: params?.originChain,
+              destinationChain: params?.destinationChain,
+              currency: params?.currency,
+              amount: params?.amount,
+              recipient: params?.recipient,
+              useExactInput: params?.useExactInput,
+              useExternalLiquidity: params?.useExternalLiquidity,
+              referrer: params?.referrer,
+            };
+          } catch (e) {
+            // If we can't get params, just use empty object
+          }
+          
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "service_unavailable",
+            input: earlyFailureInput,
+          } as ActionResult & { input: typeof earlyFailureInput };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "service_unavailable", details: errorMsg }
+          });
+          return errorResult;
         }
 
-        // Compose state and get bridge parameters from LLM
-        const composedState = await runtime.composeState(message, ["RECENT_MESSAGES"], true);
-        const context = composePromptFromState({
-          state: composedState,
-          template: bridgeTemplate,
-        });
+        // Read parameters from state (extracted by multiStepDecisionTemplate)
+        const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+        const params = composedState?.data?.actionParams || {};
 
-        // Extract bridge parameters using LLM
-        const xmlResponse = await runtime.useModel(ModelType.TEXT_LARGE, {
-          prompt: context,
-        });
+        // Validate required parameters
+        const originChain = params?.originChain?.toLowerCase().trim();
+        const destinationChain = params?.destinationChain?.toLowerCase().trim();
+        const currency = params?.currency?.toLowerCase().trim();
+        const amount = params?.amount?.trim();
 
-        const bridgeParams = parseBridgeParams(xmlResponse);
-
-        if (!bridgeParams) {
-          throw new Error("Failed to parse bridge parameters from request");
+        if (!originChain) {
+          const errorMsg = "Missing required parameter 'originChain'. Please specify the origin chain (e.g., 'ethereum', 'base').";
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
         }
+
+        if (!destinationChain) {
+          const errorMsg = "Missing required parameter 'destinationChain'. Please specify the destination chain (e.g., 'base', 'arbitrum').";
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+
+        if (!currency) {
+          const errorMsg = "Missing required parameter 'currency'. Please specify the token to bridge (e.g., 'eth', 'usdc').";
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+
+        if (!amount) {
+          const errorMsg = "Missing required parameter 'amount'. Please specify the amount to bridge (e.g., '0.5').";
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_required_parameter",
+            input: params,
+          } as ActionResult & { input: typeof params };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg }
+          });
+          return errorResult;
+        }
+
+        // Parse bridge parameters with defaults
+        const bridgeParams: BridgeRequest = {
+          originChain,
+          destinationChain,
+          currency,
+          amount,
+          recipient: params?.recipient?.trim(),
+          useExactInput: params?.useExactInput !== false,
+          useExternalLiquidity: params?.useExternalLiquidity === true,
+          referrer: params?.referrer?.trim(),
+        };
+
+        // Store input parameters for return
+        const inputParams = {
+          originChain: bridgeParams.originChain,
+          destinationChain: bridgeParams.destinationChain,
+          currency: bridgeParams.currency,
+          amount: bridgeParams.amount,
+          recipient: bridgeParams.recipient,
+          useExactInput: bridgeParams.useExactInput,
+          useExternalLiquidity: bridgeParams.useExternalLiquidity,
+          referrer: bridgeParams.referrer,
+        };
+
+        logger.info(`[EXECUTE_RELAY_BRIDGE] Bridge parameters: ${JSON.stringify(bridgeParams)}`);
 
         const cdp = runtime.getService?.("CDP_SERVICE") as CdpService;
         if (!cdp || typeof cdp.getViemClientsForAccount !== "function") {
-          throw new Error("CDP not available");
+          const errorMsg = "CDP service not available";
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "service_unavailable",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "service_unavailable", details: errorMsg }
+          });
+          return errorResult;
         }
+
         const wallet = await getEntityWallet(
           runtime,
           message,
@@ -218,13 +334,29 @@ export const relayBridgeAction: Action = {
         );
 
         if (wallet.success === false) {
-          return wallet.result;
+          logger.warn("[EXECUTE_RELAY_BRIDGE] Entity wallet verification failed");
+          return {
+            ...wallet.result,
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
         }
 
         const accountName = wallet.metadata?.accountName as string | undefined;
 
         if (!accountName) {
-          throw new Error("Could not resolve user wallet for bridge execution");
+          const errorMsg = "Could not resolve user wallet for bridge execution";
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "missing_account_name",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "missing_account_name", details: errorMsg }
+          });
+          return errorResult;
         }
 
         const cdpNetwork = resolveCdpNetwork(bridgeParams.originChain);
@@ -250,11 +382,35 @@ export const relayBridgeAction: Action = {
         const destinationChainId = resolveChainNameToId(bridgeParams.destinationChain);
 
         if (!originChainId) {
-          throw new Error(`Unsupported origin chain: ${bridgeParams.originChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`);
+          const errorMsg = `Unsupported origin chain: ${bridgeParams.originChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`;
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "unsupported_chain",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "unsupported_chain", details: errorMsg }
+          });
+          return errorResult;
         }
 
         if (!destinationChainId) {
-          throw new Error(`Unsupported destination chain: ${bridgeParams.destinationChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`);
+          const errorMsg = `Unsupported destination chain: ${bridgeParams.destinationChain}. Supported chains: ${Object.keys(SUPPORTED_CHAINS).join(", ")}`;
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "unsupported_chain",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "unsupported_chain", details: errorMsg }
+          });
+          return errorResult;
         }
 
         // Resolve token symbols to contract addresses on BOTH chains
@@ -262,11 +418,35 @@ export const relayBridgeAction: Action = {
         const toCurrencyAddress = await resolveTokenToAddress(bridgeParams.currency, bridgeParams.destinationChain);
 
         if (!currencyAddress) {
-          throw new Error(`Could not resolve currency: ${bridgeParams.currency} on ${bridgeParams.originChain}`);
+          const errorMsg = `Could not resolve currency: ${bridgeParams.currency} on ${bridgeParams.originChain}`;
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "token_resolution_failed",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "token_resolution_failed", details: errorMsg }
+          });
+          return errorResult;
         }
 
         if (!toCurrencyAddress) {
-          throw new Error(`Could not resolve currency: ${bridgeParams.currency} on ${bridgeParams.destinationChain}`);
+          const errorMsg = `Could not resolve currency: ${bridgeParams.currency} on ${bridgeParams.destinationChain}`;
+          logger.error(`[EXECUTE_RELAY_BRIDGE] ${errorMsg}`);
+          const errorResult: ActionResult = {
+            text: `❌ ${errorMsg}`,
+            success: false,
+            error: "token_resolution_failed",
+            input: inputParams,
+          } as ActionResult & { input: typeof inputParams };
+          callback?.({ 
+            text: errorResult.text,
+            content: { error: "token_resolution_failed", details: errorMsg }
+          });
+          return errorResult;
         }
 
         // Get token decimals for proper amount conversion
@@ -398,8 +578,9 @@ export const relayBridgeAction: Action = {
       const actualRequestId = status?.id || requestId;
 
       // Format response (using serializeBigInt helper defined above)
+      const responseText = formatBridgeResponse(status, resolvedRequest, actualRequestId, collectedTxHashes, bridgeParams.currency);
       const response: ActionResult = {
-        text: formatBridgeResponse(status, resolvedRequest, actualRequestId, collectedTxHashes, bridgeParams.currency),
+        text: responseText,
         success: true,
         data: serializeBigInt({
           requestId: actualRequestId,
@@ -412,34 +593,52 @@ export const relayBridgeAction: Action = {
             amountInWei: amountInWei.toString(),
           },
         }),
-      };
+        input: inputParams,
+      } as ActionResult & { input: typeof inputParams };
 
-      if (callback) {
-        callback({
-          text: response.text,
-          actions: ["EXECUTE_RELAY_BRIDGE"],
-          source: message.content.source,
-          data: response.data,
-        });
-      }
+      callback?.({
+        text: response.text,
+        actions: ["EXECUTE_RELAY_BRIDGE"],
+        source: message.content.source,
+        data: response.data,
+      });
 
         return response;
       } catch (error: unknown) {
         const errorMessage = (error as Error).message;
-        logger.error(`Relay bridge failed: ${errorMessage}`);
+        logger.error(`[EXECUTE_RELAY_BRIDGE] Action failed: ${errorMessage}`);
       
-      const errorResponse: ActionResult = {
-        text: `Failed to execute bridge: ${errorMessage}`,
-        success: false,
-        error: errorMessage,
-      };
-
-      if (callback) {
-        callback({
-          text: errorResponse.text,
-          content: { error: "relay_bridge_failed", details: errorMessage },
-        });
+      // Try to capture input params even in failure
+      let catchFailureInput = {};
+      try {
+        const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
+        const params = composedState?.data?.actionParams || {};
+        catchFailureInput = {
+          originChain: params?.originChain,
+          destinationChain: params?.destinationChain,
+          currency: params?.currency,
+          amount: params?.amount,
+          recipient: params?.recipient,
+          useExactInput: params?.useExactInput,
+          useExternalLiquidity: params?.useExternalLiquidity,
+          referrer: params?.referrer,
+        };
+      } catch (e) {
+        // If we can't get params, just use empty object
       }
+      
+      const errorText = `❌ Failed to execute bridge: ${errorMessage}`;
+      const errorResponse: ActionResult = {
+        text: errorText,
+        success: false,
+        error: "action_failed",
+        input: catchFailureInput,
+      } as ActionResult & { input: typeof catchFailureInput };
+
+      callback?.({
+        text: errorResponse.text,
+        content: { error: "relay_bridge_failed", details: errorMessage },
+      });
 
       return errorResponse;
     }

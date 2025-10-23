@@ -33,18 +33,15 @@ export function convertActionMessageToToolPart(message: any): ToolPart {
 
   // Create input data from available action properties
   const inputData: Record<string, unknown> = {}
-  if (rawMessage.actions) inputData.actions = rawMessage.actions
-  if (rawMessage.action) inputData.action = rawMessage.action
-  if (rawMessage.thought) inputData.thought = rawMessage.thought
+  inputData.input = rawMessage?.actionResult?.input || {};
 
   // Create output data based on status and content
   const outputData: Record<string, unknown> = {}
   if (rawMessage.text || message.content) {
-    outputData.result = rawMessage.text || message.content
+    outputData.text = rawMessage.text || message.content
   }
   if (actionStatus) outputData.status = actionStatus
-  if (rawMessage.thought) outputData.thought = rawMessage.thought
-  if (rawMessage.actionResult) outputData.actionResult = rawMessage.actionResult
+  if (rawMessage.actionResult) outputData.result = rawMessage.actionResult
 
   // Handle error cases
   const isError = actionStatus === "failed" || actionStatus === "error"
