@@ -167,6 +167,38 @@
   .font-display {
     font-family: "Rebels", sans-serif !important;
   }
+
+  /* Ensure all clickable elements have pointer cursor */
+  button,
+  a,
+  [role="button"],
+  [role="link"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"],
+  [role="checkbox"],
+  [role="radio"],
+  [role="switch"],
+  label,
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"],
+  input[type="file"],
+  summary,
+  [onclick],
+  .cursor-pointer {
+    cursor: pointer;
+  }
+
+  /* Ensure disabled elements don't show pointer cursor */
+  button:disabled,
+  a:disabled,
+  [disabled] {
+    cursor: not-allowed;
+  }
 }
 
 .recharts-cartesian-grid-vertical :first-child,
