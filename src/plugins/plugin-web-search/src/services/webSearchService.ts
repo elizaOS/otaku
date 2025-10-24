@@ -46,12 +46,22 @@ export class WebSearchService extends Service implements IWebSearchService {
             }
 
             const response = await this.tavilyClient.search(query, {
-                includeAnswer: options?.includeAnswer ?? true,
-                maxResults: options?.limit ?? 3,
-                topic: options?.type ?? "general",
-                searchDepth: options?.searchDepth ?? "basic",
-                includeImages: options?.includeImages ?? false,
-                days: options?.days ?? 3,
+                auto_parameters: options?.auto_parameters,
+                topic: options?.topic ?? "general",
+                search_depth: options?.search_depth ?? "basic",
+                chunks_per_source: options?.chunks_per_source,
+                max_results: options?.max_results ?? 5,
+                time_range: options?.time_range,
+                start_date: options?.start_date,
+                end_date: options?.end_date,
+                include_answer: options?.include_answer ?? false,
+                include_raw_content: options?.include_raw_content,
+                include_images: options?.include_images ?? false,
+                include_image_descriptions: options?.include_image_descriptions,
+                include_favicon: options?.include_favicon,
+                include_domains: options?.include_domains,
+                exclude_domains: options?.exclude_domains,
+                country: options?.country,
             });
 
             return response;

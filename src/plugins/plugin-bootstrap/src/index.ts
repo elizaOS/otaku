@@ -94,9 +94,9 @@ Determine the next step the assistant should take in this conversation to help t
 
 ---
 
-# Wallet Context (CDP)
-This indicates whether the user has a configured Coinbase CDP wallet and includes basic details (address, provider, chain). If no wallet is present, on-chain actions (transfers, swaps, bridging) are unavailable until a wallet is created.
-{{walletState}}
+{{time}}
+
+---
 
 {{recentMessages}}
 
@@ -165,9 +165,10 @@ Summarize what the assistant has done so far and provide a final response to the
 {{messageDirections}}
 
 ---
-# Wallet Context (CDP)
-This indicates whether the user has a configured Coinbase CDP wallet and includes basic details (address, provider, chain). If no wallet is present, on-chain actions (transfers, swaps, bridging) are unavailable until a wallet is created.
-{{walletState}}
+
+{{time}}
+
+---
 
 {{recentMessages}}
 
@@ -1074,6 +1075,7 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       state: accumulatedState,
       template: runtime.character.templates?.multiStepDecisionTemplate || multiStepDecisionTemplate,
     });
+
     const stepResultRaw = await runtime.useModel(ModelType.TEXT_LARGE, { prompt });
     const parsedStep = parseKeyValueXml(stepResultRaw);
 
@@ -1795,7 +1797,7 @@ export const bootstrapPlugin: Plugin = {
   evaluators: [evaluators.reflectionEvaluator],
   providers: [
     providers.evaluatorsProvider,
-    // providers.timeProvider,
+    providers.timeProvider,
     providers.providersProvider,
     providers.actionsProvider,
     providers.actionStateProvider,

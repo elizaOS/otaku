@@ -30,53 +30,43 @@ export default function Widget({ widgetData }: WidgetProps) {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setUserTimezone(timezone);
 
-    // Try to get user's location from geolocation API
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const { latitude, longitude } = position.coords;
-            
-            // Parse timezone for location name
-            const locationParts = timezone.split('/');
-            const city = locationParts[locationParts.length - 1].replace(/_/g, ' ');
-            const region = locationParts.length > 1 ? locationParts[locationParts.length - 2] : '';
-            setUserLocation(region ? `${city}, ${region}` : city);
+    // Get approximate location from IP address (no permissions needed)
+    const fetchLocationAndWeather = async () => {
+      try {
+        // Use IP-based geolocation (free, no API key, no permissions)
+        const geoResponse = await fetch('https://get.geojs.io/v1/ip/geo.json');
+        const geoData = await geoResponse.json();
+        
+        if (geoData.city && geoData.region) {
+          setUserLocation(`${geoData.city}, ${geoData.region}`);
+        } else if (geoData.city) {
+          setUserLocation(geoData.city);
+        }
 
-            // Fetch weather data using Open-Meteo (free, no API key required)
-            try {
-              const weatherResponse = await fetch(
-                `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&temperature_unit=celsius`
-              );
-              const weatherData = await weatherResponse.json();
-              if (weatherData.current?.temperature_2m) {
-                setTemperature(`${Math.round(weatherData.current.temperature_2m)}°C`);
-              }
-            } catch (error) {
-              console.error('Error fetching weather:', error);
+        // Fetch weather data if we have coordinates
+        if (geoData.latitude && geoData.longitude) {
+          try {
+            const weatherResponse = await fetch(
+              `https://api.open-meteo.com/v1/forecast?latitude=${geoData.latitude}&longitude=${geoData.longitude}&current=temperature_2m&temperature_unit=celsius`
+            );
+            const weatherData = await weatherResponse.json();
+            if (weatherData.current?.temperature_2m) {
+              setTemperature(`${Math.round(weatherData.current.temperature_2m)}°C`);
             }
           } catch (error) {
-            console.error('Error getting location:', error);
-            // Fallback to timezone
-            const locationParts = timezone.split('/');
-            const city = locationParts[locationParts.length - 1].replace(/_/g, ' ');
-            setUserLocation(city);
+            console.error('Error fetching weather:', error);
           }
-        },
-        (error) => {
-          console.warn('Geolocation not available:', error);
-          // Fallback to timezone-based location
-          const locationParts = timezone.split('/');
-          const city = locationParts[locationParts.length - 1].replace(/_/g, ' ');
-          setUserLocation(city);
         }
-      );
-    } else {
-      // Fallback to timezone-based location
-      const locationParts = timezone.split('/');
-      const city = locationParts[locationParts.length - 1].replace(/_/g, ' ');
-      setUserLocation(city);
-    }
+      } catch (error) {
+        console.error('Error fetching IP-based location:', error);
+        // Fallback to timezone-based location
+        const locationParts = timezone.split('/');
+        const city = locationParts[locationParts.length - 1].replace(/_/g, ' ');
+        setUserLocation(city);
+      }
+    };
+
+    fetchLocationAndWeather();
   }, []);
 
   const formatTime = (date: Date) => {
@@ -124,7 +114,7 @@ export default function Widget({ widgetData }: WidgetProps) {
           </Badge>
         </div>
 
-        <div className="absolute inset-0 -z-[1]">
+        <div className="absolute inset-0 -z-1">
           <img
             src="/assets/pc_blueprint.gif"
             alt="logo"

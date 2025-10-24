@@ -30,7 +30,7 @@ export const timeProvider: Provider = {
         time: currentDate,
       },
       values: {
-        time: humanReadable,
+        time: `The current date and time is ${humanReadable}. Please use this as your reference for any time-based operations or responses.`,
       },
       text: `The current date and time is ${humanReadable}. Please use this as your reference for any time-based operations or responses.`,
     };

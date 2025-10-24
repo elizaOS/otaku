@@ -44,6 +44,21 @@ export const webSearch: ActionWithParams = {
             description: "The search query to look up on the web",
             required: true,
         },
+        time_range: {
+            type: "string",
+            description: "Time range filter: 'day', 'week', 'month', 'year' (or 'd', 'w', 'm', 'y')",
+            required: false,
+        },
+        start_date: {
+            type: "string",
+            description: "Start date filter in YYYY-MM-DD format (returns results after this date)",
+            required: false,
+        },
+        end_date: {
+            type: "string",
+            description: "End date filter in YYYY-MM-DD format (returns results before this date)",
+            required: false,
+        },
     },
     
     validate: async (
@@ -101,16 +116,22 @@ export const webSearch: ActionWithParams = {
             logger.info(`[WEB_SEARCH] Searching for: "${query}"`);
 
             // Store input parameters for return
-            const inputParams = { query };
+            const inputParams = { 
+                query,
+                time_range: params?.time_range,
+                start_date: params?.start_date,
+                end_date: params?.end_date,
+            };
 
-            // Use default values for all optional parameters
+            // Use provided parameters or defaults
             const searchResponse = await webSearchService.search(query, {
-                limit: 3,
-                type: undefined,
-                includeImages: false,
-                days: undefined,
-                searchDepth: "basic",
-                includeAnswer: true,
+                max_results: 5,
+                search_depth: "basic",
+                time_range: params?.time_range,
+                start_date: params?.start_date,
+                end_date: params?.end_date,
+                include_answer: true,
+                include_images: false,
             });
 
             if (searchResponse && searchResponse.results.length) {
