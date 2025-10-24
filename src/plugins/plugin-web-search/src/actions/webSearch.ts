@@ -182,6 +182,9 @@ export const webSearch: ActionWithParams = {
             const params = composedState?.data?.actionParams || composedState?.data?.webSearch || {};
             const failureInputParams = {
                 query: params?.query,
+                time_range: params?.time_range,
+                start_date: params?.start_date,
+                end_date: params?.end_date,
             };
             
             const errorResult: ActionResult = {
