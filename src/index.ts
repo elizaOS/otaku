@@ -22,7 +22,6 @@ export const projectAgent: ProjectAgent = {
   plugins: [
     sqlPlugin, 
     bootstrapPlugin, 
-    anthropicPlugin, 
     openaiPlugin, 
     cdpPlugin, 
     coingeckoPlugin, 
