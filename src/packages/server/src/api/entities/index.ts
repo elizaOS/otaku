@@ -2,7 +2,7 @@ import { Entity, logger, validateUuid } from '@elizaos/core';
 import express from 'express';
 import type { AgentServer } from '../../index';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuth, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuth, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Entity management endpoints

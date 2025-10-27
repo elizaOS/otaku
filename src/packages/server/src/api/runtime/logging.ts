@@ -1,6 +1,6 @@
 import { logger, recentLogs } from '@elizaos/core';
 import express from 'express';
-import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../middleware';
 
 // Custom levels from @elizaos/core logger
 const LOG_LEVELS = {

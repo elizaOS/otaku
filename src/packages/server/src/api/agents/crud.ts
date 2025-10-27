@@ -10,7 +10,7 @@ import {
 import express from 'express';
 import type { AgentServer } from '../../index';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Agent CRUD operations

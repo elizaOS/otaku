@@ -1,6 +1,6 @@
 import { logger, validateUuid, type UUID } from '@elizaos/core';
 import express from 'express';
-import { requireAuthOrApiKey, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuthOrApiKey, type AuthenticatedRequest } from '../../middleware';
 import internalMessageBus from '../../bus';
 import type { AgentServer } from '../../index';
 

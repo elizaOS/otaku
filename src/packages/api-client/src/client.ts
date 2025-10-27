@@ -11,6 +11,7 @@ import { RunsService } from './services/runs';
 import { EntitiesService } from './services/entities';
 import { CdpService } from './services/cdp';
 import { AuthService } from './services/auth';
+import { JobsService } from './services/jobs';
 
 export class ElizaClient {
   public readonly agents: AgentsService;
@@ -25,6 +26,7 @@ export class ElizaClient {
   public readonly entities: EntitiesService;
   public readonly cdp: CdpService;
   public readonly auth: AuthService;
+  public readonly jobs: JobsService;
 
   private services: any[];
 
@@ -42,6 +44,7 @@ export class ElizaClient {
     this.entities = new EntitiesService(config);
     this.cdp = new CdpService(config);
     this.auth = new AuthService(config);
+    this.jobs = new JobsService(config);
     
     // Keep track of all services for bulk operations
     this.services = [
@@ -57,6 +60,7 @@ export class ElizaClient {
       this.entities,
       this.cdp,
       this.auth,
+      this.jobs,
     ];
   }
 

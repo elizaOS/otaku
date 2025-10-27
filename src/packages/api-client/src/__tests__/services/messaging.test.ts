@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { MessagingService } from '../../services/messaging';
 import { ApiClientConfig } from '../../types/base';
+import { JobStatus } from '../../types/jobs';
 
 describe('MessagingService', () => {
   let messagingService: MessagingService;
@@ -517,6 +518,472 @@ describe('MessagingService', () => {
       };
 
       await expect(messagingService.submitMessage(params)).rejects.toThrow('API error');
+    });
+  });
+
+  // =============================================================================
+  // Jobs API Tests
+  // =============================================================================
+
+  describe('Jobs API', () => {
+    describe('createJob', () => {
+      const mockParams = {
+        userId: 'user-123' as any,
+        content: 'What is the weather?',
+        agentId: 'agent-456' as any,
+        timeoutMs: 30000,
+        metadata: { source: 'test' },
+      };
+
+      it('should create job successfully', async () => {
+        const mockResponse = {
+          jobId: 'job-789',
+          status: JobStatus.PENDING,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 30000,
+        };
+        (messagingService as any).post.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.createJob(mockParams);
+
+        expect((messagingService as any).post).toHaveBeenCalledWith(
+          '/api/messaging/jobs',
+          mockParams
+        );
+        expect(result).toEqual(mockResponse);
+        expect(result.status).toBe(JobStatus.PENDING);
+      });
+
+      it('should create job without agentId', async () => {
+        const paramsWithoutAgent = {
+          userId: 'user-123' as any,
+          content: 'Test message',
+        };
+        const mockResponse = {
+          jobId: 'job-789',
+          status: JobStatus.PENDING,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 30000,
+        };
+        (messagingService as any).post.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.createJob(paramsWithoutAgent);
+
+        expect((messagingService as any).post).toHaveBeenCalledWith(
+          '/api/messaging/jobs',
+          paramsWithoutAgent
+        );
+        expect(result).toEqual(mockResponse);
+      });
+
+      it('should handle job creation errors', async () => {
+        (messagingService as any).post.mockRejectedValue(new Error('No agents available'));
+
+        await expect(messagingService.createJob(mockParams)).rejects.toThrow(
+          'No agents available'
+        );
+      });
+    });
+
+    describe('getJob', () => {
+      const jobId = 'job-123';
+
+      it('should get job details successfully', async () => {
+        const mockResponse = {
+          jobId,
+          status: JobStatus.COMPLETED,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'What is the weather?',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+          result: {
+            message: {
+              id: 'msg-123',
+              content: 'The weather is sunny',
+              authorId: 'agent-456',
+              createdAt: Date.now(),
+              metadata: {},
+            },
+            processingTimeMs: 3500,
+          },
+        };
+        (messagingService as any).get.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.getJob(jobId);
+
+        expect((messagingService as any).get).toHaveBeenCalledWith(`/api/messaging/jobs/${jobId}`);
+        expect(result).toEqual(mockResponse);
+        expect(result.status).toBe(JobStatus.COMPLETED);
+        expect(result.result?.processingTimeMs).toBe(3500);
+      });
+
+      it('should get job with PROCESSING status', async () => {
+        const mockResponse = {
+          jobId,
+          status: JobStatus.PROCESSING,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'Processing...',
+          createdAt: Date.now() - 2000,
+          expiresAt: Date.now() + 28000,
+        };
+        (messagingService as any).get.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.getJob(jobId);
+
+        expect(result.status).toBe(JobStatus.PROCESSING);
+        expect(result.result).toBeUndefined();
+      });
+
+      it('should get job with FAILED status', async () => {
+        const mockResponse = {
+          jobId,
+          status: JobStatus.FAILED,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'Failed job',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+          error: 'Agent processing failed',
+        };
+        (messagingService as any).get.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.getJob(jobId);
+
+        expect(result.status).toBe(JobStatus.FAILED);
+        expect(result.error).toBe('Agent processing failed');
+      });
+
+      it('should handle job not found error', async () => {
+        (messagingService as any).get.mockRejectedValue(new Error('Job not found'));
+
+        await expect(messagingService.getJob(jobId)).rejects.toThrow('Job not found');
+      });
+    });
+
+    describe('listJobs', () => {
+      it('should list jobs successfully', async () => {
+        const mockResponse = {
+          jobs: [
+            {
+              jobId: 'job-1',
+              status: JobStatus.COMPLETED,
+              agentId: 'agent-1' as any,
+              userId: 'user-1' as any,
+              prompt: 'Job 1',
+              createdAt: Date.now() - 10000,
+              expiresAt: Date.now() + 20000,
+            },
+            {
+              jobId: 'job-2',
+              status: JobStatus.PROCESSING,
+              agentId: 'agent-1' as any,
+              userId: 'user-1' as any,
+              prompt: 'Job 2',
+              createdAt: Date.now() - 5000,
+              expiresAt: Date.now() + 25000,
+            },
+          ],
+          total: 10,
+          filtered: 2,
+        };
+        (messagingService as any).get.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.listJobs();
+
+        expect((messagingService as any).get).toHaveBeenCalledWith('/api/messaging/jobs', {
+          params: undefined,
+        });
+        expect(result).toEqual(mockResponse);
+        expect(result.jobs.length).toBe(2);
+        expect(result.total).toBe(10);
+      });
+
+      it('should list jobs with limit parameter', async () => {
+        const mockResponse = { jobs: [], total: 0, filtered: 0 };
+        (messagingService as any).get.mockResolvedValue(mockResponse);
+
+        await messagingService.listJobs({ limit: 5 });
+
+        expect((messagingService as any).get).toHaveBeenCalledWith('/api/messaging/jobs', {
+          params: { limit: 5 },
+        });
+      });
+
+      it('should list jobs with status filter', async () => {
+        const mockResponse = {
+          jobs: [
+            {
+              jobId: 'job-1',
+              status: JobStatus.COMPLETED,
+              agentId: 'agent-1' as any,
+              userId: 'user-1' as any,
+              prompt: 'Completed job',
+              createdAt: Date.now() - 10000,
+              expiresAt: Date.now() + 20000,
+            },
+          ],
+          total: 10,
+          filtered: 1,
+        };
+        (messagingService as any).get.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.listJobs({ status: JobStatus.COMPLETED, limit: 10 });
+
+        expect((messagingService as any).get).toHaveBeenCalledWith('/api/messaging/jobs', {
+          params: { status: JobStatus.COMPLETED, limit: 10 },
+        });
+        expect(result.jobs[0].status).toBe(JobStatus.COMPLETED);
+      });
+    });
+
+    describe('getJobsHealth', () => {
+      it('should get jobs health successfully', async () => {
+        const mockResponse = {
+          healthy: true,
+          timestamp: Date.now(),
+          totalJobs: 25,
+          statusCounts: {
+            pending: 2,
+            processing: 3,
+            completed: 18,
+            failed: 1,
+            timeout: 1,
+          },
+          maxJobs: 10000,
+        };
+        (messagingService as any).get.mockResolvedValue(mockResponse);
+
+        const result = await messagingService.getJobsHealth();
+
+        expect((messagingService as any).get).toHaveBeenCalledWith('/api/messaging/jobs/health');
+        expect(result).toEqual(mockResponse);
+        expect(result.healthy).toBe(true);
+        expect(result.totalJobs).toBe(25);
+        expect(result.statusCounts.completed).toBe(18);
+      });
+
+      it('should handle health check errors', async () => {
+        (messagingService as any).get.mockRejectedValue(new Error('Service unavailable'));
+
+        await expect(messagingService.getJobsHealth()).rejects.toThrow('Service unavailable');
+      });
+    });
+
+    describe('pollJob', () => {
+      const jobId = 'job-123';
+
+      it('should poll job until completion', async () => {
+        const completedJob = {
+          jobId,
+          status: JobStatus.COMPLETED,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'Test',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+          result: {
+            message: {
+              id: 'msg-123',
+              content: 'Result',
+              authorId: 'agent-456',
+              createdAt: Date.now(),
+            },
+            processingTimeMs: 3000,
+          },
+        };
+
+        // First call: processing, second call: completed
+        (messagingService as any).get
+          .mockResolvedValueOnce({
+            ...completedJob,
+            status: JobStatus.PROCESSING,
+            result: undefined,
+          })
+          .mockResolvedValueOnce(completedJob);
+
+        const result = await messagingService.pollJob(jobId, 10, 5);
+
+        expect((messagingService as any).get).toHaveBeenCalledTimes(2);
+        expect(result.status).toBe(JobStatus.COMPLETED);
+        expect(result.result?.message.content).toBe('Result');
+      });
+
+      it('should return immediately if job is already completed', async () => {
+        const completedJob = {
+          jobId,
+          status: JobStatus.COMPLETED,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'Test',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+          result: {
+            message: {
+              id: 'msg-123',
+              content: 'Result',
+              authorId: 'agent-456',
+              createdAt: Date.now(),
+            },
+            processingTimeMs: 3000,
+          },
+        };
+
+        (messagingService as any).get.mockResolvedValue(completedJob);
+
+        const result = await messagingService.pollJob(jobId, 10, 5);
+
+        expect((messagingService as any).get).toHaveBeenCalledTimes(1);
+        expect(result.status).toBe(JobStatus.COMPLETED);
+      });
+
+      it('should throw error when job fails', async () => {
+        const failedJob = {
+          jobId,
+          status: JobStatus.FAILED,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'Test',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+          error: 'Processing error',
+        };
+
+        (messagingService as any).get.mockResolvedValue(failedJob);
+
+        await expect(messagingService.pollJob(jobId, 10, 5)).rejects.toThrow(
+          'Job failed: Processing error'
+        );
+      });
+
+      it('should throw error when job times out', async () => {
+        const timedOutJob = {
+          jobId,
+          status: JobStatus.TIMEOUT,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'Test',
+          createdAt: Date.now() - 35000,
+          expiresAt: Date.now() - 5000,
+          error: 'Job timed out',
+        };
+
+        (messagingService as any).get.mockResolvedValue(timedOutJob);
+
+        await expect(messagingService.pollJob(jobId, 10, 5)).rejects.toThrow(
+          'Job timed out waiting for agent response'
+        );
+      });
+
+      it('should throw error when max attempts reached', async () => {
+        const processingJob = {
+          jobId,
+          status: JobStatus.PROCESSING,
+          agentId: 'agent-456' as any,
+          userId: 'user-789' as any,
+          prompt: 'Test',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+        };
+
+        (messagingService as any).get.mockResolvedValue(processingJob);
+
+        await expect(messagingService.pollJob(jobId, 10, 3)).rejects.toThrow(
+          'Polling exceeded maximum attempts (3)'
+        );
+
+        expect((messagingService as any).get).toHaveBeenCalledTimes(3);
+      });
+    });
+
+    describe('createAndWaitForJob', () => {
+      const mockParams = {
+        userId: 'user-123' as any,
+        content: 'What is 2+2?',
+      };
+
+      it('should create job and wait for completion', async () => {
+        const createResponse = {
+          jobId: 'job-789',
+          status: JobStatus.PENDING,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 30000,
+        };
+
+        const completedJob = {
+          jobId: 'job-789',
+          status: JobStatus.COMPLETED,
+          agentId: 'agent-456' as any,
+          userId: 'user-123' as any,
+          prompt: 'What is 2+2?',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+          result: {
+            message: {
+              id: 'msg-123',
+              content: '2+2 equals 4',
+              authorId: 'agent-456',
+              createdAt: Date.now(),
+            },
+            processingTimeMs: 2500,
+          },
+        };
+
+        // Mock createJob (post) and pollJob (get calls)
+        (messagingService as any).post.mockResolvedValue(createResponse);
+        (messagingService as any).get
+          .mockResolvedValueOnce({
+            ...completedJob,
+            status: JobStatus.PROCESSING,
+            result: undefined,
+          })
+          .mockResolvedValueOnce(completedJob);
+
+        const result = await messagingService.createAndWaitForJob(mockParams, 10, 5);
+
+        expect((messagingService as any).post).toHaveBeenCalledWith(
+          '/api/messaging/jobs',
+          mockParams
+        );
+        expect(result.status).toBe(JobStatus.COMPLETED);
+        expect(result.result?.message.content).toBe('2+2 equals 4');
+      });
+
+      it('should handle job creation failure', async () => {
+        (messagingService as any).post.mockRejectedValue(new Error('No agents available'));
+
+        await expect(messagingService.createAndWaitForJob(mockParams)).rejects.toThrow(
+          'No agents available'
+        );
+      });
+
+      it('should handle job polling failure', async () => {
+        const createResponse = {
+          jobId: 'job-789',
+          status: JobStatus.PENDING,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + 30000,
+        };
+
+        const failedJob = {
+          jobId: 'job-789',
+          status: JobStatus.FAILED,
+          agentId: 'agent-456' as any,
+          userId: 'user-123' as any,
+          prompt: 'What is 2+2?',
+          createdAt: Date.now() - 5000,
+          expiresAt: Date.now() + 25000,
+          error: 'Agent error',
+        };
+
+        (messagingService as any).post.mockResolvedValue(createResponse);
+        (messagingService as any).get.mockResolvedValue(failedJob);
+
+        await expect(messagingService.createAndWaitForJob(mockParams, 10, 5)).rejects.toThrow(
+          'Job failed: Agent error'
+        );
+      });
     });
   });
 });

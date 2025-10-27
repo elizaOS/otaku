@@ -4,7 +4,7 @@ import internalMessageBus from '../../bus'; // Import the bus
 import type { AgentServer } from '../../index';
 import type { MessageServiceStructure as MessageService } from '../../types';
 import { attachmentsToApiUrls } from '../../utils/media-transformer';
-import { requireAuthOrApiKey, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuthOrApiKey, type AuthenticatedRequest } from '../../middleware';
 
 const DEFAULT_SERVER_ID = '00000000-0000-0000-0000-000000000000' as UUID; // Single default server
 

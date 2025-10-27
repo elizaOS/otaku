@@ -12,8 +12,8 @@ import express from 'express';
 import internalMessageBus from '../../bus';
 import type { AgentServer } from '../../index';
 import type { MessageServiceStructure as MessageService } from '../../types';
-import { createUploadRateLimit, createFileSystemRateLimit, requireAuthenticated, requireChannelParticipant } from '../shared/middleware';
-import { type AuthenticatedRequest } from '../../utils/auth';
+import { createUploadRateLimit, createFileSystemRateLimit, requireAuthenticated, requireChannelParticipant } from '../../middleware';
+import { type AuthenticatedRequest } from '../../middleware';
 import { MAX_FILE_SIZE, ALLOWED_MEDIA_MIME_TYPES } from '../shared/constants';
 
 import multer from 'multer';

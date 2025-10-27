@@ -1,6 +1,6 @@
 import express from 'express';
 import type { AgentServer } from '../../index';
-import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Debug and diagnostic endpoints

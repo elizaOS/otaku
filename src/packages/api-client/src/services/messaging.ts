@@ -19,6 +19,15 @@ import {
   MessageMetadata,
 } from '../types/messaging';
 import { PaginationParams } from '../types/base';
+import {
+  CreateJobRequest,
+  CreateJobResponse,
+  JobDetailsResponse,
+  JobListResponse,
+  ListJobsParams,
+  JobHealthResponse,
+  JobStatus,
+} from '../types/jobs';
 
 // Internal payload interfaces for API requests
 interface ChannelCreatePayload {
@@ -404,5 +413,175 @@ export class MessagingService extends BaseApiClient {
     return this.updateChannel(channelId, {
       participantCentralUserIds: updatedParticipants,
     });
+  }
+
+  // =============================================================================
+  // Jobs API - One-off messaging
+  // =============================================================================
+
+  /**
+   * Create a new job (one-off message to agent)
+   * 
+   * This creates a temporary channel and sends a message to the agent.
+   * The job tracks the request and response, with automatic cleanup.
+   * 
+   * @param params - Job creation parameters
+   * @returns Job details including jobId and status
+   * 
+   * @example
+   * ```typescript
+   * const job = await client.messaging.createJob({
+   *   agentId: 'agent-uuid', // optional - uses first agent if not provided
+   *   userId: 'user-uuid',
+   *   content: 'What is the weather?',
+   *   timeoutMs: 30000,
+   *   metadata: { source: 'api' }
+   * });
+   * console.log(job.jobId);
+   * ```
+   */
+  async createJob(params: CreateJobRequest): Promise<CreateJobResponse> {
+    return this.post<CreateJobResponse>('/api/messaging/jobs', params);
+  }
+
+  /**
+   * Get job details and status
+   * 
+   * Retrieves the current status of a job, including the result if completed.
+   * 
+   * @param jobId - The unique job identifier
+   * @returns Job details including status and result
+   * 
+   * @example
+   * ```typescript
+   * const job = await client.messaging.getJob('job-uuid');
+   * if (job.status === JobStatus.COMPLETED) {
+   *   console.log(job.result?.message.content);
+   * }
+   * ```
+   */
+  async getJob(jobId: string): Promise<JobDetailsResponse> {
+    return this.get<JobDetailsResponse>(`/api/messaging/jobs/${jobId}`);
+  }
+
+  /**
+   * List all jobs with optional filtering
+   * 
+   * @param params - List parameters (limit and status filter)
+   * @returns List of jobs with total counts
+   * 
+   * @example
+   * ```typescript
+   * const { jobs, total } = await client.messaging.listJobs({
+   *   limit: 10,
+   *   status: JobStatus.COMPLETED
+   * });
+   * ```
+   */
+  async listJobs(params?: ListJobsParams): Promise<JobListResponse> {
+    return this.get<JobListResponse>('/api/messaging/jobs', { params });
+  }
+
+  /**
+   * Get jobs service health status
+   * 
+   * @returns Health information including job counts by status
+   * 
+   * @example
+   * ```typescript
+   * const health = await client.messaging.getJobsHealth();
+   * console.log(`Total jobs: ${health.totalJobs}`);
+   * console.log(`Completed: ${health.statusCounts.completed}`);
+   * ```
+   */
+  async getJobsHealth(): Promise<JobHealthResponse> {
+    return this.get<JobHealthResponse>('/api/messaging/jobs/health');
+  }
+
+  /**
+   * Poll a job until it completes or times out
+   * 
+   * Continuously polls the job status until it reaches a terminal state
+   * (COMPLETED, FAILED, or TIMEOUT).
+   * 
+   * @param jobId - The job ID to poll
+   * @param interval - Polling interval in milliseconds (default: 1000)
+   * @param maxAttempts - Maximum number of poll attempts (default: 30)
+   * @returns Final job details
+   * @throws Error if job fails, times out, or max attempts reached
+   * 
+   * @example
+   * ```typescript
+   * try {
+   *   const job = await client.messaging.createJob({
+   *     userId: 'user-uuid',
+   *     content: 'What is 2+2?'
+   *   });
+   *   
+   *   const result = await client.messaging.pollJob(job.jobId, 1000, 30);
+   *   console.log(result.result?.message.content);
+   * } catch (error) {
+   *   console.error('Job failed:', error);
+   * }
+   * ```
+   */
+  async pollJob(
+    jobId: string,
+    interval: number = 1000,
+    maxAttempts: number = 30
+  ): Promise<JobDetailsResponse> {
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      const job = await this.getJob(jobId);
+
+      // Check if job reached a terminal state
+      if (job.status === JobStatus.COMPLETED) {
+        return job;
+      }
+
+      if (job.status === JobStatus.FAILED) {
+        throw new Error(`Job failed: ${job.error || 'Unknown error'}`);
+      }
+
+      if (job.status === JobStatus.TIMEOUT) {
+        throw new Error('Job timed out waiting for agent response');
+      }
+
+      // Wait before next poll
+      await new Promise((resolve) => setTimeout(resolve, interval));
+      attempts++;
+    }
+
+    throw new Error(`Polling exceeded maximum attempts (${maxAttempts})`);
+  }
+
+  /**
+   * Create a job and wait for the result
+   * 
+   * Convenience method that creates a job and polls until completion.
+   * 
+   * @param params - Job creation parameters
+   * @param pollInterval - Polling interval in milliseconds (default: 1000)
+   * @param maxAttempts - Maximum number of poll attempts (default: 30)
+   * @returns Final job details with result
+   * @throws Error if job fails, times out, or max attempts reached
+   * 
+   * @example
+   * ```typescript
+   * const result = await client.messaging.createAndWaitForJob({
+   *   userId: 'user-uuid',
+   *   content: 'Explain quantum computing'
+   * });
+   * console.log(result.result?.message.content);
+   * ```
+   */
+  async createAndWaitForJob(
+    params: CreateJobRequest,
+    pollInterval: number = 1000,
+    maxAttempts: number = 30
+  ): Promise<JobDetailsResponse> {
+    const job = await this.createJob(params);
+    return this.pollJob(job.jobId, pollInterval, maxAttempts);
   }
 }
