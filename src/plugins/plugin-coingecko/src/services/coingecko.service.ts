@@ -352,6 +352,103 @@ export class CoinGeckoService extends Service {
       return ids;
     }
   }
+
+  /**
+   * Get trending tokens/pools from GeckoTerminal API for a specific network
+   * Note: GeckoTerminal API does not have a Pro tier, uses public API only.
+   */
+  async getTrendingTokens(network: string = "base", limit: number = 10): Promise<any> {
+    const baseUrl = "https://api.geckoterminal.com/api/v2";
+    const page = 1;
+    const clampedLimit = Math.max(1, Math.min(30, limit));
+
+    const url = `${baseUrl}/networks/${network}/trending_pools?include=base_token,quote_token&page=${page}&limit=${clampedLimit}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      logger.debug(`[CoinGecko] GET ${url}`);
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "ElizaOS-CoinGecko-Plugin/1.0",
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        const body = await safeReadJson(res);
+        const msg = `GeckoTerminal API error ${res.status}: ${res.statusText}${body ? ` - ${JSON.stringify(body)}` : ""}`;
+        logger.warn(`[CoinGecko] trending tokens request failed for ${network}: ${msg}`);
+        throw new Error(msg);
+      }
+
+      const data = await res.json();
+
+      // Create a map of tokens by their ID for quick lookup
+      const tokenMap = new Map<string, any>();
+      const included = Array.isArray((data as any).included) ? (data as any).included : [];
+      
+      included
+        .filter((item: any) => item.type === "token")
+        .forEach((token: any) => {
+          const attrs = token.attributes || {};
+          tokenMap.set(token.id, {
+            name: attrs.name || null,
+            symbol: attrs.symbol || null,
+            decimals: attrs.decimals || null,
+            image: attrs.image_url || null,
+            coingecko_coin_id: attrs.coingecko_coin_id || null,
+            address: attrs.address || null,
+          });
+        });
+
+      // Parse and format the response - flatten pools with base token data
+      const pools = Array.isArray((data as any).data) ? (data as any).data : [];
+      const trendingTokens = pools.map((pool: any, index: number) => {
+        const attrs = pool.attributes || {};
+        const relationships = pool.relationships || {};
+        const baseTokenId = relationships.base_token?.data?.id || null;
+        const baseToken = baseTokenId ? tokenMap.get(baseTokenId) : null;
+
+        const priceChangePct = attrs.price_change_percentage || {};
+        
+        return {
+          id: baseTokenId,
+          name: baseToken?.name || null,
+          symbol: baseToken?.symbol || null,
+          image: baseToken?.image || null,
+          price_usd: parseFloat(attrs.base_token_price_usd) || null,
+          market_cap_usd: attrs.market_cap_usd ? parseFloat(attrs.market_cap_usd) : null,
+          volume_24h_usd: attrs.volume_usd?.h24 ? parseFloat(attrs.volume_usd.h24) : null,
+          price_change_percentage_24h: priceChangePct.h24 ? parseFloat(priceChangePct.h24) : null,
+          network,
+          address: baseToken?.address || null,
+          rank: index + 1,
+          liquidity_usd: attrs.reserve_in_usd ? parseFloat(attrs.reserve_in_usd) : null,
+          fdv_usd: attrs.fdv_usd ? parseFloat(attrs.fdv_usd) : null,
+          price_change_percentage_1h: priceChangePct.h1 ? parseFloat(priceChangePct.h1) : null,
+          price_change_percentage_7d: null, // Not available in GeckoTerminal API
+          price_change_percentage_30d: null, // Not available in GeckoTerminal API
+          holders_count: null, // Not available in GeckoTerminal API
+          created_at: null, // Token creation date not available
+          pool_created_at: attrs.pool_created_at || null,
+          trending_score: null, // Not provided by API
+        };
+      });
+
+      return trendingTokens;
+    } catch (err) {
+      clearTimeout(timeout);
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`[CoinGecko] getTrendingTokens failed for ${network}: ${msg}`);
+      throw err;
+    }
+  }
 }
 
 function isEvmAddress(s: string): boolean {
