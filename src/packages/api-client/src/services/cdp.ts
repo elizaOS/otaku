@@ -173,36 +173,44 @@ export class CdpService extends BaseApiClient {
   /**
    * Get token balances across all networks (uses cache if available)
    * Uses authenticated userId from JWT token
+   * @param chain Optional specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    */
-  async getTokens(): Promise<TokensResponse> {
-    const response = await this.get<TokensResponse>('/api/cdp/wallet/tokens');
+  async getTokens(chain?: string): Promise<TokensResponse> {
+    const params = chain ? `?chain=${encodeURIComponent(chain)}` : '';
+    const response = await this.get<TokensResponse>(`/api/cdp/wallet/tokens${params}`);
     return response;
   }
 
   /**
    * Force sync token balances (bypasses cache)
    * Uses authenticated userId from JWT token
+   * @param chain Optional specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    */
-  async syncTokens(): Promise<TokensResponse> {
-    const response = await this.post<TokensResponse>('/api/cdp/wallet/tokens/sync', {});
+  async syncTokens(chain?: string): Promise<TokensResponse> {
+    const body = chain ? { chain } : {};
+    const response = await this.post<TokensResponse>('/api/cdp/wallet/tokens/sync', body);
     return response;
   }
 
   /**
    * Get NFT holdings across networks (uses cache if available)
    * Uses authenticated userId from JWT token
+   * @param chain Optional specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    */
-  async getNFTs(): Promise<NFTsResponse> {
-    const response = await this.get<NFTsResponse>('/api/cdp/wallet/nfts');
+  async getNFTs(chain?: string): Promise<NFTsResponse> {
+    const params = chain ? `?chain=${encodeURIComponent(chain)}` : '';
+    const response = await this.get<NFTsResponse>(`/api/cdp/wallet/nfts${params}`);
     return response;
   }
 
   /**
    * Force sync NFTs (bypasses cache)
    * Uses authenticated userId from JWT token
+   * @param chain Optional specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    */
-  async syncNFTs(): Promise<NFTsResponse> {
-    const response = await this.post<NFTsResponse>('/api/cdp/wallet/nfts/sync', {});
+  async syncNFTs(chain?: string): Promise<NFTsResponse> {
+    const body = chain ? { chain } : {};
+    const response = await this.post<NFTsResponse>('/api/cdp/wallet/nfts/sync', body);
     return response;
   }
 

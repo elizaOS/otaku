@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../ui/card';
 import { Button } from '../../ui/button';
 import { Bullet } from '../../ui/bullet';
@@ -9,7 +9,7 @@ import { TokenDetailModalContent } from './TokenDetailModal';
 import { NFTDetailModalContent } from './NFTDetailModal';
 import { FundModalContent } from './FundModal';
 import { elizaClient } from '../../../lib/elizaClient';
-import { getTokenIconBySymbol } from '../../../constants/chains';
+import { getTokenIconBySymbol, SUPPORTED_CHAINS } from '../../../constants/chains';
 import { useModal } from '../../../contexts/ModalContext';
 
 interface Token {
@@ -61,7 +61,15 @@ interface CDPWalletCardProps {
   onBalanceChange?: (balance: number) => void;
 }
 
-export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWalletCardProps) {
+// Expose refresh methods via ref
+export interface CDPWalletCardRef {
+  refreshTokens: () => Promise<void>;
+  refreshNFTs: () => Promise<void>;
+  refreshAll: () => Promise<void>;
+}
+
+export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
+  ({ userId, walletAddress, onBalanceChange }, ref) => {
   const { showModal } = useModal();
   // Format address for display (shortened)
   const shortAddress = walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : '';
@@ -85,7 +93,148 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
-  // Fetch tokens
+  // Helper: Sort tokens by chain order (matches SUPPORTED_CHAINS order)
+  const sortTokensByChainOrder = (tokensToSort: Token[]): Token[] => {
+    return tokensToSort.sort((a, b) => {
+      const aIndex = SUPPORTED_CHAINS.indexOf(a.chain as any);
+      const bIndex = SUPPORTED_CHAINS.indexOf(b.chain as any);
+      // If chain not found, put it at the end
+      const aOrder = aIndex === -1 ? 999 : aIndex;
+      const bOrder = bIndex === -1 ? 999 : bIndex;
+      return aOrder - bOrder;
+    });
+  };
+
+  // Helper: Sort NFTs by chain order (matches SUPPORTED_CHAINS order)
+  const sortNftsByChainOrder = (nftsToSort: NFT[]): NFT[] => {
+    return nftsToSort.sort((a, b) => {
+      const aIndex = SUPPORTED_CHAINS.indexOf(a.chain as any);
+      const bIndex = SUPPORTED_CHAINS.indexOf(b.chain as any);
+      // If chain not found, put it at the end
+      const aOrder = aIndex === -1 ? 999 : aIndex;
+      const bOrder = bIndex === -1 ? 999 : bIndex;
+      return aOrder - bOrder;
+    });
+  };
+
+  // Expose refresh methods via ref
+  useImperativeHandle(ref, () => ({
+    refreshTokens: async () => {
+      console.log('🔄 Refreshing tokens via ref...');
+      await syncTokens();
+    },
+    refreshNFTs: async () => {
+      console.log('🔄 Refreshing NFTs via ref...');
+      await syncNfts();
+    },
+    refreshAll: async () => {
+      console.log('🔄 Refreshing all wallet data via ref...');
+      await Promise.all([syncTokens(), syncNfts()]);
+    },
+  }));
+
+  // Sync tokens (force refresh) concurrently across all chains with progressive updates
+  const syncTokens = async () => {
+    if (!userId) return;
+    
+    setIsLoadingTokens(true);
+    setTokensError(null);
+    
+    try {
+      // Fetch all chains concurrently with sync and update as each completes
+      const chainPromises = SUPPORTED_CHAINS.map(async (chain) => {
+        try {
+          const data = await elizaClient.cdp.syncTokens(chain);
+          
+          // Update UI immediately when this chain returns
+          if (data && data.tokens) {
+            // Calculate new tokens array and total value OUTSIDE setState
+            let newTokens: Token[] | undefined;
+            let newTotalValue: number | undefined;
+            
+            setTokens(prevTokens => {
+              // Remove old tokens from this chain
+              const otherChainTokens = prevTokens.filter(token => token.chain !== chain);
+              // Add new tokens from this chain
+              const mergedTokens = [...otherChainTokens, ...data.tokens];
+              // Sort by chain order to maintain consistent display
+              newTokens = sortTokensByChainOrder(mergedTokens);
+              return newTokens;
+            });
+            
+            // Only calculate if newTokens was successfully assigned
+            if (newTokens) {
+              // Calculate total USD value from the new tokens array
+              newTotalValue = newTokens.reduce((sum, token) => sum + (token.usdValue || 0), 0);
+              // Update total value separately (React will batch these updates)
+              setTotalUsdValue(newTotalValue);
+            }
+          }
+          
+          return data;
+        } catch (err) {
+          console.error(`Error syncing tokens for ${chain}:`, err);
+          return null;
+        }
+      });
+
+      // Wait for all chain syncs to complete
+      await Promise.all(chainPromises);
+    } catch (error) {
+      console.error('Error syncing tokens:', error);
+      setTokensError('Failed to sync tokens');
+      setTokens([]);
+      setTotalUsdValue(0);
+    } finally {
+      setIsLoadingTokens(false);
+    }
+  };
+
+  // Sync NFTs (force refresh) concurrently across all chains with progressive updates
+  const syncNfts = async () => {
+    if (!userId) return;
+    
+    setIsLoadingNfts(true);
+    setNftsError(null);
+    
+    try {
+      // Fetch all chains concurrently with sync and update as each completes
+      const chainPromises = SUPPORTED_CHAINS.map(async (chain) => {
+        try {
+          const data = await elizaClient.cdp.syncNFTs(chain);
+          
+          // Update UI immediately when this chain returns
+          if (data && data.nfts) {
+            // Replace only this chain's NFTs, keep others intact
+            setNfts(prevNfts => {
+              // Remove old NFTs from this chain
+              const otherChainNfts = prevNfts.filter(nft => nft.chain !== chain);
+              // Add new NFTs from this chain
+              const mergedNfts = [...otherChainNfts, ...data.nfts];
+              // Sort by chain order to maintain consistent display
+              return sortNftsByChainOrder(mergedNfts);
+            });
+          }
+          
+          return data;
+        } catch (err) {
+          console.error(`Error syncing NFTs for ${chain}:`, err);
+          return null;
+        }
+      });
+
+      // Wait for all chain syncs to complete
+      await Promise.all(chainPromises);
+    } catch (error) {
+      console.error('Error syncing NFTs:', error);
+      setNftsError('Failed to sync NFTs');
+      setNfts([]);
+    } finally {
+      setIsLoadingNfts(false);
+    }
+  };
+
+  // Fetch tokens concurrently across all chains with progressive chain-by-chain updates
   const fetchTokens = async () => {
     if (!userId) return;
     
@@ -93,9 +242,45 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     setTokensError(null);
     
     try {
-      const data = await elizaClient.cdp.getTokens();
-      setTokens(data.tokens || []);
-      setTotalUsdValue(data.totalUsdValue || 0);
+      // Fetch all chains concurrently and update UI as each chain completes
+      const chainPromises = SUPPORTED_CHAINS.map(async (chain) => {
+        try {
+          const data = await elizaClient.cdp.getTokens(chain);
+          
+          // Update UI immediately when this chain returns
+          if (data && data.tokens) {
+            // Calculate new tokens array and total value OUTSIDE setState
+            let newTokens: Token[] | undefined;
+            let newTotalValue: number | undefined;
+            
+            setTokens(prevTokens => {
+              // Remove old tokens from this chain
+              const otherChainTokens = prevTokens.filter(token => token.chain !== chain);
+              // Add new tokens from this chain
+              const mergedTokens = [...otherChainTokens, ...data.tokens];
+              // Sort by chain order to maintain consistent display
+              newTokens = sortTokensByChainOrder(mergedTokens);
+              return newTokens;
+            });
+            
+            // Only calculate if newTokens was successfully assigned
+            if (newTokens) {
+              // Calculate total USD value from the new tokens array
+              newTotalValue = newTokens.reduce((sum, token) => sum + (token.usdValue || 0), 0);
+              // Update total value separately (React will batch these updates)
+              setTotalUsdValue(newTotalValue);
+            }
+          }
+          
+          return data;
+        } catch (err) {
+          console.error(`Error fetching tokens for ${chain}:`, err);
+          return null;
+        }
+      });
+
+      // Wait for all chains to complete (but UI already updated progressively)
+      await Promise.all(chainPromises);
     } catch (error) {
       console.error('Error fetching tokens:', error);
       setTokensError('Failed to fetch tokens');
@@ -106,7 +291,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     }
   };
 
-  // Fetch NFTs
+  // Fetch NFTs concurrently across all chains with progressive chain-by-chain updates
   const fetchNfts = async () => {
     if (!userId) return;
     
@@ -114,8 +299,33 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     setNftsError(null);
     
     try {
-      const data = await elizaClient.cdp.getNFTs();
-      setNfts(data.nfts || []);
+      // Fetch all chains concurrently and update UI as each chain completes
+      const chainPromises = SUPPORTED_CHAINS.map(async (chain) => {
+        try {
+          const data = await elizaClient.cdp.getNFTs(chain);
+          
+          // Update UI immediately when this chain returns
+          if (data && data.nfts) {
+            // Replace only this chain's NFTs, keep others intact
+            setNfts(prevNfts => {
+              // Remove old NFTs from this chain
+              const otherChainNfts = prevNfts.filter(nft => nft.chain !== chain);
+              // Add new NFTs from this chain
+              const mergedNfts = [...otherChainNfts, ...data.nfts];
+              // Sort by chain order to maintain consistent display
+              return sortNftsByChainOrder(mergedNfts);
+            });
+          }
+          
+          return data;
+        } catch (err) {
+          console.error(`Error fetching NFTs for ${chain}:`, err);
+          return null;
+        }
+      });
+
+      // Wait for all chains to complete (but UI already updated progressively)
+      await Promise.all(chainPromises);
     } catch (error) {
       console.error('Error fetching NFTs:', error);
       setNftsError('Failed to fetch NFTs');
@@ -156,17 +366,6 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     fetchTokens();
   }, [userId]);
 
-  // Auto-refresh tokens every 10 seconds
-  useEffect(() => {
-    if (!userId) return;
-    
-    const interval = setInterval(() => {
-      fetchTokens();
-    }, 10000); // 10 seconds
-    
-    return () => clearInterval(interval);
-  }, [userId]);
-
   // Load data based on active tab
   useEffect(() => {
     if (activeTab === 'collections' && nfts.length === 0 && !isLoadingNfts && !nftsError) {
@@ -176,20 +375,16 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
     }
   }, [activeTab]);
 
-  // Refresh all data using sync APIs
+  // Refresh all data using sync APIs with concurrent chain-by-chain updates
   const handleManualRefresh = async () => {
     if (!userId) return;
     
     setIsRefreshing(true);
     try {
-      // Use sync APIs to force fresh data
       if (activeTab === 'tokens') {
-        const data = await elizaClient.cdp.syncTokens();
-        setTokens(data.tokens || []);
-        setTotalUsdValue(data.totalUsdValue || 0);
+        await syncTokens();
       } else if (activeTab === 'collections') {
-        const data = await elizaClient.cdp.syncNFTs();
-        setNfts(data.nfts || []);
+        await syncNfts();
       } else if (activeTab === 'history') {
         await fetchHistory();
       }
@@ -301,7 +496,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
           size="sm"
           className="text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground"
         >
-          {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          {isLoadingHistory || isLoadingNfts || isLoadingTokens ? 'Loading...' : isRefreshing ? 'Refreshing...' : 'Refresh'}
         </Button>
       </CardHeader>
       <CardContent className="bg-accent p-2 flex-1 flex-col overflow-auto relative w-full">
@@ -655,4 +850,7 @@ export function CDPWalletCard({ userId, walletAddress, onBalanceChange }: CDPWal
       </CardContent>
     </Card>
   );
-}
+});
+
+// Add display name for debugging
+CDPWalletCard.displayName = 'CDPWalletCard';

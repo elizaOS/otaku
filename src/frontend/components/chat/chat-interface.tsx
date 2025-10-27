@@ -46,6 +46,7 @@ interface ChatInterfaceProps {
   channelId: string | null
   isNewChatMode?: boolean
   onChannelCreated?: (channelId: string, channelName: string) => void
+  onActionCompleted?: () => void // Callback when agent completes an action
 }
 
 const AnimatedDots = () => {
@@ -62,7 +63,7 @@ const AnimatedDots = () => {
   return <span>{'.'.repeat(dotCount)}</span>
 }
 
-export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMode = false, onChannelCreated }: ChatInterfaceProps) {
+export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMode = false, onChannelCreated, onActionCompleted }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState("")
   const [isTyping, setIsTyping] = useState(false)
@@ -259,6 +260,12 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
           setIsTyping(false)
           // Wait for DOM to update before scrolling
           setTimeout(() => scrollToBottom('smooth'), 0)
+          
+          // If it's a summary message, trigger wallet refresh
+          if (isSummaryMessage && onActionCompleted) {
+            console.log('✅ Agent action completed - triggering wallet refresh')
+            onActionCompleted()
+          }
           
           // If it's an error message, also clear the local error state
           if (isErrorMessage) {

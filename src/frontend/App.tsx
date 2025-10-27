@@ -8,7 +8,7 @@ import { ChatInterface } from './components/chat/chat-interface';
 import { SidebarProvider } from './components/ui/sidebar';
 import { DashboardSidebar } from './components/dashboard/sidebar';
 import Widget from './components/dashboard/widget';
-import { CDPWalletCard } from './components/dashboard/cdp-wallet-card';
+import { CDPWalletCard, type CDPWalletCardRef } from './components/dashboard/cdp-wallet-card';
 import CollapsibleNotifications from './components/dashboard/notifications/collapsible-notifications';
 import AccountPage from './components/dashboard/account/page';
 import { SignInModal } from './components/auth/SignInModal';
@@ -85,6 +85,9 @@ function App() {
   const [totalBalance, setTotalBalance] = useState(0);
   const [isLoadingUserProfile, setIsLoadingUserProfile] = useState(true);
   const [isNewChatMode, setIsNewChatMode] = useState(false); // Track if we're in "new chat" mode (no channel yet)
+  
+  // Ref to access wallet's refresh functions
+  const walletRef = useRef<CDPWalletCardRef>(null);
 
   // Determine loading state and message
   const getLoadingMessage = (): string[] | null => {
@@ -637,6 +640,11 @@ function App() {
                       setActiveChannelId(channelId);
                       setIsNewChatMode(false);
                     }}
+                    onActionCompleted={async () => {
+                      // Refresh wallet data when agent completes an action
+                      console.log('🔄 Agent action completed - refreshing wallet...');
+                      await walletRef.current?.refreshAll();
+                    }}
                   />
                 )}
               </div>
@@ -648,7 +656,7 @@ function App() {
         <div className="col-span-3 hidden lg:block">
           <div className="space-y-gap py-sides min-h-screen max-h-screen sticky top-0 overflow-clip">
             <Widget widgetData={mockData.widgetData} />
-            {userId && <CDPWalletCard userId={userId} walletAddress={userProfile?.walletAddress} onBalanceChange={setTotalBalance} />}
+            {userId && <CDPWalletCard ref={walletRef} userId={userId} walletAddress={userProfile?.walletAddress} onBalanceChange={setTotalBalance} />}
             <CollapsibleNotifications />
           </div>
         </div>

@@ -807,14 +807,17 @@ const safeBalanceToNumber = (balanceHex: string, decimals: number): number => {
 };
 
 /**
- * Fetch wallet token balances across all networks
+ * Fetch wallet token balances across all networks or a specific network
+ * @param client CDP client instance
+ * @param name User identifier
+ * @param chain Optional specific chain to fetch (if not provided, fetches all)
  */
-async function fetchWalletTokens(client: CdpClient, name: string): Promise<{
+async function fetchWalletTokens(client: CdpClient, name: string, chain?: string): Promise<{
   tokens: any[];
   totalUsdValue: number;
   address: string;
 }> {
-  logger.info(`[CDP API] Fetching token balances for user: ${name}`);
+  logger.info(`[CDP API] Fetching token balances for user: ${name}${chain ? ` on chain: ${chain}` : ' (all chains)'}`);
 
   const account = await client.evm.getOrCreateAccount({ name });
   const address = account.address;
@@ -824,10 +827,27 @@ async function fetchWalletTokens(client: CdpClient, name: string): Promise<{
     throw new Error('Alchemy API key not configured');
   }
 
+  // Determine which networks to fetch
+  let networksToFetch: string[];
+  if (chain) {
+    // Validate the chain is supported
+    const chainConfig = getChainConfig(chain);
+    if (!chainConfig) {
+      throw new Error(`Unsupported chain: ${chain}`);
+    }
+    // Check if it's a mainnet network
+    if (!MAINNET_NETWORKS.includes(chain as any)) {
+      throw new Error(`Chain ${chain} is not a supported mainnet network`);
+    }
+    networksToFetch = [chain];
+  } else {
+    networksToFetch = MAINNET_NETWORKS;
+  }
+
   const allTokens: any[] = [];
   let totalUsdValue = 0;
 
-  for (const network of MAINNET_NETWORKS) {
+  for (const network of networksToFetch) {
     try {
       const chainConfig = getChainConfig(network);
       if (!chainConfig) {
@@ -984,7 +1004,7 @@ async function fetchWalletTokens(client: CdpClient, name: string): Promise<{
   // Ensure totalUsdValue is a valid number
   const finalTotalUsdValue = isNaN(totalUsdValue) ? 0 : totalUsdValue;
   
-  logger.info(`[CDP API] Found ${allTokens.length} tokens for user ${name}, total value: $${finalTotalUsdValue.toFixed(2)}`);
+  logger.info(`[CDP API] Found ${allTokens.length} tokens for user ${name}${chain ? ` on ${chain}` : ''}, total value: $${finalTotalUsdValue.toFixed(2)}`);
 
   return {
     tokens: allTokens,
@@ -994,9 +1014,12 @@ async function fetchWalletTokens(client: CdpClient, name: string): Promise<{
 }
 
 /**
- * Fetch wallet NFTs across all networks
+ * Fetch wallet NFTs across all networks or a specific network
+ * @param client CDP client instance
+ * @param name User identifier
+ * @param chain Optional specific chain to fetch (if not provided, fetches all)
  */
-async function fetchWalletNFTs(client: CdpClient, name: string): Promise<{
+async function fetchWalletNFTs(client: CdpClient, name: string, chain?: string): Promise<{
   nfts: any[];
   address: string;
 }> {
@@ -1005,13 +1028,30 @@ async function fetchWalletNFTs(client: CdpClient, name: string): Promise<{
     throw new Error('Alchemy API key not configured');
   }
 
-  logger.info(`[CDP API] Fetching NFTs for user: ${name}`);
+  logger.info(`[CDP API] Fetching NFTs for user: ${name}${chain ? ` on chain: ${chain}` : ' (all chains)'}`);
 
   const account = await client.evm.getOrCreateAccount({ name });
   const address = account.address;
 
-  // Fetch NFTs from all mainnet networks using Alchemy REST API
-  const networks = MAINNET_NETWORKS.map(network => {
+  // Determine which networks to fetch
+  let networksToFetch: string[];
+  if (chain) {
+    // Validate the chain is supported
+    const chainConfig = getChainConfig(chain);
+    if (!chainConfig) {
+      throw new Error(`Unsupported chain: ${chain}`);
+    }
+    // Check if it's a mainnet network
+    if (!MAINNET_NETWORKS.includes(chain as any)) {
+      throw new Error(`Chain ${chain} is not a supported mainnet network`);
+    }
+    networksToFetch = [chain];
+  } else {
+    networksToFetch = MAINNET_NETWORKS;
+  }
+
+  // Fetch NFTs from specified networks using Alchemy REST API
+  const networks = networksToFetch.map(network => {
     const config = getChainConfig(network);
     const baseUrl = config?.rpcUrl(alchemyKey).replace('/v2/', '/nft/v3/');
     return {
@@ -1063,7 +1103,7 @@ async function fetchWalletNFTs(client: CdpClient, name: string): Promise<{
     }
   }
 
-  logger.info(`[CDP API] Found ${allNfts.length} NFTs for user ${name}`);
+  logger.info(`[CDP API] Found ${allNfts.length} NFTs for user ${name}${chain ? ` on ${chain}` : ''}`);
 
   return {
     nfts: allNfts,
@@ -1133,17 +1173,26 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   /**
    * GET /api/cdp/wallet/tokens
    * Get token balances for authenticated user (checks cache first)
+   * Query params:
+   *   - chain (optional): Specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    * SECURITY: Uses authenticated userId from JWT token
    */
   router.get('/wallet/tokens', async (req: AuthenticatedRequest, res) => {
     try {
       // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
+      const chain = req.query.chain as string | undefined;
 
-      // Check cache first
-      const cached = tokensCache.get(userId);
+      // Validate chain if provided
+      if (chain && !MAINNET_NETWORKS.includes(chain as any)) {
+        return sendError(res, 400, 'INVALID_CHAIN', `Invalid or unsupported chain: ${chain}`);
+      }
+
+      // Check cache first (cache key includes chain if specified)
+      const cacheKey = chain ? `${userId}:${chain}` : userId;
+      const cached = tokensCache.get(cacheKey);
       if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-        logger.info(`[CDP API] Returning cached token balances for user: ${userId.substring(0, 8)}...`);
+        logger.info(`[CDP API] Returning cached token balances for user: ${userId.substring(0, 8)}...${chain ? ` (chain: ${chain})` : ''}`);
         return sendSuccess(res, { ...cached.data, fromCache: true });
       }
 
@@ -1153,10 +1202,10 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
       }
 
       // Fetch fresh data
-      const result = await fetchWalletTokens(client, userId);
+      const result = await fetchWalletTokens(client, userId, chain);
 
       // Update cache
-      tokensCache.set(userId, {
+      tokensCache.set(cacheKey, {
         data: result,
         timestamp: Date.now(),
       });
@@ -1180,25 +1229,34 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   /**
    * POST /api/cdp/wallet/tokens/sync
    * Force sync token balances for authenticated user (bypasses cache)
+   * Body params:
+   *   - chain (optional): Specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    * SECURITY: Uses authenticated userId from JWT token
    */
   router.post('/wallet/tokens/sync', async (req: AuthenticatedRequest, res) => {
     try {
       // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
+      const { chain } = req.body;
+
+      // Validate chain if provided
+      if (chain && !MAINNET_NETWORKS.includes(chain as any)) {
+        return sendError(res, 400, 'INVALID_CHAIN', `Invalid or unsupported chain: ${chain}`);
+      }
 
       const client = getCdpClient();
       if (!client) {
         return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'CDP client not initialized.');
       }
 
-      logger.info(`[CDP API] Force syncing token balances for user: ${userId.substring(0, 8)}...`);
+      logger.info(`[CDP API] Force syncing token balances for user: ${userId.substring(0, 8)}...${chain ? ` (chain: ${chain})` : ''}`);
 
       // Fetch fresh data
-      const result = await fetchWalletTokens(client, userId);
+      const result = await fetchWalletTokens(client, userId, chain);
 
-      // Update cache
-      tokensCache.set(userId, {
+      // Update cache (cache key includes chain if specified)
+      const cacheKey = chain ? `${userId}:${chain}` : userId;
+      tokensCache.set(cacheKey, {
         data: result,
         timestamp: Date.now(),
       });
@@ -1222,17 +1280,26 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   /**
    * GET /api/cdp/wallet/nfts
    * Get NFT holdings for authenticated user (checks cache first)
+   * Query params:
+   *   - chain (optional): Specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    * SECURITY: Uses authenticated userId from JWT token
    */
   router.get('/wallet/nfts', async (req: AuthenticatedRequest, res) => {
     try {
       // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
+      const chain = req.query.chain as string | undefined;
 
-      // Check cache first
-      const cached = nftsCache.get(userId);
+      // Validate chain if provided
+      if (chain && !MAINNET_NETWORKS.includes(chain as any)) {
+        return sendError(res, 400, 'INVALID_CHAIN', `Invalid or unsupported chain: ${chain}`);
+      }
+
+      // Check cache first (cache key includes chain if specified)
+      const cacheKey = chain ? `${userId}:${chain}` : userId;
+      const cached = nftsCache.get(cacheKey);
       if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-        logger.info(`[CDP API] Returning cached NFTs for user: ${userId.substring(0, 8)}...`);
+        logger.info(`[CDP API] Returning cached NFTs for user: ${userId.substring(0, 8)}...${chain ? ` (chain: ${chain})` : ''}`);
         return sendSuccess(res, { ...cached.data, fromCache: true });
       }
 
@@ -1242,10 +1309,10 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
       }
 
       // Fetch fresh data
-      const result = await fetchWalletNFTs(client, userId);
+      const result = await fetchWalletNFTs(client, userId, chain);
 
       // Update cache
-      nftsCache.set(userId, {
+      nftsCache.set(cacheKey, {
         data: result,
         timestamp: Date.now(),
       });
@@ -1269,25 +1336,34 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
   /**
    * POST /api/cdp/wallet/nfts/sync
    * Force sync NFTs for authenticated user (bypasses cache)
+   * Body params:
+   *   - chain (optional): Specific chain to fetch (e.g., 'base', 'ethereum', 'polygon')
    * SECURITY: Uses authenticated userId from JWT token
    */
   router.post('/wallet/nfts/sync', async (req: AuthenticatedRequest, res) => {
     try {
       // SECURITY: Use authenticated userId from JWT token
       const userId = req.userId!;
+      const { chain } = req.body;
+
+      // Validate chain if provided
+      if (chain && !MAINNET_NETWORKS.includes(chain as any)) {
+        return sendError(res, 400, 'INVALID_CHAIN', `Invalid or unsupported chain: ${chain}`);
+      }
 
       const client = getCdpClient();
       if (!client) {
         return sendError(res, 503, 'SERVICE_UNAVAILABLE', 'CDP client not initialized.');
       }
 
-      logger.info(`[CDP API] Force syncing NFTs for user: ${userId.substring(0, 8)}...`);
+      logger.info(`[CDP API] Force syncing NFTs for user: ${userId.substring(0, 8)}...${chain ? ` (chain: ${chain})` : ''}`);
 
       // Fetch fresh data
-      const result = await fetchWalletNFTs(client, userId);
+      const result = await fetchWalletNFTs(client, userId, chain);
 
-      // Update cache
-      nftsCache.set(userId, {
+      // Update cache (cache key includes chain if specified)
+      const cacheKey = chain ? `${userId}:${chain}` : userId;
+      nftsCache.set(cacheKey, {
         data: result,
         timestamp: Date.now(),
       });
