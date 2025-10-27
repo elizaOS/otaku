@@ -19,12 +19,12 @@ export const getTokenPriceChartAction: ActionWithParams = {
     "TOKEN_PERFORMANCE",
   ],
   description:
-    "Use this action when the user asks to see a price chart, graph, or price history for a token. When called successfully, this action automatically provides the token chart visualization in the chat with historical price data points, current price, and price change statistics. Supports multiple timeframes (1h, 24h, 7d, 30d, 1y).",
+    "Use this action when the user asks to see a price chart, graph, or price history for a token. When called successfully, this action automatically provides the token chart visualization in the chat with historical price data points, current price, and price change statistics. Supports multiple timeframes (1h, 24h, 7d, 30d, 1y). For non-native tokens or to ensure correct parameters, consider using GET_TOKEN_METADATA first to retrieve the correct chain and contract address.",
 
   parameters: {
     token: {
       type: "string",
-      description: "Token symbol or contract address (e.g., 'BTC', 'ETH', 'CLANKER', '0x1bc0c42215582d5a085795f4badbac3ff36d1bcb')",
+      description: "Token symbol or contract address (e.g., 'BTC', 'ETH', 'CLANKER', '0x1bc0c42215582d5a085795f4badbac3ff36d1bcb'). For non-native tokens, use GET_TOKEN_METADATA first to get the correct contract address.",
       required: true,
     },
     timeframe: {
@@ -34,8 +34,8 @@ export const getTokenPriceChartAction: ActionWithParams = {
     },
     chain: {
       type: "string",
-      description: "Blockchain network for contract address lookups (e.g., 'base', 'ethereum', 'polygon'). Required if token is a contract address. Defaults to 'base'.",
-      required: false,
+      description: "Blockchain network for the token (e.g., 'base', 'ethereum', 'polygon', 'arbitrum', 'optimism'). Use GET_TOKEN_METADATA first to determine the correct chain for a specific token.",
+      required: true,
     },
   },
 
@@ -68,7 +68,7 @@ export const getTokenPriceChartAction: ActionWithParams = {
       // Extract and validate token parameter (required)
       const tokenRaw: string | undefined = params?.token?.trim();
       if (!tokenRaw) {
-        const errorMsg = "Missing required parameter 'token'. Please specify which token to fetch price chart for (e.g., 'BTC', 'ETH', or contract address).";
+        const errorMsg = "Missing required parameter 'token'. Please specify which token to fetch price chart for (e.g., 'BTC', 'ETH', or contract address). For non-native tokens, use GET_TOKEN_METADATA first to get the correct contract address.";
         logger.error(`[GET_TOKEN_PRICE_CHART] ${errorMsg}`);
         const errorResult: ActionResult = {
           text: errorMsg,
@@ -84,7 +84,26 @@ export const getTokenPriceChartAction: ActionWithParams = {
         return errorResult;
       }
 
-      // Extract optional parameters
+      // Extract and validate chain parameter (required)
+      const chain: string | undefined = params?.chain?.trim()?.toLowerCase();
+      if (!chain) {
+        const errorMsg = "Missing required parameter 'chain'. Please specify the blockchain network (e.g., 'base', 'ethereum', 'polygon'). Use GET_TOKEN_METADATA first to determine the correct chain for a specific token.";
+        logger.error(`[GET_TOKEN_PRICE_CHART] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: errorMsg,
+          success: false,
+          error: "missing_required_parameter",
+        };
+        if (callback) {
+          await callback({
+            text: errorResult.text,
+            content: { error: "missing_required_parameter", details: errorMsg },
+          });
+        }
+        return errorResult;
+      }
+
+      // Extract optional timeframe parameter
       const timeframe = (params?.timeframe?.trim() || '24h').toLowerCase();
       const validTimeframes = ['1h', '24h', '7d', '30d', '1y'];
       if (!validTimeframes.includes(timeframe)) {
@@ -103,8 +122,6 @@ export const getTokenPriceChartAction: ActionWithParams = {
         }
         return errorResult;
       }
-
-      const chain = (params?.chain?.trim() || 'base').toLowerCase();
 
       logger.info(`[GET_TOKEN_PRICE_CHART] Fetching price chart for ${tokenRaw}, timeframe: ${timeframe}, chain: ${chain}`);
 
@@ -170,14 +187,14 @@ Please analyze this price chart data and provide insights about the token's pric
       const failureInputParams = {
         token: params?.token,
         timeframe: params?.timeframe || '24h',
-        chain: params?.chain || 'base',
+        chain: params?.chain,
       };
       
       const errorText = `Failed to fetch token price chart: ${msg}
 
 Please check the following:
-1. **Token identifier**: Use a valid token symbol (e.g., 'BTC', 'ETH') or contract address
-2. **Chain parameter**: If using a contract address, provide the correct chain:
+1. **Token identifier**: Use a valid token symbol (e.g., 'BTC', 'ETH') or contract address. For non-native tokens, use GET_TOKEN_METADATA first to get the correct contract address.
+2. **Chain parameter** (REQUIRED): Provide the correct blockchain network:
    | Chain        | Parameter   |
    | ------------ | ----------- |
    | **base**     | base        |
@@ -188,9 +205,9 @@ Please check the following:
    
 3. **Timeframe**: Optional - '1h', '24h', '7d', '30d', or '1y' (default: '24h')
 
-💡 **Tip**: If you're unsure about a token's details, try using GET_TOKEN_METADATA action first to check the token metadata and find its contract address and chain.
+💡 **Tip**: Use GET_TOKEN_METADATA action first to retrieve the correct chain and contract address for a specific token.
 
-Example: "Show me the price chart for BTC over the last 7 days"
+Example: "Show me the price chart for BTC on ethereum over the last 7 days"
 Example: "Get CLANKER chart on base for 30 days"`;
       
       const errorResult: ActionResult = {
