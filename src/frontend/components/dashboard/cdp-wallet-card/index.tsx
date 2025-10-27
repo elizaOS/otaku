@@ -133,6 +133,12 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
     },
   }));
 
+  // Calculate total USD value whenever tokens change
+  useEffect(() => {
+    const total = tokens.reduce((sum, token) => sum + (token.usdValue || 0), 0);
+    setTotalUsdValue(total);
+  }, [tokens]);
+
   // Sync tokens (force refresh) concurrently across all chains with progressive updates
   const syncTokens = async () => {
     if (!userId) return;
@@ -148,27 +154,14 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
           
           // Update UI immediately when this chain returns
           if (data && data.tokens) {
-            // Calculate new tokens array and total value OUTSIDE setState
-            let newTokens: Token[] | undefined;
-            let newTotalValue: number | undefined;
-            
             setTokens(prevTokens => {
               // Remove old tokens from this chain
               const otherChainTokens = prevTokens.filter(token => token.chain !== chain);
               // Add new tokens from this chain
               const mergedTokens = [...otherChainTokens, ...data.tokens];
               // Sort by chain order to maintain consistent display
-              newTokens = sortTokensByChainOrder(mergedTokens);
-              return newTokens;
+              return sortTokensByChainOrder(mergedTokens);
             });
-            
-            // Only calculate if newTokens was successfully assigned
-            if (newTokens) {
-              // Calculate total USD value from the new tokens array
-              newTotalValue = newTokens.reduce((sum, token) => sum + (token.usdValue || 0), 0);
-              // Update total value separately (React will batch these updates)
-              setTotalUsdValue(newTotalValue);
-            }
           }
           
           return data;
@@ -184,7 +177,6 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
       console.error('Error syncing tokens:', error);
       setTokensError('Failed to sync tokens');
       setTokens([]);
-      setTotalUsdValue(0);
     } finally {
       setIsLoadingTokens(false);
     }
@@ -249,27 +241,14 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
           
           // Update UI immediately when this chain returns
           if (data && data.tokens) {
-            // Calculate new tokens array and total value OUTSIDE setState
-            let newTokens: Token[] | undefined;
-            let newTotalValue: number | undefined;
-            
             setTokens(prevTokens => {
               // Remove old tokens from this chain
               const otherChainTokens = prevTokens.filter(token => token.chain !== chain);
               // Add new tokens from this chain
               const mergedTokens = [...otherChainTokens, ...data.tokens];
               // Sort by chain order to maintain consistent display
-              newTokens = sortTokensByChainOrder(mergedTokens);
-              return newTokens;
+              return sortTokensByChainOrder(mergedTokens);
             });
-            
-            // Only calculate if newTokens was successfully assigned
-            if (newTokens) {
-              // Calculate total USD value from the new tokens array
-              newTotalValue = newTokens.reduce((sum, token) => sum + (token.usdValue || 0), 0);
-              // Update total value separately (React will batch these updates)
-              setTotalUsdValue(newTotalValue);
-            }
           }
           
           return data;
@@ -285,7 +264,6 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
       console.error('Error fetching tokens:', error);
       setTokensError('Failed to fetch tokens');
       setTokens([]);
-      setTotalUsdValue(0);
     } finally {
       setIsLoadingTokens(false);
     }
