@@ -78,7 +78,7 @@ export function ChatPriceChart({ data }: ChatPriceChartProps) {
             {data.timeframe.toUpperCase()} Chart
           </p>
         </div>
-        {priceChange && (
+        {priceChange && priceChange.percentage !== null && priceChange.percentage !== undefined && (
           <div className={cn(
             "flex items-center gap-1 text-sm font-medium",
             isPositive ? 'text-green-500' : 'text-red-500'
