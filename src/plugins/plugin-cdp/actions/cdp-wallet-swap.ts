@@ -166,7 +166,7 @@ export const cdpWalletSwap: ActionWithParams = {
     },
     amount: {
       type: "string",
-      description: "Specific amount to swap (e.g., '100'). Use this OR percentage, not both.",
+      description: "Specific token amount to swap (e.g., '100' ETH means 100 ETH tokens, **not USD value**). Use this OR percentage, not both.",
       required: false,
     },
     percentage: {
