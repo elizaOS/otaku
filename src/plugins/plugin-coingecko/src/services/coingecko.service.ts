@@ -715,10 +715,36 @@ export class CoinGeckoService extends Service {
       };
 
       const normalizedToken = tokenIdentifier.toLowerCase();
-      const coinId = nativeTokenIds[normalizedToken] || normalizedToken;
+      
+      // Check if it's a native token
+      let coinId: string;
+      if (nativeTokenIds[normalizedToken]) {
+        coinId = nativeTokenIds[normalizedToken];
+        tokenSymbol = tokenIdentifier.toUpperCase();
+      } else {
+        // Not a native token, use getTokenMetadata to get the coin ID
+        logger.info(`[CoinGecko] Token ${tokenIdentifier} is not a native token or address, using getTokenMetadata to resolve coin ID`);
+        try {
+          const metadataResults = await this.getTokenMetadata([tokenIdentifier]);
+          if (metadataResults.length > 0 && metadataResults[0].success && metadataResults[0].data) {
+            coinId = metadataResults[0].data.id;
+            tokenSymbol = metadataResults[0].data.symbol?.toUpperCase() || tokenIdentifier.toUpperCase();
+            currentPrice = metadataResults[0].data.current_price || null;
+            logger.info(`[CoinGecko] Resolved ${tokenIdentifier} to coin ID: ${coinId}`);
+          } else {
+            // Fallback to using tokenIdentifier as coin ID if metadata lookup fails
+            logger.warn(`[CoinGecko] Failed to resolve ${tokenIdentifier} via getTokenMetadata, using as-is`);
+            coinId = normalizedToken;
+            tokenSymbol = tokenIdentifier.toUpperCase();
+          }
+        } catch (e) {
+          logger.warn(`[CoinGecko] Error calling getTokenMetadata for ${tokenIdentifier}, using as-is: ${e}`);
+          coinId = normalizedToken;
+          tokenSymbol = tokenIdentifier.toUpperCase();
+        }
+      }
 
       url = `${baseUrl}/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
-      tokenSymbol = tokenIdentifier.toUpperCase();
     }
 
     // Add interval for long ranges
