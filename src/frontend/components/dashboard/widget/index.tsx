@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, memo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import TVNoise from "@/components/ui/tv-noise";
@@ -11,7 +11,9 @@ interface WidgetProps {
   widgetData: WidgetData;
 }
 
-export default function Widget({ widgetData }: WidgetProps) {
+// Memoize Widget to prevent re-renders of parent components
+// The clock updates every second internally, but shouldn't trigger parent re-renders
+function Widget({ widgetData }: WidgetProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [userTimezone, setUserTimezone] = useState<string>('');
   const [userLocation, setUserLocation] = useState<string>('');
@@ -125,3 +127,6 @@ export default function Widget({ widgetData }: WidgetProps) {
     </Card>
   );
 }
+
+// Export memoized version to prevent parent re-renders
+export default memo(Widget);

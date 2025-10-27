@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CDPReactProvider } from "@coinbase/cdp-react";
 import { useCDPWallet } from './hooks/useCDPWallet';
@@ -88,6 +88,11 @@ function App() {
   
   // Ref to access wallet's refresh functions
   const walletRef = useRef<CDPWalletCardRef>(null);
+  
+  // Stabilize balance change callback to prevent wallet re-renders
+  const handleBalanceChange = useCallback((balance: number) => {
+    setTotalBalance(balance);
+  }, []);
 
   // Determine loading state and message
   const getLoadingMessage = (): string[] | null => {
@@ -656,7 +661,7 @@ function App() {
         <div className="col-span-3 hidden lg:block">
           <div className="space-y-gap py-sides min-h-screen max-h-screen sticky top-0 overflow-clip">
             <Widget widgetData={mockData.widgetData} />
-            {userId && <CDPWalletCard ref={walletRef} userId={userId} walletAddress={userProfile?.walletAddress} onBalanceChange={setTotalBalance} />}
+            {userId && <CDPWalletCard ref={walletRef} userId={userId} walletAddress={userProfile?.walletAddress} onBalanceChange={handleBalanceChange} />}
             <CollapsibleNotifications />
           </div>
         </div>

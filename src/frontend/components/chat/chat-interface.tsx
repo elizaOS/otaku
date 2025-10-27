@@ -79,6 +79,17 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
   
   const MAX_TEXTAREA_HEIGHT = 160
 
+  // Stabilize agent.id and agent.name to prevent unnecessary re-renders
+  // Use refs to store stable values that don't trigger re-renders
+  const agentIdRef = useRef(agent.id)
+  const agentNameRef = useRef(agent.name)
+  
+  // Update refs when agent changes, but don't trigger re-renders
+  useEffect(() => {
+    agentIdRef.current = agent.id
+    agentNameRef.current = agent.name
+  }, [agent.id, agent.name])
+
   // Helper function to check if user is near bottom of the chat
   const checkIfNearBottom = () => {
     const container = messagesContainerRef.current
@@ -149,6 +160,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
   }, [isNewChatMode, channelId])
 
   // Load messages when channel changes
+  // Only depend on channelId - using agent values directly in the function
   useEffect(() => {
     if (!channelId) return
 
@@ -177,8 +189,8 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
             content: msg.content,
             authorId: msg.authorId,
             createdAt: timestamp,
-            isAgent: msg.authorId === agent.id,
-            senderName: msg.metadata?.authorDisplayName || (msg.authorId === agent.id ? agent.name : 'User'),
+            isAgent: msg.authorId === agentIdRef.current,
+            senderName: msg.metadata?.authorDisplayName || (msg.authorId === agentIdRef.current ? agentNameRef.current : 'User'),
             sourceType: msg.sourceType,
             type: msg.sourceType,
             rawMessage: msg.rawMessage,
@@ -201,9 +213,10 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     }
 
     loadMessages()
-  }, [channelId, agent.id, agent.name])
+  }, [channelId])
 
   // Listen for new messages (channel joining is handled in App.tsx)
+  // Only depend on channelId to avoid re-subscribing when agent object changes
   useEffect(() => {
     if (!channelId) return undefined
 
@@ -216,8 +229,8 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
         content: data.content || data.text || data.message || '',
         authorId: data.senderId,
         createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.parse(data.createdAt as string),
-        isAgent: data.senderId === agent.id,
-        senderName: data.senderName || (data.senderId === agent.id ? agent.name : 'User'),
+        isAgent: data.senderId === agentIdRef.current,
+        senderName: data.senderName || (data.senderId === agentIdRef.current ? agentNameRef.current : 'User'),
         sourceType: data.sourceType || data.source,
         type: data.type || data.sourceType || data.source,
         rawMessage: data.rawMessage || data,
@@ -288,7 +301,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     return () => {
       unsubscribe?.()
     }
-  }, [channelId, agent.id, agent.name, userId])
+  }, [channelId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
