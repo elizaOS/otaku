@@ -3,7 +3,7 @@ import { validateUuid, logger } from '@elizaos/core';
 import express from 'express';
 import type { AgentServer } from '../../index';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Agent lifecycle operations (start, stop, status)

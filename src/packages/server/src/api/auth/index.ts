@@ -2,7 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import { logger } from '@elizaos/core';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { generateAuthToken, type AuthenticatedRequest } from '../../utils/auth';
+import { generateAuthToken, type AuthenticatedRequest } from '../../middleware';
 export function createAuthRouter(): express.Router {
   const router = express.Router();
   

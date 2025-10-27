@@ -1,7 +1,7 @@
 import type { ElizaOS } from '@elizaos/core';
 import { logger } from '@elizaos/core';
 import express from 'express';
-import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../middleware';
 import type { AgentServer } from '../../index';
 
 /**

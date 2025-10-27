@@ -3,7 +3,7 @@ import { logger } from '@elizaos/core';
 import { CdpClient } from '@coinbase/cdp-sdk';
 import type { AgentServer } from '../../index';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuth, type AuthenticatedRequest } from '../../utils/auth';
+import { requireAuth, type AuthenticatedRequest } from '../../middleware';
 import { createWalletClient, http } from 'viem';
 import { toAccount } from 'viem/accounts';
 import {

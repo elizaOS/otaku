@@ -37,3 +37,4 @@ export function apiKeyAuthMiddleware(req: Request, res: Response, next: NextFunc
   // If key is valid, proceed
   next();
 }
+

@@ -3,7 +3,7 @@ import { MemoryType, createUniqueUuid } from '@elizaos/core';
 import { validateUuid, logger } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuthenticated } from '../shared/middleware';
+import { requireAuthenticated } from '../../middleware';
 
 /**
  * Agent memory management functionality

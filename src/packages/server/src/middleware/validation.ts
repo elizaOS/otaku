@@ -1,10 +1,10 @@
 import type { ElizaOS, UUID } from '@elizaos/core';
 import express from 'express';
 import { validateUuid, logger } from '@elizaos/core';
-import { sendError } from './response-utils';
-import { validateChannelId } from './validation';
+import { sendError } from '../api/shared/response-utils';
+import { validateChannelId } from '../api/shared/validation';
 import rateLimit from 'express-rate-limit';
-import { type AuthenticatedRequest, requireAuthOrApiKey } from '../../utils/auth';
+import { type AuthenticatedRequest, requireAuthOrApiKey } from './jwt';
 
 /**
  * Middleware to validate that an agent exists
@@ -377,3 +377,4 @@ export const createChannelValidationRateLimit = () => {
     },
   });
 };
+
