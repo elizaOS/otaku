@@ -59,6 +59,7 @@ interface CDPWalletCardProps {
   userId: string;
   walletAddress?: string;
   onBalanceChange?: (balance: number) => void;
+  onActionClick?: () => void; // Optional callback to close parent container (Sheet/Sidebar)
 }
 
 // Expose refresh methods via ref
@@ -69,8 +70,9 @@ export interface CDPWalletCardRef {
 }
 
 export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
-  ({ userId, walletAddress, onBalanceChange }, ref) => {
+  ({ userId, walletAddress, onBalanceChange, onActionClick }, ref) => {
   const { showModal } = useModal();
+  
   // Format address for display (shortened)
   const shortAddress = walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : '';
   const [isCopied, setIsCopied] = useState(false);
@@ -494,15 +496,15 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
   };
 
   return (
-    <Card className="max-h-[calc(100vh-2rem)] w-full overflow-hidden flex flex-col">
-      <CardHeader className="flex items-center justify-between pl-3 pr-1">
+    <Card className="max-h-[calc(100vh-2rem)] w-full flex flex-col">
+      <CardHeader className="flex items-center justify-between pl-3 pr-1 relative z-10">
         <CardTitle className="flex items-center gap-2.5 text-sm font-medium uppercase">
           <Bullet />
           <div className="flex items-center gap-1">
             Wallet
             {/* Copy Address Popup */}
             <div 
-              className="relative inline-flex"
+              className="relative inline-flex z-50"
               onMouseEnter={handleShowPopup}
               onMouseLeave={handleHidePopup}
             >
@@ -612,6 +614,9 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
           <div className="grid grid-cols-3 gap-2">
             <Button 
               onClick={() => {
+                // Close parent container (Sheet/Sidebar) if callback provided
+                onActionClick?.();
+                
                 showModal(
                   <FundModalContent 
                     walletAddress={walletAddress}
@@ -629,6 +634,9 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
             </Button>
             <Button 
               onClick={() => {
+                // Close parent container (Sheet/Sidebar) if callback provided
+                onActionClick?.();
+                
                 showModal(
                   <SendModalContent
                     tokens={tokens as any}
@@ -650,6 +658,9 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
             </Button>
             <Button 
               onClick={() => {
+                // Close parent container (Sheet/Sidebar) if callback provided
+                onActionClick?.();
+                
                 showModal(
                   <SwapModalContent
                     tokens={tokens}

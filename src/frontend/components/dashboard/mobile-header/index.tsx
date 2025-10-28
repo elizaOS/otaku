@@ -18,6 +18,7 @@ export function MobileHeader({ mockData, onHomeClick }: MobileHeaderProps) {
   const { currentUser } = useCDPWallet();
   const userId = currentUser?.userId || '';
   const walletAddress = currentUser?.evmAccounts?.[0] || undefined;
+  const [isSheetOpen, setIsSheetOpen] = React.useState(false);
 
   return (
     <div className="lg:hidden h-header-mobile sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
@@ -37,7 +38,7 @@ export function MobileHeader({ mockData, onHomeClick }: MobileHeaderProps) {
           </div>
         </button>
 
-        <Sheet>
+        <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
           {/* Right: Wallet Menu */}
           <SheetTrigger asChild>
             <Button variant="secondary" size="icon" className="relative">
@@ -73,7 +74,13 @@ export function MobileHeader({ mockData, onHomeClick }: MobileHeaderProps) {
 
               {/* Wallet Content */}
               <div className="flex-1 overflow-y-auto p-4 bg-muted">
-                {userId && <CDPWalletCard userId={userId} walletAddress={walletAddress} />}
+                {userId && (
+                  <CDPWalletCard 
+                    userId={userId} 
+                    walletAddress={walletAddress}
+                    onActionClick={() => setIsSheetOpen(false)}
+                  />
+                )}
               </div>
             </div>
           </SheetContent>
