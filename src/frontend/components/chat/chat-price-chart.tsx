@@ -196,9 +196,6 @@ export function ChatPriceChart({ data }: ChatPriceChartProps) {
       {/* Data Info */}
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <div>
-          <span className="font-medium">{data.data_points_count}</span> data points
-        </div>
-        <div>
           Chain: <span className="font-medium uppercase">{data.chain}</span>
         </div>
       </div>

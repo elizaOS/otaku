@@ -33,7 +33,6 @@ import {
   type State,
   Action,
   HandlerCallback,
-  Provider,
 } from '@elizaos/core';
 import { v4 } from 'uuid';
 
@@ -47,44 +46,6 @@ import { EmbeddingGenerationService } from './services/embedding.ts';
 export * from './actions/index.ts';
 export * from './evaluators/index.ts';
 export * from './providers/index.ts';
-
-export const walletCreationTemplate = `<task>
-The user does not have a Coinbase CDP wallet configured.
-Your job is to guide them to create one or, if they explicitly express intent, set isCreateWallet to true for this step.
-</task>
-
-{{recentMessages}}
-
-# Wallet Context (CDP)
-This indicates whether the user has a configured Coinbase CDP wallet and includes basic details (address, provider, chain). If no wallet is present, on-chain actions (transfers, swaps, bridging) are unavailable until a wallet is created.
-{{walletState}}
-
-# What is a CDP wallet?
-A CDP wallet is an EVM-compatible account created via Coinbase Developer Platform that the agent uses to perform on-chain actions (transfers, swaps, balance checks). It's required before any blockchain operations.
-
-# How to create it
-Say: "Create wallet" to proceed. If the user expresses intent to create, set \`isCreateWallet\` to true in this step. If the user does not express intent, set \`isCreateWallet\` to false and prompt them to create the wallet.
-
----
-
-# Capabilities overview (internal)
-Use the lists below only to understand capabilities for later steps and to craft a concise introduction. Do not include these lists verbatim in the user-facing message. In this step, you only set \`isCreateWallet\` appropriately and provide the \`response\` text.
-
-{{actionsWithDescriptions}}
-
-<keys>
-"thought" Explain whether the user has shown intent and your next step.
-"isCreateWallet" Set to true only if the user explicitly shows intent to create a wallet now. Otherwise set to false.
-"text" A brief, user-facing message. If intent is absent, introduce CDP and capabilities at a high level and ask the user to say "Create wallet" to proceed. Keep it concise.
-</keys>
-
-<output>
-<response>
-  <thought>Your thought here</thought>
-  <isCreateWallet>true | false</isCreateWallet>
-  <text>Politely prompt to create a wallet if no intent; otherwise acknowledge creation intent.</text>
-</response>
-</output>`;
 
 export const multiStepDecisionTemplate = `<task>
 Determine the next step the assistant should take in this conversation to help the user reach their goal.
@@ -100,76 +61,109 @@ Determine the next step the assistant should take in this conversation to help t
 
 {{recentMessages}}
 
+---
+
+# Current Execution Context
+**Current Step**: {{iterationCount}} of {{maxIterations}} maximum iterations
+**Actions Completed in THIS Execution Round**: {{traceActionResult.length}}
+
+{{#if traceActionResult.length}}
+⚠️ You have ALREADY taken {{traceActionResult.length}} action(s) in this execution round. Review them carefully before deciding next steps.
+{{else}}
+✓ This is your FIRST decision step - no actions have been taken yet in this round.
+{{/if}}
+
+---
+
 # Decision Process (Follow in Order)
 
 ## 1. Understand Current State
 - **Latest user message**: What is the user asking for RIGHT NOW? This is your primary objective.
-- **Prior step results**: Review {{actionResults}} below. What information do you already have? What worked? What failed?
-- **Change detection**: Did the user's latest message change the goal, add constraints, or provide new information?
+- **Actions taken THIS round**: Review ***Actions Completed in This Round*** below. What have YOU already executed in THIS execution?
+- **Completion check**: Has the user's request ALREADY been fulfilled in this round? If yes, set \`isFinish: true\`.
 
-## 2. Check for Redundancy (CRITICAL)
-- Before choosing any provider or action, scan {{actionResults}} to see if you already have the needed information.
-- Do NOT repeat a provider/action with identical parameters unless:
-  * The user explicitly requested a refresh/retry
-  * Prior step failed and you're using different parameters
-  * New information changes the context significantly
-- If you decide to repeat, explain WHY in your thought (reference what changed).
+## 2. Check for Redundancy (CRITICAL - STOP CONDITION)
+- **IF this is step 1 (no prior actions)**: Proceed with the user's request if it requires action.
+- **IF you've already taken actions in THIS round**: 
+  * Did you ALREADY complete what the user asked for?
+  * If YES → Set \`isFinish: true\` immediately. Do NOT repeat the action.
+  * If NO → Only proceed if the user's request requires MULTIPLE different actions.
 
 ## 3. Identify Missing Information
-- What data is required to fulfill the user's request?
-- Which providers can fetch this data?
-- Is the information already available in prior results? If yes, skip the provider.
+- Does the user's request require information you don't have?
+- Have you already gathered this in a prior step of THIS round?
 
 ## 4. Choose Next Action
-- Based on available information (from prior results or new provider data), what action moves the user toward their goal?
-- Extract parameters from the **latest user message first**, then prior results.
-- Use exact parameter names from the action's schema.
-- If you have everything needed to complete the task, set \`isFinish: true\` instead of choosing another action.
+- Based on what you've ALREADY done in THIS round, what (if anything) is still needed?
+- If the user asked for ONE action and you've completed it successfully → Set \`isFinish: true\`
+- If the user asked for MULTIPLE things and some remain → Continue with the next action
+- Extract parameters from the **latest user message first**, then results from THIS round.
 
 ---
 
-{{actionsWithDescriptions}}
+{{actionsWithParams}}
 
 ---
 
-# Prior Step Results (Use This to Avoid Redundancy)
+# Actions Completed in This Round
+
+{{#if traceActionResult.length}}
+You have executed the following actions in THIS multi-step execution round:
 
 {{actionResults}}
 
-**Read these results carefully before proceeding. They contain data you may already have.**
+⚠️ **CRITICAL**: These are actions YOU took in this execution, not from earlier in the conversation.
+- If the user's request has been satisfied by these actions, set \`isFinish: true\`
+- Do NOT repeat an action unless it failed or the user explicitly asked for multiple executions
+
+{{else}}
+No actions have been executed yet in this round. This is your first decision step.
+{{/if}}
 
 ---
 
 # Decision Rules
 
-1. **Recency Priority**: Latest user message > Prior results > Earlier context
-2. **One Action Per Step**: Select at most one action (or none if gathering info via providers only)
-3. **No Premature Finish**: Do NOT set \`isFinish: true\` immediately after calling an action; wait for results first
-4. **Ground in Evidence**: Parameters must come from the latest message or prior results, not assumptions
-5. **Efficiency**: If you already have the answer from prior steps, go straight to \`isFinish: true\`
+1. **Step Awareness**: You are on step {{iterationCount}} of {{maxIterations}}. If step > 1, check what you've already done.
+2. **Single vs Multiple Actions**: 
+   - User says "send 0.05 ETH" → ONE action needed, once executed successfully, set isFinish: true
+   - User says "get price of BTC and ETH then swap" → MULTIPLE actions needed, only set isFinish: true when ALL are done
+3. **Check Before Acting**: Before executing ANY action, check if you've already done it in THIS round
+4. **When to Finish**: Set isFinish: true when the ENTIRE user request is satisfied by actions in THIS round, not just one action
+5. **Ground in Evidence**: Parameters must come from the latest message, not from prior round results
 
 ---
 
 <keys>
-"thought" Start by quoting the latest user request. Then summarize relevant prior results. State what's missing (if anything). Explain your chosen provider/action and why parameters are appropriate. If repeating work, justify the change.
-"action"  Name of the action to execute (from **Available Actions** above; empty string if no action needed this step).
-"parameters" JSON object with exact parameter names from action schema. Extract from latest user message and prior results. Empty object {} if action has no parameters.
-"isFinish" Set to true ONLY if the user's request is fully satisfied with available information.
+"thought" 
+START WITH: "Step {{iterationCount}}/{{maxIterations}}. Actions taken this round: {{traceActionResult.length}}."
+THEN: Quote the latest user request.
+THEN: If actions > 0, state "I have already completed: [list actions]. Remaining tasks: [list what's left, or 'none']."
+THEN: Explain your decision:
+  - If all tasks complete: "All requirements satisfied, setting isFinish: true to generate final response."
+  - If more work needed: "Next action: [action name] because [reason]."
+CRITICAL: Only set isFinish: true when the COMPLETE user request is fulfilled.
+
+"action" Name of the action to execute (empty string "" if setting isFinish: true or if no action needed)
+"parameters" JSON object with exact parameter names. Empty object {} if action has no parameters.
+"isFinish" Set to true ONLY when the user's ENTIRE request is satisfied by actions taken in THIS round
 </keys>
 
-⚠️ CRITICAL CHECKS:
-- Did I review the latest user message as top priority?
-- Did I check {{actionResults}} to avoid repeating work?
-- Are my parameters extracted from recent evidence (not guessed)?
-- If I'm repeating a provider/action, did I justify it in my thought?
-- Am I marking isFinish only when the task is truly complete?
+⚠️ CRITICAL STOP-CONDITION CHECKS:
+- What step am I on? ({{iterationCount}}/{{maxIterations}})
+- How many actions have I taken THIS round? ({{traceActionResult.length}})
+- If > 0 actions: Have I completed ALL parts of the user's request? → If YES, set isFinish: true to exit loop
+- Am I about to repeat an action I JUST did in THIS round? → If YES, STOP and set isFinish: true instead
+- Does the user's request require ONE action or MULTIPLE? 
+  * ONE action (e.g., "send ETH"): Execute → Next step set isFinish: true
+  * MULTIPLE actions (e.g., "get price then swap"): Execute all → Then set isFinish: true
 
 Your final output MUST be in this XML format:
 
 <output>
 <response>
-  <thought>Your structured reasoning here</thought>
-  <action>ACTION_NAME</action>
+  <thought>Step {{iterationCount}}/{{maxIterations}}. Actions taken this round: {{traceActionResult.length}}. [Your reasoning]</thought>
+  <action>ACTION_NAME or ""</action>
   <parameters>
     {
       "param1": "value1",
@@ -184,7 +178,6 @@ export const multiStepSummaryTemplate = `<task>
 Generate a final, user-facing response based on what the assistant accomplished and the results obtained.
 </task>
 
-# Context Information
 {{bio}}
 
 ---
@@ -205,7 +198,6 @@ Generate a final, user-facing response based on what the assistant accomplished 
 
 ---
 
-# Execution Trace (What Was Done)
 {{actionResults}}
 
 **These are the steps taken and their results. Use successful results to answer the user; acknowledge failures if relevant.**
@@ -217,7 +209,7 @@ Generate a final, user-facing response based on what the assistant accomplished 
 ---
 
 # Assistant's Last Reasoning Step
-{{recentMessage}}
+{{recentThought}}
 
 ---
 
@@ -1115,9 +1107,17 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       'WALLET_STATE',
     ]);
     accumulatedState.data.actionResults = traceActionResult;
+   
+    // Add iteration context to state for template
+    const stateWithIterationContext = {
+      ...accumulatedState,
+      iterationCount,
+      maxIterations,
+      traceActionResult,
+    };
 
     const prompt = composePromptFromState({
-      state: accumulatedState,
+      state: stateWithIterationContext,
       template: runtime.character.templates?.multiStepDecisionTemplate || multiStepDecisionTemplate,
     });
 
@@ -1134,26 +1134,25 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       break;
     }
 
-    const { thought, providers = [], action, isFinish, parameters } = parsedStep as any;
+    const { thought, action, isFinish, parameters } = parsedStep as any;
 
-    // Check for completion condition
-    if (isFinish === 'true' || isFinish === true) {
-      runtime.logger.info(`[MultiStep] Task marked as complete at iteration ${iterationCount}`);
-      if (callback) {
-        await callback({
-          text: '',
-          thought: thought ?? '',
-        });
+    // If no action to execute, check if we should finish
+    if (!action) {
+      if (isFinish === 'true' || isFinish === true) {
+        runtime.logger.info(`[MultiStep] Task marked as complete at iteration ${iterationCount}`);
+        if (callback) {
+          await callback({
+            text: '',
+            thought: thought ?? '',
+          });
+        }
+        break;
+      } else {
+        runtime.logger.warn(
+          `[MultiStep] No action specified at iteration ${iterationCount}, forcing completion`
+        );
+        break;
       }
-      break;
-    }
-
-    // Validate that we have something to do in this step
-    if ((!providers || providers.length === 0) && !action) {
-      runtime.logger.warn(
-        `[MultiStep] No providers or action specified at iteration ${iterationCount}, forcing completion`
-      );
-      break;
     }
 
     try {
@@ -1193,45 +1192,6 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
         runtime.logger.info(
           `[MultiStep] Stored parameters for ${action}: ${JSON.stringify(actionParams)}`
         );
-      }
-      for (const providerName of providers) {
-        const provider = runtime.providers.find((p: Provider) => p.name === providerName);
-        if (!provider) {
-          runtime.logger.warn(`[MultiStep] Provider not found: ${providerName}`);
-          traceActionResult.push({
-            data: { actionName: providerName },
-            success: false,
-            error: `Provider not found: ${providerName}`,
-          });
-          continue;
-        }
-
-        const providerResult = await provider.get(runtime, message, state);
-        if (!providerResult) {
-          runtime.logger.warn(`[MultiStep] Provider returned no result: ${providerName}`);
-          traceActionResult.push({
-            data: { actionName: providerName },
-            success: false,
-            error: `Provider returned no result`,
-          });
-          continue;
-        }
-
-        const success = !!providerResult.text;
-
-        traceActionResult.push({
-          data: { actionName: providerName },
-          success,
-          text: success ? providerResult.text : undefined,
-          error: success ? undefined : providerResult?.text,
-        });
-        // if (callback) {
-        //   await callback({
-        //     text: `🔎 Provider executed: ${providerName}`,
-        //     actions: [providerName],
-        //     thought: thought ?? '',
-        //   });
-        // }
       }
 
       if (action) {
@@ -1277,6 +1237,18 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
         success: false,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+
+    // After executing actions, check if we should finish
+    if (isFinish === 'true' || isFinish === true) {
+      runtime.logger.info(`[MultiStep] Task marked as complete at iteration ${iterationCount} after executing action`);
+      if (callback) {
+        await callback({
+          text: '',
+          thought: thought ?? '',
+        });
+      }
+      break;
     }
   }
 

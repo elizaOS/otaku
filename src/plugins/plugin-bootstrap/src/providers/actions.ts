@@ -11,6 +11,16 @@ interface ActionWithParams extends Action {
 }
 
 /**
+ * Formats actions with only name and description (no parameters).
+ * Use this for a simpler view of available actions.
+ */
+function formatActionsWithoutParams(actions: Action[]): string {
+  return actions.map(action => {
+    return `## ${action.name}\n${action.description}`;
+  }).join('\n\n---\n\n');
+}
+
+/**
  * Formats actions with their parameter schemas for tool calling.
  * This is an enhanced version that includes parameter information.
  */
@@ -97,8 +107,17 @@ export const actionsProvider: Provider = {
     // Format action-related texts
     const actionNames = `Possible response actions: ${formatActionNames(actionsData)}`;
 
-    // Use the enhanced formatter that includes parameter schemas
+    // Actions with only descriptions (no parameters)
     const actionsWithDescriptions =
+      actionsData.length > 0 
+        ? addHeader(
+            '# Available Actions', 
+            formatActionsWithoutParams(actionsData)
+          ) 
+        : '';
+
+    // Actions with full parameter schemas
+    const actionsWithParams =
       actionsData.length > 0 
         ? addHeader(
             '# Available Actions (List of callable tools/functions the assistant can execute)', 
@@ -119,6 +138,7 @@ export const actionsProvider: Provider = {
       actionNames,
       actionExamples,
       actionsWithDescriptions,
+      actionsWithParams,
     };
 
     // Combine all text sections - now including actionsWithDescriptions

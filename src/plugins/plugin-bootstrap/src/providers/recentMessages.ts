@@ -27,28 +27,28 @@ export const formatMessages = ({
     .map((message: Memory) => {
       const messageText = (message.content as Content).text;
 
-      const messageActions = (message.content as Content).actions;
-      const messageThought = (message.content as Content).thought;
+      // const messageActions = (message.content as Content).actions;
+      // const messageThought = (message.content as Content).thought;
       const formattedName =
         entities.find((entity: Entity) => entity.id === message.entityId)?.names[0] ||
         'Unknown User';
 
-      const attachments = (message.content as Content).attachments;
+      // const attachments = (message.content as Content).attachments;
 
-      const attachmentString =
-        attachments && attachments.length > 0
-          ? ` (Attachments: ${attachments
-              .map((media) => {
-                const lines = [`[${media.id} - ${media.title} (${media.url})]`];
-                if (media.text) lines.push(`Text: ${media.text}`);
-                if (media.description) lines.push(`Description: ${media.description}`);
-                return lines.join('\n');
-              })
-              .join(
-                // Use comma separator only if all attachments are single-line (no text/description)
-                attachments.every((media) => !media.text && !media.description) ? ', ' : '\n'
-              )})`
-          : null;
+      // const attachmentString =
+      //   attachments && attachments.length > 0
+      //     ? ` (Attachments: ${attachments
+      //         .map((media) => {
+      //           const lines = [`[${media.id} - ${media.title} (${media.url})]`];
+      //           if (media.text) lines.push(`Text: ${media.text}`);
+      //           if (media.description) lines.push(`Description: ${media.description}`);
+      //           return lines.join('\n');
+      //         })
+      //         .join(
+      //           // Use comma separator only if all attachments are single-line (no text/description)
+      //           attachments.every((media) => !media.text && !media.description) ? ', ' : '\n'
+      //         )})`
+      //     : null;
 
       const messageTime = new Date(message.createdAt || 0);
       const hours = messageTime.getHours().toString().padStart(2, '0');
@@ -59,21 +59,21 @@ export const formatMessages = ({
 
       // const shortId = message.entityId.slice(-5);
 
-      const thoughtString = messageThought
-        ? `(${formattedName}'s internal thought: ${messageThought})`
-        : null;
+      // const thoughtString = messageThought
+      //   ? `(${formattedName}'s internal thought: ${messageThought})`
+      //   : null;
 
       const timestampString = `${timeString} (${timestamp})`;
       const textString = messageText ? `${timestampString} ${formattedName}: ${messageText}` : null;
-      const actionString =
-        messageActions && messageActions.length > 0
-          ? `${
-              textString ? '' : timestampString
-            } (${formattedName}'s actions: ${messageActions.join(', ')})`
-          : null;
+      // const actionString =
+      //   messageActions && messageActions.length > 0
+      //     ? `${
+      //         textString ? '' : timestampString
+      //       } (${formattedName}'s actions: ${messageActions.join(', ')})`
+      //     : null;
 
       // for each thought, action, text or attachment, add a new line, with text first, then thought, then action, then attachment
-      const messageString = [textString, thoughtString, actionString, attachmentString]
+      const messageString = [textString]
         .filter(Boolean)
         .join('\n');
 
@@ -267,12 +267,15 @@ export const recentMessagesProvider: Provider = {
             recentPostInteractions: '',
             recentInteractions: '',
             recentActionResults: actionResultsText,
+            recentMessage: 'No recent message available.',
+            recentThought: 'No recent thought available.',
           },
           text: 'No recent messages available',
         };
       }
 
       let recentMessage = 'No recent message available.';
+      let recentThought = 'No recent thought available.';
 
       if (dialogueMessages.length > 0) {
         // Get the most recent dialogue message (create a copy to avoid mutating original array)
@@ -288,6 +291,21 @@ export const recentMessagesProvider: Provider = {
 
         if (formattedSingleMessage) {
           recentMessage = formattedSingleMessage;
+        }
+
+        // Get the most recent thought from any message
+        const messagesWithThoughts = [...dialogueMessages]
+          .filter((msg) => (msg.content as Content).thought)
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        if (messagesWithThoughts.length > 0) {
+          const mostRecentThoughtMessage = messagesWithThoughts[0];
+          const thought = (mostRecentThoughtMessage.content as Content).thought;
+          const entityName =
+            entitiesData.find((entity: Entity) => entity.id === mostRecentThoughtMessage.entityId)
+              ?.names[0] || 'Unknown User';
+
+          recentThought = `${entityName}'s internal thought: ${thought}`;
         }
       }
 
@@ -423,6 +441,7 @@ export const recentMessagesProvider: Provider = {
         recentInteractions: isPostFormat ? recentPostInteractions : recentMessageInteractions,
         recentActionResults: actionResultsText,
         recentMessage,
+        recentThought,
       };
 
       // Combine all text sections
@@ -457,6 +476,8 @@ export const recentMessagesProvider: Provider = {
           recentPostInteractions: '',
           recentInteractions: '',
           recentActionResults: '',
+          recentMessage: 'No recent message available.',
+          recentThought: 'No recent thought available.',
         },
         text: 'Error retrieving recent messages.', // Or 'No recent messages available' as the test expects
       };

@@ -49,7 +49,7 @@ export const cdpWalletTokenTransfer: ActionWithParams = {
     },
     amount: {
       type: "string",
-      description: "Specific amount to transfer (e.g., '10.5'). Use this OR percentage, not both.",
+      description: "Specific token amount to transfer (e.g., '10.5' means 10.5 ETH tokens, NOT USD value). If user specifies USD value like '$5 worth of ETH', you must first get the current price and calculate the equivalent token amount. Use this OR percentage, not both.",
       required: false,
     },
     percentage: {
