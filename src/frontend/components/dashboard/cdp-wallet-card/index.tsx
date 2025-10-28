@@ -9,7 +9,7 @@ import { TokenDetailModalContent } from './TokenDetailModal';
 import { NFTDetailModalContent } from './NFTDetailModal';
 import { FundModalContent } from './FundModal';
 import { elizaClient } from '../../../lib/elizaClient';
-import { getTokenIconBySymbol, SUPPORTED_CHAINS } from '../../../constants/chains';
+import { getTokenIconBySymbol, SUPPORTED_CHAINS, CHAIN_UI_CONFIGS, getChainWalletIcon } from '../../../constants/chains';
 import { useModal } from '../../../contexts/ModalContext';
 
 interface Token {
@@ -74,6 +74,9 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
   // Format address for display (shortened)
   const shortAddress = walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : '';
   const [isCopied, setIsCopied] = useState(false);
+  const [copiedChain, setCopiedChain] = useState<string | null>(null);
+  const [showAddressPopup, setShowAddressPopup] = useState(false);
+  const [hidePopupTimeout, setHidePopupTimeout] = useState<NodeJS.Timeout | null>(null);
   const [activeTab, setActiveTab] = useState<'tokens' | 'collections' | 'history'>('tokens');
   const [isRefreshing, setIsRefreshing] = useState(false);
   
@@ -389,6 +392,36 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
     });
   };
 
+  // Handle copy address for a specific chain
+  const handleCopyChainAddress = async (chain: string) => {
+    if (!walletAddress) return;
+    
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      setCopiedChain(chain);
+      setTimeout(() => setCopiedChain(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy address:', err);
+    }
+  };
+
+  // Handle showing address popup
+  const handleShowPopup = () => {
+    if (hidePopupTimeout) {
+      clearTimeout(hidePopupTimeout);
+      setHidePopupTimeout(null);
+    }
+    setShowAddressPopup(true);
+  };
+
+  // Handle hiding address popup with delay
+  const handleHidePopup = () => {
+    const timeout = setTimeout(() => {
+      setShowAddressPopup(false);
+    }, 200); // 200ms delay
+    setHidePopupTimeout(timeout);
+  };
+
   // Handle copy address
   const handleCopyAddress = async () => {
     if (!walletAddress) return;
@@ -465,7 +498,81 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
       <CardHeader className="flex items-center justify-between pl-3 pr-1">
         <CardTitle className="flex items-center gap-2.5 text-sm font-medium uppercase">
           <Bullet />
-          Wallet
+          <div className="flex items-center gap-1">
+            Wallet
+            {/* Copy Address Popup */}
+            <div 
+              className="relative inline-flex"
+              onMouseEnter={handleShowPopup}
+              onMouseLeave={handleHidePopup}
+            >
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:bg-muted"
+              >
+                <Copy className="w-3 h-3" />
+              </Button>
+              
+              {/* Popup with all chain addresses */}
+              {showAddressPopup && walletAddress && (
+                <div 
+                  className="absolute -left-16 top-full mt-1 bg-popover border border-border rounded-lg shadow-lg p-2 z-50 w-[230px] max-w-[230px] md:w-[calc(25vw-2rem)]"
+                  onMouseEnter={handleShowPopup}
+                  onMouseLeave={handleHidePopup}
+                >
+                  <div className="space-y-0.5 max-h-[300px] overflow-y-auto scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+                    {SUPPORTED_CHAINS.map((chain) => {
+                      const config = CHAIN_UI_CONFIGS[chain];
+                      const chainWalletIcon = getChainWalletIcon(chain);
+                      return (
+                        <div
+                          key={chain}
+                          className="flex items-center justify-between gap-0.5 p-1 rounded hover:bg-muted/50 transition-colors group"
+                        >
+                          {/* First Group: Icon & Name */}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <div className="w-5 h-5 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center overflow-hidden bg-white">
+                              {chainWalletIcon ? (
+                                <img 
+                                  src={chainWalletIcon} 
+                                  alt={config.name}
+                                  className="w-full h-full object-contain"
+                                />
+                              ) : (
+                                <span className="text-[10px] font-bold text-muted-foreground uppercase">
+                                  {chain.charAt(0)}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] sm:text-[11px]">{config.displayName}</span>
+                          </div>
+                          
+                          {/* Second Group: Address & Copy Button */}
+                          <div className="flex items-center gap-1 min-w-0" onClick={() => handleCopyChainAddress(chain)}>
+                            <span className="text-[9px] text-muted-foreground font-mono cursor-pointer">
+                              {`${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 w-5 p-0 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                            >
+                              {copiedChain === chain ? (
+                                <Check className="w-2.5 h-2.5 text-green-500" />
+                              ) : (
+                                <Copy className="w-2.5 h-2.5" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </CardTitle>
         <Button
           onClick={handleManualRefresh}

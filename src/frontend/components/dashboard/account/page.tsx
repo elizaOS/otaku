@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useLoadingPanel } from "@/contexts/LoadingPanelContext";
+import { useModal } from "@/contexts/ModalContext";
 import { useCDPWallet } from '@/hooks/useCDPWallet';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Upload } from 'lucide-react';
 
 interface AccountPageProps {
   totalBalance?: number;
@@ -84,15 +85,72 @@ async function compressImage(file: File, maxSizeKB: number = 500): Promise<strin
   });
 }
 
+// Predefined avatars in the public/avatars folder
+const predefinedAvatars = [
+  '/avatars/user_joyboy.png',
+  '/avatars/user_krimson.png',
+  '/avatars/user_mati.png',
+  '/avatars/user_pek.png',
+];
+
+interface AvatarPickerModalProps {
+  currentAvatar: string;
+  onSelectAvatar: (avatarUrl: string) => void;
+  onUploadCustom: () => void;
+}
+
+function AvatarPickerModal({ currentAvatar, onSelectAvatar, onUploadCustom }: AvatarPickerModalProps) {
+  return (
+    <div className="space-y-4 w-full max-w-sm mx-auto">
+      <h3 className="text-lg font-semibold">Choose Avatar</h3>
+      
+      {/* Predefined Avatars Grid with Upload Option */}
+      <div className="grid grid-cols-3 gap-3">
+        {predefinedAvatars.map((avatarUrl, index) => (
+          <div key={index} className="flex flex-col items-center gap-1">
+            <button
+              onClick={() => onSelectAvatar(avatarUrl)}
+              className={`size-20 rounded-lg overflow-hidden border-2 transition-all hover:scale-105 ${
+                currentAvatar === avatarUrl
+                  ? 'border-primary'
+                  : 'border-border hover:border-muted-foreground/50'
+              }`}
+            >
+              <img
+                src={avatarUrl}
+                alt={`Avatar ${index + 1}`}
+                className="w-full h-full object-cover"
+              />
+            </button>
+          </div>
+        ))}
+        
+        {/* Upload Custom Square */}
+        <div className="flex flex-col items-center gap-1">
+          <button
+            onClick={onUploadCustom}
+            className="size-20 rounded-lg border-2 border-dashed border-border hover:border-primary transition-all hover:scale-105 flex flex-col items-center justify-center gap-1 bg-muted/50 hover:bg-muted"
+          >
+            <Upload className="w-6 h-6 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground uppercase font-medium">Upload</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AccountPage({ totalBalance = 0, userProfile, onUpdateProfile }: AccountPageProps) {
   const { signOut } = useCDPWallet();
   const { showLoading, showSuccess, showError } = useLoadingPanel();
+  const { showModal, hideModal } = useModal();
   const [isCopied, setIsCopied] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isInitialized = useRef(false);
   const loadingPanelId = 'account-page'; // Unique ID for this component's loading panels
+  const avatarPickerModalId = 'avatar-picker-modal';
 
   // Initialize state from userProfile when it becomes available
   useEffect(() => {
@@ -174,6 +232,35 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
     }
   };
 
+  const handleSelectPredefinedAvatar = async (avatarUrl: string) => {
+    try {
+      showLoading('Processing...', 'Changing avatar...', loadingPanelId);
+      
+      await onUpdateProfile({ avatarUrl });
+      
+      showSuccess('Success!', 'Avatar changed!', loadingPanelId);
+      hideModal(avatarPickerModalId);
+    } catch (error) {
+      console.error('Failed to change avatar:', error);
+      showError('Error', 'Change failed', loadingPanelId);
+    }
+  };
+
+  const handleOpenAvatarPicker = () => {
+    showModal(
+      <AvatarPickerModal
+        currentAvatar={userProfile?.avatarUrl || '/avatars/user_krimson.png'}
+        onSelectAvatar={handleSelectPredefinedAvatar}
+        onUploadCustom={() => {
+          hideModal(avatarPickerModalId);
+          fileInputRef.current?.click();
+        }}
+      />,
+      avatarPickerModalId,
+      { closeOnBackdropClick: true, className: 'max-w-sm' }
+    );
+  };
+
   const handleSaveChanges = async () => {
     if (!displayName.trim()) {
       showError('Error', 'Name cannot be empty', loadingPanelId);
@@ -214,6 +301,7 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
                     className="w-full h-full object-cover"
                   />
                 </div>
+                
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -226,7 +314,7 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
                     variant="outline" 
                     className="flex-1 bg-transparent" 
                     size="sm"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={handleOpenAvatarPicker}
                   >
                     Change
                   </Button>

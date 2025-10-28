@@ -17,6 +17,7 @@ export interface ChainUIConfig {
   name: string;
   displayName: string;
   icon: string; // Path to icon/logo
+  walletIcon: string; // Path to wallet icon
   nativeToken: {
     symbol: string;
     name: string;
@@ -35,6 +36,7 @@ export const CHAIN_UI_CONFIGS: Record<SupportedChain, ChainUIConfig> = {
     name: 'Base',
     displayName: 'Base',
     icon: '/assets/base.svg',
+    walletIcon: '/assets/walletIcon/base.svg',
     nativeToken: {
       symbol: 'ETH',
       name: 'Ethereum',
@@ -48,6 +50,7 @@ export const CHAIN_UI_CONFIGS: Record<SupportedChain, ChainUIConfig> = {
     name: 'Ethereum',
     displayName: 'Ethereum',
     icon: '/assets/eth.svg',
+    walletIcon: '/assets/walletIcon/ethereum.svg',
     nativeToken: {
       symbol: 'ETH',
       name: 'Ethereum',
@@ -61,6 +64,7 @@ export const CHAIN_UI_CONFIGS: Record<SupportedChain, ChainUIConfig> = {
     name: 'Polygon',
     displayName: 'Polygon',
     icon: '/assets/polygon.svg',
+    walletIcon: '/assets/walletIcon/polygon.svg',
     nativeToken: {
       symbol: 'MATIC',
       name: 'Polygon',
@@ -74,6 +78,7 @@ export const CHAIN_UI_CONFIGS: Record<SupportedChain, ChainUIConfig> = {
     name: 'Arbitrum',
     displayName: 'Arbitrum',
     icon: '/assets/arbitrum.svg',
+    walletIcon: '/assets/walletIcon/arbitrum.svg',
     nativeToken: {
       symbol: 'ETH',
       name: 'Ethereum',
@@ -87,7 +92,8 @@ export const CHAIN_UI_CONFIGS: Record<SupportedChain, ChainUIConfig> = {
     name: 'Optimism',
     displayName: 'Optimism',
     icon: '/assets/optimism.svg',
-    nativeToken: {
+    walletIcon: '/assets/walletIcon/optimism.svg',
+      nativeToken: {
       symbol: 'ETH',
       name: 'Ethereum',
       icon: '/assets/eth.svg',
@@ -100,6 +106,7 @@ export const CHAIN_UI_CONFIGS: Record<SupportedChain, ChainUIConfig> = {
     name: 'Scroll',
     displayName: 'Scroll',
     icon: '/assets/scroll.svg',
+    walletIcon: '/assets/walletIcon/scroll.svg',
     nativeToken: {
       symbol: 'ETH',
       name: 'Ethereum',
@@ -130,6 +137,13 @@ export function getChainIcon(chain: string): string | null {
   return config?.icon || null;
 }
 
+/**
+ * Helper: Get chain wallet icon path
+ */
+export function getChainWalletIcon(chain: string): string | null {
+  const config = getChainConfig(chain);
+  return config?.walletIcon || null;
+}
 /**
  * Helper: Get native token icon path by chain
  */

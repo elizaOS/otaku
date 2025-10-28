@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '../../ui/button';
 import { Copy, Check } from 'lucide-react';
 import { useModal } from '../../../contexts/ModalContext';
+import { SUPPORTED_CHAINS, CHAIN_UI_CONFIGS, getChainWalletIcon } from '../../../constants/chains';
 
 interface FundModalContentProps {
   walletAddress?: string;
@@ -11,15 +12,15 @@ interface FundModalContentProps {
 export function FundModalContent({ walletAddress, shortAddress }: FundModalContentProps) {
   const { hideModal } = useModal();
   const modalId = 'fund-modal';
-  const [isCopied, setIsCopied] = useState(false);
+  const [copiedChain, setCopiedChain] = useState<string | null>(null);
 
-  const handleCopyAddress = async () => {
+  const handleCopyChainAddress = async (chain: string) => {
     if (!walletAddress) return;
     
     try {
       await navigator.clipboard.writeText(walletAddress);
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
+      setCopiedChain(chain);
+      setTimeout(() => setCopiedChain(null), 2000);
     } catch (err) {
       console.error('Failed to copy address:', err);
     }
@@ -29,45 +30,65 @@ export function FundModalContent({ walletAddress, shortAddress }: FundModalConte
     <div className="space-y-4 w-full max-w-md mx-auto">
       <h3 className="text-lg font-semibold">Fund Your Wallet</h3>
       <p className="text-sm text-muted-foreground">
-        Transfer ETH from another wallet or exchange
+        Transfer assets to your wallet on any supported network
       </p>
       
-      <div className="space-y-3">
-        {/* Copy Address */}
-        <div>
-          <p className="text-xs text-muted-foreground mb-2">
-            Wallet Address
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="text-xs bg-muted p-2 rounded font-mono flex-1">
-              {shortAddress}
-            </code>
-            <Button
-              onClick={handleCopyAddress}
-              variant="ghost"
-              size="sm"
-              className="shrink-0"
-              title="Copy full address"
+      {/* Network Address List - Each chain in its own card */}
+      <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
+        {SUPPORTED_CHAINS.map((chain) => {
+          const config = CHAIN_UI_CONFIGS[chain];
+          const chainWalletIcon = getChainWalletIcon(chain);
+          return (
+            <div
+              key={chain}
+              className="flex items-center justify-between gap-3 p-3 rounded-lg bg-accent hover:bg-accent/80 transition-colors border border-border/30"
             >
-              {isCopied ? (
-                <Check className="w-4 h-4 text-green-500" />
-              ) : (
-                <Copy className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
-          {isCopied && (
-            <p className="text-xs text-green-500 mt-1">
-              Address copied to clipboard!
-            </p>
-          )}
-        </div>
+              {/* First Group: Icon & Name */}
+              <div className="flex items-center gap-2.5 flex-shrink-0">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden bg-white">
+                  {chainWalletIcon ? (
+                    <img 
+                      src={chainWalletIcon} 
+                      alt={config.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <span className="text-xs font-bold text-muted-foreground uppercase">
+                      {chain.charAt(0)}
+                    </span>
+                  )}
+                </div>
+                <span className="text-sm font-medium">{config.displayName}</span>
+              </div>
+              
+              {/* Second Group: Address & Copy Button */}
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : ''}
+                </span>
+                <Button
+                  onClick={() => handleCopyChainAddress(chain)}
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                  title="Copy address"
+                >
+                  {copiedChain === chain ? (
+                    <Check className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Close button */}
       <Button
         onClick={() => hideModal(modalId)}
-        variant="ghost"
+        variant="default"
         className="w-full"
       >
         Close
