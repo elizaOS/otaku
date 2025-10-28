@@ -496,25 +496,36 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
   };
 
   return (
-    <Card className="max-h-[calc(100vh-2rem)] w-full flex flex-col">
-      <CardHeader className="flex items-center justify-between pl-3 pr-1 relative z-10">
-        <CardTitle className="flex items-center gap-2.5 text-sm font-medium uppercase">
-          <Bullet />
-          <div className="flex items-center gap-1">
-            Wallet
-            {/* Copy Address Popup */}
-            <div 
-              className="relative inline-flex z-50"
-              onMouseEnter={handleShowPopup}
-              onMouseLeave={handleHidePopup}
-            >
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-muted-foreground hover:bg-muted"
+    <>
+      {/* Preload chain icons to prevent flash on hover */}
+      <div className="hidden">
+        {SUPPORTED_CHAINS.map((chain) => {
+          const chainWalletIcon = getChainWalletIcon(chain);
+          return chainWalletIcon ? (
+            <img key={chain} src={chainWalletIcon} alt="" />
+          ) : null;
+        })}
+      </div>
+
+      <Card className="max-h-[calc(100vh-2rem)] w-full flex flex-col">
+        <CardHeader className="flex items-center justify-between pl-3 pr-1 relative z-10">
+          <CardTitle className="flex items-center gap-2.5 text-sm font-medium uppercase">
+            <Bullet />
+            <div className="flex items-center gap-1">
+              Wallet
+              {/* Copy Address Popup */}
+              <div 
+                className="relative inline-flex z-50"
+                onMouseEnter={handleShowPopup}
+                onMouseLeave={handleHidePopup}
               >
-                <Copy className="w-3 h-3" />
-              </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-muted-foreground hover:bg-muted"
+                >
+                  <Copy className="w-3 h-3" />
+                </Button>
               
               {/* Popup with all chain addresses */}
               {showAddressPopup && walletAddress && (
@@ -945,6 +956,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
         </div>
       </CardContent>
     </Card>
+    </>
   );
 });
 
