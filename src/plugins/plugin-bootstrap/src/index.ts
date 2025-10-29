@@ -653,31 +653,6 @@ const messageReceivedHandler = async ({
           // allow some other subsystem to handle this event
           // maybe emit an event
 
-          // Notify user that LLM is off
-          if (message.id) {
-            const offContent: Content = {
-              thought: 'LLM is off by default for this conversation.',
-              actions: ['LLM_OFF'],
-              simple: true,
-              inReplyTo: createUniqueUuid(runtime, message.id),
-            };
-
-            if (callback) {
-              await callback(offContent);
-            }
-
-            // Save this to memory
-            const offMemory: Memory = {
-              id: asUUID(v4()),
-              entityId: runtime.agentId,
-              agentId: runtime.agentId,
-              content: offContent,
-              roomId: message.roomId,
-              createdAt: Date.now(),
-            };
-            await runtime.createMemory(offMemory, 'messages');
-          }
-
           // Emit run ended event on successful completion
           await runtime.emitEvent(EventType.RUN_ENDED, {
             runtime,
@@ -699,32 +674,6 @@ const messageReceivedHandler = async ({
           !message.content.text?.toLowerCase().includes(runtime.character.name.toLowerCase())
         ) {
           runtime.logger.debug(`[Bootstrap] Ignoring muted room ${message.roomId}`);
-          
-          // Notify user that room is muted
-          if (message.id) {
-            const mutedContent: Content = {
-              thought: 'Room is muted, not responding to this message.',
-              actions: ['MUTED'],
-              simple: true,
-              inReplyTo: createUniqueUuid(runtime, message.id),
-            };
-
-            if (callback) {
-              await callback(mutedContent);
-            }
-
-            // Save this to memory
-            const mutedMemory: Memory = {
-              id: asUUID(v4()),
-              entityId: runtime.agentId,
-              agentId: runtime.agentId,
-              content: mutedContent,
-              roomId: message.roomId,
-              createdAt: Date.now(),
-            };
-            await runtime.createMemory(mutedMemory, 'messages');
-          }
-
           // Emit run ended event on successful completion
           await runtime.emitEvent(EventType.RUN_ENDED, {
             runtime,
@@ -1132,60 +1081,6 @@ async function runSingleShotCore({ runtime, message, state }: { runtime: IAgentR
   };
 }
 
-/**
- * Wraps runtime.useModel with timeout and retry logic
- * @param runtime - The agent runtime
- * @param modelType - The model type to use
- * @param options - Options for the model
- * @param timeoutMs - Timeout in milliseconds (default: 30000ms = 30s)
- * @param maxRetries - Maximum number of retries (default: 3)
- * @returns The model response
- */
-async function useModelWithRetry(
-  runtime: IAgentRuntime,
-  modelType: typeof ModelType[keyof typeof ModelType],
-  options: any,
-  timeoutMs: number = 30000,
-  maxRetries: number = 3
-): Promise<string> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      runtime.logger.debug(
-        `[MultiStep] Model call attempt ${attempt}/${maxRetries} (timeout: ${timeoutMs}ms)`
-      );
-
-      const modelPromise = runtime.useModel(modelType, options);
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(new Error(`Model call timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-      });
-
-      const result = await Promise.race([modelPromise, timeoutPromise]);
-      runtime.logger.debug(`[MultiStep] Model call succeeded on attempt ${attempt}`);
-      return result;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      runtime.logger.warn(
-        `[MultiStep] Model call attempt ${attempt}/${maxRetries} failed: ${lastError.message}`
-      );
-
-      if (attempt < maxRetries) {
-        // Exponential backoff: wait 1s, 2s, 4s, etc.
-        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-        runtime.logger.debug(`[MultiStep] Retrying in ${backoffMs}ms...`);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      }
-    }
-  }
-
-  throw new Error(
-    `Model call failed after ${maxRetries} attempts. Last error: ${lastError?.message}`
-  );
-}
-
 async function runMultiStepCore({ runtime, message, state, callback }: { runtime: IAgentRuntime, message: Memory, state: State, callback?: HandlerCallback }): Promise<StrategyResult> {
   const traceActionResult: MultiStepActionResult[] = [];
   let accumulatedState: State = state;
@@ -1226,25 +1121,53 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       template: runtime.character.templates?.multiStepDecisionTemplate || multiStepDecisionTemplate,
     });
 
-    // Get configurable timeout and retry settings
-    const modelTimeout = parseInt(runtime.getSetting('MULTISTEP_MODEL_TIMEOUT') || '30000');
-    const modelRetries = parseInt(runtime.getSetting('MULTISTEP_MODEL_RETRIES') || '3');
-
-    const stepResultRaw = await useModelWithRetry(
-      runtime,
-      ModelType.TEXT_LARGE,
-      { prompt },
-      modelTimeout,
-      modelRetries
-    );
-    const parsedStep = parseKeyValueXml(stepResultRaw);
+    // Retry logic for parsing failures
+    const maxParseRetries = parseInt(runtime.getSetting('MULTISTEP_PARSE_RETRIES') || '5');
+    let stepResultRaw: string = '';
+    let parsedStep: any = null;
+    
+    for (let parseAttempt = 1; parseAttempt <= maxParseRetries; parseAttempt++) {
+      try {
+        runtime.logger.debug(
+          `[MultiStep] Decision step model call attempt ${parseAttempt}/${maxParseRetries} for iteration ${iterationCount}`
+        );
+        stepResultRaw = await runtime.useModel(ModelType.TEXT_LARGE, { prompt });
+        parsedStep = parseKeyValueXml(stepResultRaw);
+        
+        if (parsedStep) {
+          runtime.logger.debug(
+            `[MultiStep] Successfully parsed decision step on attempt ${parseAttempt}`
+          );
+          break;
+        } else {
+          runtime.logger.warn(
+            `[MultiStep] Failed to parse XML on attempt ${parseAttempt}/${maxParseRetries}. Raw response: ${stepResultRaw.substring(0, 200)}...`
+          );
+          
+          if (parseAttempt < maxParseRetries) {
+            // Small delay before retry
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
+      } catch (error) {
+        runtime.logger.error(
+          `[MultiStep] Error during model call attempt ${parseAttempt}/${maxParseRetries}: ${error}`
+        );
+        if (parseAttempt >= maxParseRetries) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
 
     if (!parsedStep) {
-      runtime.logger.warn(`[MultiStep] Failed to parse step result at iteration ${iterationCount}`);
+      runtime.logger.warn(
+        `[MultiStep] Failed to parse step result after ${maxParseRetries} attempts at iteration ${iterationCount}`
+      );
       traceActionResult.push({
         data: { actionName: 'parse_error' },
         success: false,
-        error: 'Failed to parse step result',
+        error: `Failed to parse step result after ${maxParseRetries} attempts`,
       });
       break;
     }
@@ -1379,18 +1302,45 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
     template: runtime.character.templates?.multiStepSummaryTemplate || multiStepSummaryTemplate,
   });
 
-  // Get configurable timeout and retry settings for summary generation
-  const summaryTimeout = parseInt(runtime.getSetting('MULTISTEP_SUMMARY_TIMEOUT') || '30000');
-  const summaryRetries = parseInt(runtime.getSetting('MULTISTEP_SUMMARY_RETRIES') || '3');
-
-  const finalOutput = await useModelWithRetry(
-    runtime,
-    ModelType.TEXT_LARGE,
-    { prompt: summaryPrompt },
-    summaryTimeout,
-    summaryRetries
-  );
-  const summary = parseKeyValueXml(finalOutput);
+  // Retry logic for summary parsing failures
+  const maxSummaryRetries = parseInt(runtime.getSetting('MULTISTEP_SUMMARY_PARSE_RETRIES') || '5');
+  let finalOutput: string = '';
+  let summary: any = null;
+  
+  for (let summaryAttempt = 1; summaryAttempt <= maxSummaryRetries; summaryAttempt++) {
+    try {
+      runtime.logger.debug(
+        `[MultiStep] Summary generation attempt ${summaryAttempt}/${maxSummaryRetries}`
+      );
+      finalOutput = await runtime.useModel(ModelType.TEXT_LARGE, { prompt: summaryPrompt });
+      summary = parseKeyValueXml(finalOutput);
+      
+      if (summary?.text) {
+        runtime.logger.debug(
+          `[MultiStep] Successfully parsed summary on attempt ${summaryAttempt}`
+        );
+        break;
+      } else {
+        runtime.logger.warn(
+          `[MultiStep] Failed to parse summary XML on attempt ${summaryAttempt}/${maxSummaryRetries}. Raw response: ${finalOutput.substring(0, 200)}...`
+        );
+        
+        if (summaryAttempt < maxSummaryRetries) {
+          // Small delay before retry
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+      }
+    } catch (error) {
+      runtime.logger.error(
+        `[MultiStep] Error during summary generation attempt ${summaryAttempt}/${maxSummaryRetries}: ${error}`
+      );
+      if (summaryAttempt >= maxSummaryRetries) {
+        runtime.logger.warn('[MultiStep] Failed to generate summary after all retries, using fallback');
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
 
   let responseContent: Content | null = null;
   if (summary?.text) {
@@ -1398,6 +1348,17 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       actions: ['MULTI_STEP_SUMMARY'],
       text: summary.text,
       thought: summary.thought || 'Final user-facing message after task completion.',
+      simple: true,
+    };
+  } else {
+    runtime.logger.warn(
+      `[MultiStep] No valid summary generated after ${maxSummaryRetries} attempts, using fallback`
+    );
+    // Fallback response when summary generation fails
+    responseContent = {
+      actions: ['MULTI_STEP_SUMMARY'],
+      text: 'I completed the requested actions, but encountered an issue generating the summary.',
+      thought: 'Summary generation failed after retries.',
       simple: true,
     };
   }
