@@ -48,10 +48,22 @@ function Widget({ widgetData }: WidgetProps) {
         const geoResponse = await fetch('https://get.geojs.io/v1/ip/geo.json');
         const geoData = await geoResponse.json();
         
-        if (geoData.city && geoData.region) {
-          setUserLocation(`${geoData.city}, ${geoData.region}`);
-        } else if (geoData.city) {
-          setUserLocation(geoData.city);
+        if (geoData.city || geoData.region) {
+          const city = (geoData.city || '').trim();
+          const region = (geoData.region || '').trim();
+
+          if (city && region) {
+            // Avoid duplicates like "Belgrade, Belgrade"
+            if (city.toLowerCase() === region.toLowerCase()) {
+              setUserLocation(city);
+            } else {
+              setUserLocation(`${city}, ${region}`);
+            }
+          } else if (city) {
+            setUserLocation(city);
+          } else if (region) {
+            setUserLocation(region);
+          }
         }
 
         // Fetch weather data if we have coordinates
