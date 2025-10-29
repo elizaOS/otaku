@@ -10,21 +10,76 @@ import { elizaClient } from '@/lib/elizaClient'
 import { socketManager } from '@/lib/socketManager'
 import { cn } from "@/lib/utils"
 import type { Agent, UUID } from '@elizaos/core'
-import { Loader2 } from "lucide-react"
+import { Loader2, ArrowLeft, Wallet, TrendingUp, Search, Repeat, Database, CheckCircle2 } from "lucide-react"
 import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Textarea } from "../ui/textarea"
 
-// Quick start prompts for new conversations (static fallback)
-const DEFAULT_QUICK_PROMPTS = [
-  "Show my wallet portfolio",
-  "What's trending on Base?",
-  "Compare Aave vs Uniswap TVL",
-  "Show me trending NFT collections",
-  "Get ETH price chart and insights",
-  "Compare Eigen vs Morpho",
-  "Latest DeFi news"
-]
+// Plugin definitions with metadata and sample prompts
+const PLUGIN_ACTIONS = {
+  cdp: {
+    name: "CDP Wallet",
+    icon: Wallet,
+    description: "Manage your wallet and assets",
+    prompts: [
+      "Show my wallet portfolio",
+      "Transfer 0.01 ETH to 0x...",
+      "Swap 100 USDC for ETH",
+      "Transfer NFT #123 from collection 0x...",
+    ]
+  },
+  coingecko: {
+    name: "Price & Market Data",
+    icon: TrendingUp,
+    description: "Token prices and market trends",
+    prompts: [
+      "Get ETH price chart and insights",
+      "What's trending on Base?",
+      "Show me trending NFT collections",
+      "Get Bitcoin price",
+    ]
+  },
+  webSearch: {
+    name: "Web & News",
+    icon: Search,
+    description: "Search the web and crypto news",
+    prompts: [
+      "Latest DeFi news",
+      "Search for Ethereum upgrades",
+      "Crypto market news today",
+    ]
+  },
+  defillama: {
+    name: "DeFi Analytics",
+    icon: Database,
+    description: "Protocol TVL and DeFi metrics",
+    prompts: [
+      "Compare Aave vs Uniswap TVL",
+      "Get Uniswap TVL",
+      "Compare Eigen vs Morpho",
+    ]
+  },
+  relay: {
+    name: "Cross-Chain Bridge",
+    icon: Repeat,
+    description: "Bridge assets across chains",
+    prompts: [
+      "Bridge USDC from Base to Arbitrum",
+      "Get bridge quote for 100 USDC",
+      "Check bridge status for tx 0x...",
+    ]
+  },
+  etherscan: {
+    name: "Transaction Checker",
+    icon: CheckCircle2,
+    description: "Verify transaction confirmations",
+    prompts: [
+      "Check confirmation for tx 0x...",
+      "Verify transaction status 0x...",
+      "How many confirmations for 0x...",
+    ]
+  }
+}
 
 // Number of prompts to show on mobile before "+X more" button
 const MOBILE_VISIBLE_PROMPTS = 2
@@ -97,6 +152,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
   const [inputValue, setInputValue] = useState("")
   const [isTyping, setIsTyping] = useState(false)
   const [isCreatingChannel, setIsCreatingChannel] = useState(false)
+  const [selectedPlugin, setSelectedPlugin] = useState<keyof typeof PLUGIN_ACTIONS | null>(null)
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showDummyToolGroup, setShowDummyToolGroup] = useState(false)
@@ -437,7 +493,24 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     }
   }, []) // Empty deps - scrollToBottom and isUserScrollingRef are stable
 
-  // Handle quick prompt click - auto send message
+  // Handle prompt click - populate input instead of auto-sending
+  const handlePromptClick = (message: string) => {
+    if (!message.trim()) return
+    
+    // Close modal if open
+    setShowPromptsModal(false)
+    
+    // Populate input field with the prompt
+    setInputValue(message)
+    
+    // Focus the input field
+    const inputElement = document.querySelector('textarea');
+    if (inputElement) {
+      inputElement.focus();
+    }
+  }
+  
+  // Legacy function for backward compatibility (if needed elsewhere)
   const handleQuickPrompt = async (message: string) => {
     if (isTyping || !message.trim() || isCreatingChannel) return
     
@@ -741,82 +814,59 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Quick Prompts - Only show when no messages and not creating/typing (show if error) */}
+            {/* Plugin-Based Quick Actions - Only show when no messages and not creating/typing */}
             {messages.length === 0 && !isCreatingChannel && !isTyping && !isLoadingMessages && (
               <div className="pt-3 md:pt-4 border-t border-border">
-                <p className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground mb-2 md:mb-3 font-mono">
-                  {error ? 'Try Again' : 'Quick Start'}
-                </p>
-                
-                {/* Mobile: Single line with scroll + More button */}
-                <div className="md:hidden">
-                  <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-                    {DEFAULT_QUICK_PROMPTS.slice(0, MOBILE_VISIBLE_PROMPTS).map((prompt, index) => (
-                      <button
-                        key={index}
-                        onClick={() => handleQuickPrompt(prompt)}
-                        className="px-2 py-1 text-[11px] bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors whitespace-nowrap flex-shrink-0"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                    {DEFAULT_QUICK_PROMPTS.length > MOBILE_VISIBLE_PROMPTS && (
-                      <button
-                        onClick={() => setShowPromptsModal(true)}
-                        className="px-2 py-1 text-[11px] bg-accent hover:bg-accent/80 text-foreground/40 rounded border border-border transition-colors whitespace-nowrap flex-shrink-0"
-                      >
-                        +{DEFAULT_QUICK_PROMPTS.length - MOBILE_VISIBLE_PROMPTS} more
-                      </button>
-                    )}
-                  </div>
+                <div className="flex items-center gap-2 mb-2 md:mb-3">
+                  {selectedPlugin && (
+                    <button
+                      onClick={() => setSelectedPlugin(null)}
+                      className="flex items-center gap-1 text-[10px] md:text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <ArrowLeft className="size-3" />
+                      <span className="uppercase tracking-wider font-mono">Back</span>
+                    </button>
+                  )}
+                  <p className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground font-mono">
+                    {selectedPlugin ? PLUGIN_ACTIONS[selectedPlugin].name : 'Quick Start'}
+                  </p>
                 </div>
                 
-                {/* Desktop: Show all in wrapped layout */}
-                <div className="hidden md:flex flex-wrap gap-2">
-                  {DEFAULT_QUICK_PROMPTS.map((prompt, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleQuickPrompt(prompt)}
-                      className="px-3 py-2 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Mobile Prompts Modal */}
-            {showPromptsModal && (
-              <div 
-                className="fixed inset-0 bg-black/50 z-50 flex items-end md:hidden"
-                onClick={() => setShowPromptsModal(false)}
-              >
-                <div 
-                  className="bg-background rounded-t-2xl w-full max-h-[60vh] overflow-y-auto p-4 animate-in slide-in-from-bottom"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold">Quick Start Options</h3>
-                    <button
-                      onClick={() => setShowPromptsModal(false)}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      
-                    </button>
+                {/* Show plugins or plugin-specific prompts */}
+                {!selectedPlugin ? (
+                  // Plugin Grid
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                    {(Object.keys(PLUGIN_ACTIONS) as Array<keyof typeof PLUGIN_ACTIONS>).map((pluginKey) => {
+                      const plugin = PLUGIN_ACTIONS[pluginKey]
+                      const Icon = plugin.icon
+                      return (
+                        <button
+                          key={pluginKey}
+                          onClick={() => setSelectedPlugin(pluginKey)}
+                          className="flex flex-col items-center gap-2 p-3 bg-accent hover:bg-accent/80 rounded border border-border transition-colors group"
+                        >
+                          <div className="rounded-lg bg-primary/10 p-2 group-hover:bg-primary/20 transition-colors">
+                            <Icon className="size-5 text-primary" />
+                          </div>
+                          <span className="text-xs font-medium text-center">{plugin.name}</span>
+                        </button>
+                      )
+                    })}
                   </div>
-                  <div className="grid grid-cols-1 gap-2">
-                    {DEFAULT_QUICK_PROMPTS.map((prompt, index) => (
+                ) : (
+                  // Plugin-specific prompts
+                  <div className="flex flex-col gap-2">
+                    {PLUGIN_ACTIONS[selectedPlugin].prompts.map((prompt, index) => (
                       <button
                         key={index}
-                        onClick={() => handleQuickPrompt(prompt)}
-                        className="px-3 py-2.5 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left"
+                        onClick={() => handlePromptClick(prompt)}
+                        className="px-3 py-2 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left"
                       >
                         {prompt}
                       </button>
                     ))}
                   </div>
-                </div>
+                )}
               </div>
             )}
             </div>

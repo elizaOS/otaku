@@ -16,6 +16,7 @@ interface WidgetProps {
 function Widget({ widgetData }: WidgetProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [userTimezone, setUserTimezone] = useState<string>('');
+  const [utcOffset, setUtcOffset] = useState<string>('');
   const [userLocation, setUserLocation] = useState<string>('');
   const [temperature, setTemperature] = useState<string>('');
 
@@ -31,6 +32,14 @@ function Widget({ widgetData }: WidgetProps) {
     // Get user's timezone
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setUserTimezone(timezone);
+    
+    // Calculate UTC offset
+    const offsetMinutes = -new Date().getTimezoneOffset();
+    const offsetHours = Math.floor(Math.abs(offsetMinutes) / 60);
+    const offsetMins = Math.abs(offsetMinutes) % 60;
+    const sign = offsetMinutes >= 0 ? '+' : '-';
+    const utcOffsetString = `UTC${sign}${offsetHours}${offsetMins > 0 ? ':' + offsetMins.toString().padStart(2, '0') : ''}`;
+    setUtcOffset(utcOffsetString);
 
     // Get approximate location from IP address (no permissions needed)
     const fetchLocationAndWeather = async () => {
@@ -112,7 +121,7 @@ function Widget({ widgetData }: WidgetProps) {
           <span>{userLocation || widgetData.location}</span>
 
           <Badge variant="secondary" className="bg-accent">
-            {userTimezone || widgetData.timezone}
+            {utcOffset || widgetData.timezone}
           </Badge>
         </div>
 

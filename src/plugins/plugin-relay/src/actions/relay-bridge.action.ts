@@ -545,8 +545,9 @@ export const relayBridgeAction: Action = {
       };
 
       // Poll for final status until complete
-      const maxAttempts = 60; // 2 minutes max (2 second intervals)
-      const pollInterval = 2000;
+      // Bridge operations can take longer due to cross-chain nature
+      const maxAttempts = 60; // 2 minutes max (60 attempts × 2s intervals)
+      const pollInterval = 2000; // 2 second intervals
       let status = await fetchStatus();
       
       for (let attempt = 0; attempt < maxAttempts && status?.status !== 'success'; attempt++) {

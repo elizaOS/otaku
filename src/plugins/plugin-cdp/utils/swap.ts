@@ -10,6 +10,7 @@ import {
   UNISWAP_POOL_FEES,
   isCdpSwapSupported,
 } from "../constants/chains";
+import { TX_CONFIRMATION_TIMEOUT, waitForTxConfirmation } from "../constants/timeouts";
 import type { CdpNetwork } from "../types";
 
 /**
@@ -389,8 +390,7 @@ export async function execute0xSwap(
 
   const hash = await walletClient.sendTransaction(txParams);
 
-  await publicClient.waitForTransactionReceipt({ hash });
-  logger.info(`[Swap Utils] 0x v2 swap successful: ${hash}`);
+  await waitForTxConfirmation(publicClient, hash, "0x swap");
 
   return {
     transactionHash: hash,
@@ -519,8 +519,7 @@ export async function executeUniswapSwap(
     chain: walletClient.chain,
   });
 
-  await publicClient.waitForTransactionReceipt({ hash });
-  logger.info(`[Swap Utils] Uniswap V3 swap successful: ${hash}`);
+  await waitForTxConfirmation(publicClient, hash, "Uniswap swap");
 
   return {
     transactionHash: hash,
@@ -560,7 +559,11 @@ export async function executeCdpSwap(
       throw new Error('Swap did not return a transaction hash');
     }
 
-    logger.info(`[Swap Utils] CDP SDK swap successful: ${swapResult.transactionHash}`);
+    logger.info(`[Swap Utils] CDP SDK swap transaction submitted: ${swapResult.transactionHash}`);
+    
+    // Wait for transaction confirmation
+    const { publicClient } = await getViemClients(accountName, network);
+    await waitForTxConfirmation(publicClient, swapResult.transactionHash as `0x${string}`, "swap");
     return {
       transactionHash: swapResult.transactionHash,
     };
@@ -607,7 +610,7 @@ export async function executeCdpSwap(
       logger.info("[Swap Utils] Waiting for approval confirmation...");
       const receipt = await publicClient.waitForTransactionReceipt({ 
         hash: approvalHash,
-        timeout: 60_000,
+        timeout: 20_000,
       });
       logger.info(`[Swap Utils] Approval confirmed in block ${receipt.blockNumber}`);
       

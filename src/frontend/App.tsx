@@ -15,7 +15,7 @@ import { SignInModal } from './components/auth/SignInModal';
 import { MobileHeader } from './components/dashboard/mobile-header';
 import { LoadingPanelProvider, useLoadingPanel } from './contexts/LoadingPanelContext';
 import { ModalProvider } from './contexts/ModalContext';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, Info } from 'lucide-react';
 import mockDataJson from './mock.json';
 import type { MockData } from './types/dashboard';
 import { resolveCdpUserInfo } from '@/lib/cdpUser';
@@ -681,13 +681,20 @@ function AppContent({
                     <MessageSquare className="opacity-50 md:opacity-100 size-4 md:size-5" />
                   </div>
                 )} */}
-                <div className="rounded bg-primary size-7 md:size-9 flex items-center justify-center my-auto flex-shrink-0"/>
-                <h1 className="text-xl lg:text-4xl font-display leading-[1] mb-1">
-                  Agent
+                <div className="rounded bg-primary size-7 md:size-9 flex items-center justify-center my-auto shrink-0"/>
+                <h1 className="text-xl lg:text-4xl font-display leading-none mb-1">
+                  {/* Title removed as per UI requirements */}
                 </h1>
-                <span className="ml-auto text-xs md:text-sm text-muted-foreground block uppercase">
-                  Your AI DeFi Assistant
-                </span>
+                <button 
+                  className="ml-auto rounded-full p-2 hover:bg-accent transition-colors"
+                  title="About"
+                  onClick={() => {
+                    // TODO: Implement about modal/page
+                    console.log('About button clicked');
+                  }}
+                >
+                  <Info className="size-4 md:size-5 text-muted-foreground" />
+                </button>
               </div>
               
               {/* Content Area */}

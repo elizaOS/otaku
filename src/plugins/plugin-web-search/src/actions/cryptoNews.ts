@@ -1,4 +1,5 @@
 import {
+    type Action,
     type ActionResult,
     type HandlerCallback,
     type IAgentRuntime,
@@ -6,7 +7,6 @@ import {
     type State,
     logger,
 } from "@elizaos/core";
-import { ActionWithParams } from "../../../../types";
 import { TavilyService } from "../services/tavilyService";
 import { CoinDeskService } from "../services/coindeskService";
 import type { SearchResult } from "../types";
@@ -30,7 +30,7 @@ function MaxTokens(
     return data.length > maxTokens ? data.slice(0, maxTokens) : data;
 }
 
-export const cryptoNews: ActionWithParams = {
+export const cryptoNews: Action = {
     name: "CRYPTO_NEWS",
     similes: [
         "BLOCKCHAIN_NEWS",
@@ -431,5 +431,5 @@ export const cryptoNews: ActionWithParams = {
             },
         ],
     ],
-} as ActionWithParams;
+} as Action;
 

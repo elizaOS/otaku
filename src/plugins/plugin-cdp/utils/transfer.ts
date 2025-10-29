@@ -1,6 +1,7 @@
 import { logger } from "@elizaos/core";
 import type { PublicClient, WalletClient } from "viem";
 import type { EvmServerAccount } from "@coinbase/cdp-sdk";
+import { waitForTxConfirmation } from "../constants/timeouts";
 import type { CdpNetwork } from "../types";
 
 /**
@@ -46,7 +47,11 @@ export async function executeTransfer(params: {
     if (result.transactionHash) {
       transactionHash = result.transactionHash;
       cdpSuccess = true;
-      logger.info(`[Transfer Utils] CDP SDK transfer successful: ${transactionHash}`);
+      logger.info(`[Transfer Utils] CDP SDK transfer transaction submitted: ${transactionHash}`);
+      
+      // Wait for confirmation
+      const { publicClient } = await getViemClients(accountName, network);
+      await waitForTxConfirmation(publicClient, transactionHash as `0x${string}`, "transfer");
     }
   } catch (cdpError) {
     logger.warn(
@@ -106,7 +111,11 @@ export async function executeTransfer(params: {
       transactionHash = hash;
     }
 
-    logger.info(`[Transfer Utils] Viem transfer successful: ${transactionHash}`);
+    logger.info(`[Transfer Utils] Viem transfer transaction submitted: ${transactionHash}`);
+    
+    // Wait for confirmation
+    const { publicClient } = await getViemClients(accountName, network);
+    await waitForTxConfirmation(publicClient, transactionHash as `0x${string}`, "transfer");
   }
 
   if (!transactionHash) {

@@ -32,6 +32,7 @@
 
 import {
   type Action,
+  type ActionExample,
   type IAgentRuntime,
   type Memory,
   type State,
@@ -41,7 +42,6 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
-import { ActionWithParams } from "../../../types";
 import { wrapFetchWithPayment, decodeXPaymentResponse } from "x402-fetch";
 import type { CdpNetwork } from "../types";
 
@@ -115,7 +115,7 @@ function formatResponseData(responseData: unknown, maxLength: number = 500): str
     : responseStr;
 }
 
-export const cdpWalletFetchWithPayment: ActionWithParams = {
+export const cdpWalletFetchWithPayment: Action = {
   name: "FETCH_WITH_PAYMENT",
   similes: [
     "PAID_REQUEST",

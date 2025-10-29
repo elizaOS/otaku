@@ -1,4 +1,5 @@
 import {
+    type Action,
     type ActionResult,
     type HandlerCallback,
     type IAgentRuntime,
@@ -6,12 +7,11 @@ import {
     type State,
     logger,
 } from "@elizaos/core";
-import { ActionWithParams } from "../../../../types";
 import { FirecrawlService } from "../services/firecrawlService";
 
 const DEFAULT_MAX_FETCH_CHARS = 32000;
 
-function MaxTokens(
+function MaxTokens( 
     data: string,
     maxTokens: number = DEFAULT_MAX_FETCH_CHARS
 ): string {
@@ -19,7 +19,7 @@ function MaxTokens(
     return data.length > maxTokens ? data.slice(0, maxTokens) : data;
 }
 
-export const webFetch: ActionWithParams = {
+export const webFetch: Action = {
     name: "WEB_FETCH_OR_SCRAPE",
     similes: [
         "FETCH_URL",
@@ -85,11 +85,11 @@ export const webFetch: ActionWithParams = {
             return false;
         }
     },
-    
+
     handler: async (
         runtime: IAgentRuntime,
         message: Memory,
-        _state: State,
+        _state?: State,
         _options?: { [key: string]: unknown },
         callback?: HandlerCallback
     ): Promise<ActionResult> => {
@@ -375,4 +375,4 @@ export const webFetch: ActionWithParams = {
             },
         ],
     ],
-} as ActionWithParams;
+};

@@ -65,9 +65,6 @@ export default function AgentCard({ agent, onSelect, isSelected }: AgentCardProp
               {agent.points} POINTS
             </Badge>
           </div>
-          {agent.subtitle && (
-            <span className="text-sm text-muted-foreground italic">{agent.subtitle}</span>
-          )}
         </div>
       </div>
     </div>

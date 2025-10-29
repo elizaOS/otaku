@@ -20,6 +20,7 @@ import {
 import { z } from "zod";
 import { type CdpNetwork, DEFAULT_RPC_URLS } from "../types";
 import { MAINNET_NETWORKS, getChainConfig } from "../constants/chains";
+import { waitForTxConfirmation } from "../constants/timeouts";
 import { executeSwap } from "../utils/swap";
 import { executeTransfer } from "../utils/transfer";
 
@@ -692,9 +693,7 @@ export class CdpService extends Service {
     });
 
     // Wait for transaction confirmation
-    await publicClient.waitForTransactionReceipt({ hash: txHash });
-
-    logger.info(`[CDP Service] NFT transfer successful: ${txHash}`);
+    await waitForTxConfirmation(publicClient, txHash, "NFT transfer");
 
     return {
       transactionHash: txHash,
