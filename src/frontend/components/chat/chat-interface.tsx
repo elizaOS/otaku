@@ -65,7 +65,7 @@ const PLUGIN_ACTIONS = {
     description: "Bridge assets across chains",
     prompts: [
       "Bridge USDC from Base to Arbitrum",
-      "Get bridge quote for 100 USDC",
+      "Get bridge quote for 100 USDC from Base to Ethereum",
       "Check bridge status for tx 0x...",
     ]
   },
