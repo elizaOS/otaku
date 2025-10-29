@@ -53,6 +53,11 @@ export class EtherscanService extends Service {
   private baseUrl: string = "https://api.etherscan.io/v2/api";
   private defaultChainId: number = 1; // Ethereum mainnet
 
+  private readonly defaultFetchOptions: EtherscanFetchOptions = {
+    skipStatusCheck: true,
+    expectResult: true,
+  };
+
   get capabilityDescription(): string {
     return "Etherscan blockchain data service for checking transaction confirmations and status across 60+ EVM chains using V2 API";
   }
@@ -109,6 +114,50 @@ export class EtherscanService extends Service {
     return CHAIN_IDS[chainLower] || this.defaultChainId;
   }
 
+  private async callEtherscan<TResponse>(
+    chainId: number,
+    params: Record<string, string>,
+    options?: EtherscanFetchOptions
+  ): Promise<TResponse> {
+    this.validateApiKey();
+
+    const mergedOptions: EtherscanFetchOptions = {
+      ...this.defaultFetchOptions,
+      ...options,
+    };
+
+    const searchParams = new URLSearchParams({
+      chainid: String(chainId),
+      apikey: this.apiKey,
+      ...params,
+    });
+
+    const response = await fetch(`${this.baseUrl}?${searchParams.toString()}`);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      const errorMessage = typeof data.error === "object"
+        ? data.error.message || JSON.stringify(data.error)
+        : String(data.error);
+      throw new Error(`Etherscan API error: ${errorMessage}`);
+    }
+
+    if (!mergedOptions.skipStatusCheck && data.status === "0" && data.message !== "OK") {
+      throw new Error(`Etherscan API: ${data.message || "Unknown error"} ${data.result || ""}`);
+    }
+
+    if (mergedOptions.expectResult && (data.result === undefined || data.result === null)) {
+      throw new Error(mergedOptions.missingResultMessage || "Etherscan API did not return a result");
+    }
+
+    return data as TResponse;
+  }
+
   /**
    * Get transaction receipt including confirmation status
    * Uses Etherscan V2 API with chainid parameter
@@ -117,55 +166,36 @@ export class EtherscanService extends Service {
    * @returns Transaction receipt with confirmation details
    */
   async getTransactionReceipt(txHash: string, chain?: string): Promise<TransactionReceipt> {
-    this.validateApiKey();
     const chainId = this.getChainId(chain);
-    const url = `${this.baseUrl}?chainid=${chainId}&module=proxy&action=eth_getTransactionReceipt&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      const receiptResponse = await this.callEtherscan<{ result: any }>(
+        chainId,
+        {
+          module: "proxy",
+          action: "eth_getTransactionReceipt",
+          txhash: txHash,
+        },
+        {
+          skipStatusCheck: true,
+          missingResultMessage: "Transaction not found or pending. Please verify the transaction hash and try again.",
+        }
+      );
 
-      const data = await response.json();
-
-      // Handle Etherscan V2 API error responses
-      if (data.error) {
-        const errorMessage = typeof data.error === 'object' 
-          ? data.error.message || JSON.stringify(data.error)
-          : String(data.error);
-        throw new Error(`Etherscan API error: ${errorMessage}`);
-      }
-
-      // Handle V2 API status codes
-      if (data.status === "0" && data.message !== "OK") {
-        throw new Error(`Etherscan API: ${data.message || 'Unknown error'} ${data.result || ''}`);
-      }
-
-      if (!data.result) {
-        throw new Error("Transaction not found or pending. Please verify the transaction hash and try again.");
-      }
-
-      const receipt = data.result;
+      const receipt = receiptResponse.result;
       
       // Get current block to calculate confirmations
-      const currentBlockUrl = `${this.baseUrl}?chainid=${chainId}&module=proxy&action=eth_blockNumber&apikey=${this.apiKey}`;
-      const blockResponse = await fetch(currentBlockUrl);
-      
-      if (!blockResponse.ok) {
-        throw new Error(`Failed to fetch current block: HTTP ${blockResponse.status}`);
-      }
-
-      const blockData = await blockResponse.json();
-
-      if (blockData.error) {
-        throw new Error(`Failed to get current block: ${typeof blockData.error === 'object' ? blockData.error.message : blockData.error}`);
-      }
-
-      if (!blockData.result) {
-        throw new Error("Failed to retrieve current block number");
-      }
+      const blockData = await this.callEtherscan<{ result: string }>(
+        chainId,
+        {
+          module: "proxy",
+          action: "eth_blockNumber",
+        },
+        {
+          skipStatusCheck: true,
+          missingResultMessage: "Failed to retrieve current block number",
+        }
+      );
 
       const currentBlock = parseInt(blockData.result, 16);
       const txBlock = parseInt(receipt.blockNumber, 16);
@@ -200,31 +230,23 @@ export class EtherscanService extends Service {
    * @returns Transaction status (success/failure with error description)
    */
   async getTransactionStatus(txHash: string, chain?: string): Promise<TransactionStatus> {
-    this.validateApiKey();
     const chainId = this.getChainId(chain);
-    const url = `${this.baseUrl}?chainid=${chainId}&module=transaction&action=getstatus&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      const data = await this.callEtherscan<{ result: TransactionStatus; status: string; message: string }>(
+        chainId,
+        {
+          module: "transaction",
+          action: "getstatus",
+          txhash: txHash,
+        },
+        {
+          skipStatusCheck: false,
+          missingResultMessage: "Failed to fetch transaction status",
+        }
+      );
 
-      const data = await response.json();
-
-      if (data.error) {
-        const errorMessage = typeof data.error === 'object' 
-          ? data.error.message || JSON.stringify(data.error)
-          : String(data.error);
-        throw new Error(`Etherscan API error: ${errorMessage}`);
-      }
-
-      if (data.status === "0") {
-        throw new Error(data.message || "Failed to fetch transaction status");
-      }
-
-      return data.result as TransactionStatus;
+      return data.result;
     } catch (error) {
       throw new Error(`Failed to get transaction status: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -238,31 +260,23 @@ export class EtherscanService extends Service {
    * @returns Receipt status
    */
   async getTransactionReceiptStatus(txHash: string, chain?: string): Promise<{ status: string }> {
-    this.validateApiKey();
     const chainId = this.getChainId(chain);
-    const url = `${this.baseUrl}?chainid=${chainId}&module=transaction&action=gettxreceiptstatus&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      const data = await this.callEtherscan<{ result: { status: string }; status: string; message: string }>(
+        chainId,
+        {
+          module: "transaction",
+          action: "gettxreceiptstatus",
+          txhash: txHash,
+        },
+        {
+          skipStatusCheck: false,
+          missingResultMessage: "Failed to fetch receipt status",
+        }
+      );
 
-      const data = await response.json();
-
-      if (data.error) {
-        const errorMessage = typeof data.error === 'object' 
-          ? data.error.message || JSON.stringify(data.error)
-          : String(data.error);
-        throw new Error(`Etherscan API error: ${errorMessage}`);
-      }
-
-      if (data.status === "0") {
-        throw new Error(data.message || "Failed to fetch receipt status");
-      }
-
-      return data.result as { status: string };
+      return data.result;
     } catch (error) {
       throw new Error(`Failed to get receipt status: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -276,34 +290,32 @@ export class EtherscanService extends Service {
    * @returns Transaction details
    */
   async getTransactionByHash(txHash: string, chain?: string): Promise<Record<string, unknown>> {
-    this.validateApiKey();
     const chainId = this.getChainId(chain);
-    const url = `${this.baseUrl}?chainid=${chainId}&module=proxy&action=eth_getTransactionByHash&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.error) {
-        const errorMessage = typeof data.error === 'object' 
-          ? data.error.message || JSON.stringify(data.error)
-          : String(data.error);
-        throw new Error(`Etherscan API error: ${errorMessage}`);
-      }
-
-      if (!data.result) {
-        throw new Error("Transaction not found");
-      }
+      const data = await this.callEtherscan<{ result: Record<string, unknown> }>(
+        chainId,
+        {
+          module: "proxy",
+          action: "eth_getTransactionByHash",
+          txhash: txHash,
+        },
+        {
+          skipStatusCheck: true,
+          missingResultMessage: "Transaction not found",
+        }
+      );
 
       return data.result;
     } catch (error) {
       throw new Error(`Failed to get transaction: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+}
+
+interface EtherscanFetchOptions {
+  expectResult?: boolean;
+  missingResultMessage?: string;
+  skipStatusCheck?: boolean;
 }
 

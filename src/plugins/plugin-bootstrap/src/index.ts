@@ -37,15 +37,15 @@ import {
 import { v4 } from 'uuid';
 
 // import * as actions from './actions/index.ts';
-import * as evaluators from './evaluators/index.ts';
-import * as providers from './providers/index.ts';
+import * as evaluators from './evaluators/index.js';
+import * as providers from './providers/index.js';
 
-import { TaskService } from './services/task.ts';
-import { EmbeddingGenerationService } from './services/embedding.ts';
+import { TaskService } from './services/task.js';
+import { EmbeddingGenerationService } from './services/embedding.js';
 
-export * from './actions/index.ts';
-export * from './evaluators/index.ts';
-export * from './providers/index.ts';
+export * from './actions/index.js';
+export * from './evaluators/index.js';
+export * from './providers/index.js';
 
 export const multiStepDecisionTemplate = `<task>
 Determine the next step the assistant should take in this conversation to help the user reach their goal.
