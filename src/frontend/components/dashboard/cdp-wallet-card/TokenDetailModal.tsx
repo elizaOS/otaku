@@ -246,11 +246,13 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
 
   const formatYAxisValue = (value: number): string => {
     if (value === 0) return '';
-    if (value >= 1000000000) return `$${(value / 1000000000).toFixed(0)}B`;
-    if (value >= 1000000) return `$${(value / 1000000).toFixed(0)}M`;
-    if (value >= 1000) return `$${(value / 1000).toFixed(0)}K`;
-    if (value < 0.01) return `$${value.toExponential(0)}`;
-    return `$${value.toFixed(2)}`;
+    if (value >= 1000000000) return `$${(value / 1000000000).toFixed(2)}B`;
+    if (value >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
+    if (value >= 1000) return `$${(value / 1000).toFixed(2)}K`;
+    if (value >= 1) return `$${value.toFixed(2)}`;
+    if (value >= 0.01) return `$${value.toFixed(2)}`;
+    if (value >= 0.0001) return `$${value.toFixed(6)}`;
+    return `$${value.toFixed(8)}`;
   };
 
   const formatMarketCap = (value: number): string => {
@@ -502,6 +504,7 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
                   tick={{ fontSize: 0 }}
                 />
                 <YAxis
+                  orientation="right"
                   tickLine={false}
                   axisLine={false}
                   tickMargin={0}
@@ -521,7 +524,17 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
                         const p = first && typeof first === 'object' ? (first.payload as PriceDataPoint | undefined) : undefined;
                         return p ? formatDateForTimeframe(p.timestamp, activeTimeFrame) : '';
                       }}
-                      formatter={(value) => `$${typeof value === 'number' ? formatPrice(value) : value}`}
+                      formatter={(value) => {
+                        if (typeof value !== 'number') return value;
+                        // Use same formatting as Y-axis for consistency
+                        if (value >= 1000000000) return `$${(value / 1000000000).toFixed(2)}B`;
+                        if (value >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
+                        if (value >= 1000) return `$${(value / 1000).toFixed(2)}K`;
+                        if (value >= 1) return `$${value.toFixed(2)}`;
+                        if (value >= 0.01) return `$${value.toFixed(2)}`;
+                        if (value >= 0.0001) return `$${value.toFixed(6)}`;
+                        return `$${value.toFixed(8)}`;
+                      }}
                     />
                   }
                 />
@@ -584,6 +597,7 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
                   tick={{ fontSize: 0 }}
                 />
                 <YAxis
+                  orientation="right"
                   tickLine={false}
                   axisLine={false}
                   tickMargin={0}
@@ -603,7 +617,17 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
                         const p = first && typeof first === 'object' ? (first.payload as MarketCapDataPoint | undefined) : undefined;
                         return p ? formatDateForTimeframe(p.timestamp, activeTimeFrame) : '';
                       }}
-                      formatter={(value) => typeof value === 'number' ? formatMarketCap(value) : value}
+                      formatter={(value) => {
+                        if (typeof value !== 'number') return value;
+                        // Use same formatting as Y-axis for consistency
+                        if (value >= 1000000000) return `$${(value / 1000000000).toFixed(2)}B`;
+                        if (value >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
+                        if (value >= 1000) return `$${(value / 1000).toFixed(2)}K`;
+                        if (value >= 1) return `$${value.toFixed(2)}`;
+                        if (value >= 0.01) return `$${value.toFixed(2)}`;
+                        if (value >= 0.0001) return `$${value.toFixed(6)}`;
+                        return `$${value.toFixed(8)}`;
+                      }}
                     />
                   }
                 />
