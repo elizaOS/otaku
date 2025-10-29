@@ -437,95 +437,20 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     }
   }, []) // Empty deps - scrollToBottom and isUserScrollingRef are stable
 
-  // Handle quick prompt click - auto send message
+  // Handle quick prompt click - populate input instead of auto-send
   const handleQuickPrompt = async (message: string) => {
     if (isTyping || !message.trim() || isCreatingChannel) return
     
     // Close modal if open
     setShowPromptsModal(false)
     
-    // Clear any previous errors
-    setError(null)
+    // Populate the input field instead of sending immediately
+    setInputValue(message)
     
-    // If in new chat mode, create channel first with generated title
-    if (isNewChatMode && !channelId) {
-      console.log(' [ChatInterface] Quick prompt in new chat mode, creating channel...')
-      setIsCreatingChannel(true)
-      setIsTyping(true)
-      
-      try {
-        // STEP 1: Generate title from user's message
-        console.log(' Generating title from user message:', message)
-        const titleResponse = await elizaClient.messaging.generateChannelTitle(
-          message, // Pass the message as string
-          agent.id as UUID
-        )
-        const generatedTitle = titleResponse.title || message.substring(0, 50)
-        console.log(' Generated title:', generatedTitle)
-
-        // STEP 2: Create channel in DB with the generated title
-        console.log(' Creating channel with title:', generatedTitle)
-        const now = Date.now()
-        const newChannel = await elizaClient.messaging.createGroupChannel({
-          name: generatedTitle,
-          participantIds: [userId as UUID, agent.id as UUID],
-          metadata: {
-            server_id: serverId,
-            type: 'DM',
-            isDm: true,
-            user1: userId,
-            user2: agent.id,
-            forAgent: agent.id,
-            createdAt: new Date(now).toISOString(),
-          },
-        })
-        console.log(' Channel created:', newChannel.id)
-
-        // STEP 3: Notify parent component
-        onChannelCreated?.(newChannel.id, generatedTitle)
-
-        // STEP 4: Send the message (channel is now created and will be set as active)
-        setTimeout(() => {
-          console.log(' Sending initial message to new channel:', newChannel.id)
-          socketManager.sendMessage(newChannel.id, message, serverId, {
-            userId,
-            isDm: true,
-            targetUserId: agent.id,
-          })
-        }, 100)
-      } catch (error: any) {
-        console.error(' Failed to create channel:', error)
-        const errorMessage = error?.message || 'Failed to create chat. Please try again.'
-        setError(errorMessage)
-        setIsTyping(false)
-      } finally {
-        setIsCreatingChannel(false)
-      }
-      return
-    }
-    
-    // Normal quick prompt (channel already exists)
-    if (!channelId) {
-      console.warn(' Cannot send message: No channel ID')
-      return
-    }
-    
-    console.log(' [ChatInterface] Sending quick prompt:', {
-      channelId,
-      text: message,
-      serverId,
-      userId,
-      agentId: agent.id,
-    })
-    
-    // Send via socket directly
-    socketManager.sendMessage(channelId, message, serverId, {
-      userId,
-      isDm: true,
-      targetUserId: agent.id,
-    })
-    
-    setIsTyping(true)
+    // Focus the textarea so user can edit and hit enter
+    setTimeout(() => {
+      textareaRef.current?.focus()
+    }, 0)
   }
 
   // Group consecutive action messages together

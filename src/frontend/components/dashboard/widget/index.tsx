@@ -71,6 +71,15 @@ function Widget({ widgetData }: WidgetProps) {
     fetchLocationAndWeather();
   }, []);
 
+  // Format UTC offset for display
+  const getUTCOffset = (date: Date) => {
+    const offset = -date.getTimezoneOffset();
+    const hours = Math.floor(Math.abs(offset) / 60);
+    const minutes = Math.abs(offset) % 60;
+    const sign = offset >= 0 ? '+' : '-';
+    return `UTC${sign}${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  };
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("en-US", {
       hour12: true,
@@ -109,7 +118,7 @@ function Widget({ widgetData }: WidgetProps) {
 
         <div className="flex justify-between items-center">
           <span className="opacity-50">{temperature || widgetData.temperature}</span>
-          <span>{userLocation || widgetData.location}</span>
+          <span>{getUTCOffset(currentTime)}</span>
 
           <Badge variant="secondary" className="bg-accent">
             {userTimezone || widgetData.timezone}
