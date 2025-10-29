@@ -1,4 +1,5 @@
 import {
+  Action,
   ActionResult,
   HandlerCallback,
   IAgentRuntime,
@@ -6,10 +7,9 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { ActionWithParams } from "../../../../types";
 import { CoinGeckoService } from "../services/coingecko.service";
 
-export const getTrendingSearchAction: ActionWithParams = {
+export const getTrendingSearchAction: Action = {
   name: "GET_TRENDING_SEARCH",
   similes: [
     "TRENDING_SEARCH",

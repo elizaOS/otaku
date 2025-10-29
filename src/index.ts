@@ -37,7 +37,6 @@ const project: Project = {
 };
 
 export { character } from './character';
-export * from './types';
 
 export default project;
 

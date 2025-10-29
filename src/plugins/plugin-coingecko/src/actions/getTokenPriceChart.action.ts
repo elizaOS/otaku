@@ -1,4 +1,5 @@
 import {
+  Action,
   ActionResult,
   HandlerCallback,
   IAgentRuntime,
@@ -6,10 +7,9 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { ActionWithParams } from "../../../../types";
 import { CoinGeckoService, nativeTokenIds } from "../services/coingecko.service";
 
-export const getTokenPriceChartAction: ActionWithParams = {
+export const getTokenPriceChartAction: Action = {
   name: "GET_TOKEN_PRICE_CHART",
   similes: [
     "TOKEN_CHART",

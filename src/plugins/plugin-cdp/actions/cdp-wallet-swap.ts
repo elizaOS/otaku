@@ -11,8 +11,6 @@ import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
 import { getTokenMetadata, getTokenDecimals, resolveTokenSymbol } from "../utils/coingecko";
 import { type CdpNetwork } from "../types";
-import { ActionWithParams } from "../../../types";
-
 
 interface SwapParams {
   network: CdpNetwork;
@@ -140,7 +138,7 @@ const resolveTokenToAddress = async (
  * Reference: https://docs.cdp.coinbase.com/trade-api/quickstart#3-execute-a-swap
  */
 
-export const cdpWalletSwap: ActionWithParams = {
+export const cdpWalletSwap: Action = {
   name: "USER_WALLET_SWAP",
   similes: [
     "SWAP",

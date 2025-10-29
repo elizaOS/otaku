@@ -9,9 +9,8 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
-import { ActionWithParams } from "../../../types";
 
-export const cdpWalletInfo: ActionWithParams = {
+export const cdpWalletInfo: Action = {
   name: "USER_WALLET_INFO",
   similes: [
     "USER_WALLET_DETAILS",

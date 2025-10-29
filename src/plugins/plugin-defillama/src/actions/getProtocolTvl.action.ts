@@ -8,11 +8,10 @@ import {
   logger,
 } from "@elizaos/core";
 import { DefiLlamaService } from "../services/defillama.service";
-import { ActionWithParams } from "../../../../types";
 
 // Extend Action type to support parameter schemas for tool calling
 
-export const getProtocolTvlAction: ActionWithParams = {
+export const getProtocolTvlAction: Action = {
   name: "GET_PROTOCOL_TVL",
   similes: [
     "PROTOCOL_TVL",

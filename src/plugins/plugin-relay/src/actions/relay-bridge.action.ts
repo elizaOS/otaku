@@ -27,7 +27,6 @@ import type { ProgressData } from "@relayprotocol/relay-sdk";
 import { resolveTokenToAddress, getTokenDecimals } from "../utils/token-resolver";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
-import { ActionWithParams } from "../../../../types";
 
 // Supported chains mapping
 const SUPPORTED_CHAINS: Record<string, Chain> = {
@@ -83,7 +82,7 @@ const resolveChainNameToId = (chainName: string): number | null => {
   return chain.id;
 };
 
-export const relayBridgeAction: ActionWithParams = {
+export const relayBridgeAction: Action = {
   name: "EXECUTE_RELAY_BRIDGE",
   description: "Use this action when you need to execute a cross-chain bridge.",
   similes: [

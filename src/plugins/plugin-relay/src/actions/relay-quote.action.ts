@@ -26,7 +26,6 @@ import { getTokenDecimals, resolveTokenToAddress } from "../utils/token-resolver
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
-import { ActionWithParams } from "../../../../types";
 
 // Supported chains mapping
 const SUPPORTED_CHAINS: Record<string, Chain> = {
@@ -91,7 +90,7 @@ const resolveChainNameToId = (chainName: string): number | null => {
   return chain.id;
 };
 
-export const relayQuoteAction: ActionWithParams = {
+export const relayQuoteAction: Action = {
   name: "GET_RELAY_QUOTE",
   description: "Use this action when you need a cross-chain bridge/swap quote.",
   similes: [

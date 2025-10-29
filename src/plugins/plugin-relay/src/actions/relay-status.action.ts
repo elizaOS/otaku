@@ -9,7 +9,6 @@ import {
 } from "@elizaos/core";
 import { RelayService } from "../services/relay.service";
 import type { StatusRequest, RelayStatus } from "../types";
-import { ActionWithParams } from "../../../../types";
 
 interface StatusParams {
   requestId?: string;
@@ -17,7 +16,7 @@ interface StatusParams {
   user?: string;
 }
 
-export const relayStatusAction: ActionWithParams = {
+export const relayStatusAction: Action = {
   name: "CHECK_RELAY_STATUS",
   description: "Use this action when you need to check the status of a Relay transaction.",
   similes: [

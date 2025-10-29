@@ -5,8 +5,8 @@ import {
     type Memory,
     type State,
     logger,
+    Action,
 } from "@elizaos/core";
-import { ActionWithParams } from "../../../../types";
 import { TavilyService } from "../services/tavilyService";
 import type { SearchResult } from "../types";
 
@@ -20,7 +20,7 @@ function MaxTokens(
     return data.length > maxTokens ? data.slice(0, maxTokens) : data;
 }
 
-export const webSearch: ActionWithParams = {
+export const webSearch: Action = {
     name: "WEB_SEARCH",
     similes: [
         "SEARCH_WEB",
@@ -375,4 +375,4 @@ export const webSearch: ActionWithParams = {
             },
         ],
     ],
-} as ActionWithParams;
+};

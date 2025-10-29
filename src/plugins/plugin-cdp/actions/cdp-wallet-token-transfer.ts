@@ -12,9 +12,6 @@ import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
 import { type CdpNetwork } from "../types";
 
-import { ActionWithParams } from "../../../types";
-
-
 interface TransferParams {
   network?: CdpNetwork;
   to: `0x${string}`;
@@ -23,7 +20,7 @@ interface TransferParams {
   percentage?: number; // Percentage of balance (mutually exclusive with amount)
 }
 
-export const cdpWalletTokenTransfer: ActionWithParams = {
+export const cdpWalletTokenTransfer: Action = {
   name: "USER_WALLET_TOKEN_TRANSFER",
   similes: [
     "SEND_TOKEN",

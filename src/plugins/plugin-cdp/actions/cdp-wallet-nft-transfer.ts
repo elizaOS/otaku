@@ -10,7 +10,6 @@ import {
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
 import { type CdpNetwork } from "../types";
-import { ActionWithParams } from "../../../types";
 
 interface NftTransferParams {
   network: CdpNetwork;
@@ -19,7 +18,7 @@ interface NftTransferParams {
   tokenId: string;
 }
 
-export const cdpWalletNftTransfer: ActionWithParams = {
+export const cdpWalletNftTransfer: Action = {
   name: "USER_WALLET_NFT_TRANSFER",
   similes: [
     "SEND_NFT",

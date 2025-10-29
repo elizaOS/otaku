@@ -1,15 +1,12 @@
 import type { Action, IAgentRuntime, Memory, Provider, State } from '@elizaos/core';
 import { addHeader, composeActionExamples, formatActionNames } from '@elizaos/core';
 
-// Extend Action type to include parameters for tool calling
-interface ActionWithParams extends Action {
-  parameters?: Record<string, {
-    type: string;
-    description: string;
-    required: boolean;
-  }>;
-}
 
+interface ActionParameter {
+  type: string;
+  description: string;
+  required: boolean;
+}
 /**
  * Formats actions with only name and description (no parameters).
  * Use this for a simpler view of available actions.
@@ -25,13 +22,12 @@ function formatActionsWithoutParams(actions: Action[]): string {
  * This is an enhanced version that includes parameter information.
  */
 function formatActionsWithParams(actions: Action[]): string {
-  return actions.map(action => {
-    const actionWithParams = action as ActionWithParams;
+  return actions.map((action: Action) => {
     let formatted = `## ${action.name}\n${action.description}`;
     
     // Check if action has parameters defined
-    if (actionWithParams.parameters !== undefined) {
-      const paramEntries = Object.entries(actionWithParams.parameters);
+    if (action.parameters !== undefined) {
+      const paramEntries = Object.entries(action.parameters as ActionParameter);
       
       if (paramEntries.length === 0) {
         // Action explicitly has no parameters
