@@ -651,6 +651,7 @@ function AppContent({
             isCreatingChannel={isCreatingChannel}
             userProfile={userProfile}
             onSignOut={signOut}
+            onChatClick={() => setCurrentView('chat')}
             onAccountClick={() => setCurrentView('account')}
             onHomeClick={() => setCurrentView('chat')}
           />
@@ -681,9 +682,10 @@ function AppContent({
                     <MessageSquare className="opacity-50 md:opacity-100 size-4 md:size-5" />
                   </div>
                 )} */}
-                <div className="rounded bg-primary size-7 md:size-9 flex items-center justify-center my-auto shrink-0"/>
+                {/* <div className="rounded bg-primary size-7 md:size-9 flex items-center justify-center my-auto shrink-0"/> */}
                 <h1 className="text-xl lg:text-4xl font-display leading-none mb-1">
                   {/* Title removed as per UI requirements */}
+                  CHAT
                 </h1>
                 <button 
                   className="ml-auto rounded-full p-2 hover:bg-accent transition-colors"

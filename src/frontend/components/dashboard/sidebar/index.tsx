@@ -21,6 +21,7 @@ import MonkeyIcon from "@/components/icons/monkey"
 import DotsVerticalIcon from "@/components/icons/dots-vertical"
 import { Bullet } from "@/components/ui/bullet"
 import PlusIcon from "@/components/icons/plus"
+import ChatIcon from "@/components/icons/chat"
 import { LogOut } from "lucide-react"
 
 interface Channel {
@@ -46,6 +47,7 @@ interface DashboardSidebarProps extends React.ComponentProps<typeof Sidebar> {
   } | null
   onSignOut?: () => void
   onAccountClick?: () => void
+  onChatClick?: () => void
   onHomeClick?: () => void
 }
 
@@ -59,6 +61,7 @@ export function DashboardSidebar({
   userProfile,
   onSignOut,
   onAccountClick,
+  onChatClick,
   onHomeClick,
   ...props
 }: DashboardSidebarProps) {
@@ -346,6 +349,18 @@ export function DashboardSidebar({
                   </PopoverTrigger>
                   <PopoverContent className="w-56 p-0" side="bottom" align="end" sideOffset={4}>
                     <div className="flex flex-col">
+                      {onChatClick && (
+                        <button 
+                          onClick={() => {
+                            onChatClick();
+                            setIsPopoverOpen(false);
+                          }}
+                          className="flex items-center px-4 py-2 text-sm hover:bg-accent text-left w-full"
+                        >
+                          <ChatIcon className="mr-2 h-4 w-4" />
+                          Chat
+                        </button>
+                      )}
                       {onAccountClick && (
                         <button 
                           onClick={() => {

@@ -287,7 +287,7 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
         header={{
           title: "Account",
           description: "Your profile and account information",
-          icon: MonkeyIcon,
+          // icon: MonkeyIcon,
         }}
       >
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
