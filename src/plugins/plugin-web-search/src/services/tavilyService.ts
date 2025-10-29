@@ -1,21 +1,20 @@
 import { IAgentRuntime, logger, Service } from "@elizaos/core";
 import { tavily } from "@tavily/core";
-import type { IWebSearchService, SearchOptions, SearchResponse } from "../types";
+import type { ITavilyService, SearchOptions, SearchResponse } from "../types";
 
-export type TavilyClient = ReturnType<typeof tavily>; // declaring manually because original package does not export its types
+export type TavilyClient = ReturnType<typeof tavily>;
 
-export class WebSearchService extends Service implements IWebSearchService {
-    static serviceType = "WEB_SEARCH" as const;
+export class TavilyService extends Service implements ITavilyService {
+    static serviceType = "TAVILY" as const;
 
-    // Tavily client instance
     private tavilyClient!: TavilyClient;
 
     constructor(runtime: IAgentRuntime) {
         super(runtime);
     }
 
-    static async start(runtime: IAgentRuntime): Promise<WebSearchService> {
-        const service = new WebSearchService(runtime);
+    static async start(runtime: IAgentRuntime): Promise<TavilyService> {
+        const service = new TavilyService(runtime);
         await service.initialize(runtime);
         return service;
     }
@@ -42,7 +41,7 @@ export class WebSearchService extends Service implements IWebSearchService {
     ): Promise<SearchResponse> {
         try {
             if (!this.tavilyClient) {
-                throw new Error("WebSearchService not initialized");
+                throw new Error("TavilyService not initialized");
             }
 
             const response = await this.tavilyClient.search(query, {
@@ -66,8 +65,9 @@ export class WebSearchService extends Service implements IWebSearchService {
 
             return response;
         } catch (error) {
-            logger.error(`Web search error: ${(error as Error).message}`);
+            logger.error(`Tavily search error: ${(error as Error).message}`);
             throw error;
         }
     }
 }
+

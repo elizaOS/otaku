@@ -1,6 +1,6 @@
 import type { Service } from "@elizaos/core";
 
-export interface IWebSearchService extends Service {
+export interface ITavilyService extends Service {
     search(
         query: string,
         options?: SearchOptions,

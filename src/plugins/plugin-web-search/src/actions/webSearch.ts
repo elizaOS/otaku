@@ -7,7 +7,7 @@ import {
     logger,
 } from "@elizaos/core";
 import { ActionWithParams } from "../../../../types";
-import { WebSearchService } from "../services/webSearchService";
+import { TavilyService } from "../services/tavilyService";
 import type { SearchResult } from "../types";
 
 const DEFAULT_MAX_WEB_SEARCH_CHARS = 16000;
@@ -35,7 +35,12 @@ export const webSearch: ActionWithParams = {
     ],
     suppressInitialMessage: true,
     description:
-        "Use this action when other actions/providers can't provide accurate or current info, or when facts must be confirmed via the web.",
+        "Search the web using Tavily. Supports general web search and finance topics (crypto/DeFi/markets). Use when other actions/providers can't provide accurate or current info.\n\n" +
+        "IMPORTANT - Result Quality Check:\n" +
+        "- If search returns off-topic or poor results, RETRY with parameter adjustments in the SAME round\n" +
+        "- Try: topic='finance' for crypto/markets, source filter (theblock.com, coindesk.com), broader time_range, advanced search_depth, or rephrased query\n" +
+        "- For crypto/DeFi content: use topic='finance' + source from [theblock.com, coindesk.com, decrypt.co, dlnews.com]\n" +
+        "- Don't give up after one attempt if results are clearly irrelevant",
     
     // Parameter schema for tool calling
     parameters: {
@@ -43,6 +48,26 @@ export const webSearch: ActionWithParams = {
             type: "string",
             description: "The search query to look up on the web",
             required: true,
+        },
+        topic: {
+            type: "string",
+            description: "Search topic: 'general' for web search, 'finance' for financial/crypto/DeFi content. Defaults to 'general'.",
+            required: false,
+        },
+        source: {
+            type: "string",
+            description: "Specific source domain to limit results (e.g., 'bloomberg.com', 'reuters.com'). Uses site: operator.",
+            required: false,
+        },
+        max_results: {
+            type: "number",
+            description: "Maximum number of results to return (1-20). Defaults to 5.",
+            required: false,
+        },
+        search_depth: {
+            type: "string",
+            description: "Search depth: 'basic' for quick results or 'advanced' for comprehensive search. Defaults to 'basic'.",
+            required: false,
         },
         time_range: {
             type: "string",
@@ -67,10 +92,10 @@ export const webSearch: ActionWithParams = {
         _state?: State
     ) => {
         try {
-            const service = runtime.getService<WebSearchService>(WebSearchService.serviceType);
+            const service = runtime.getService<TavilyService>("TAVILY");
             return !!service;
         } catch (err) {
-            logger.warn("WebSearchService not available:", (err as Error).message);
+            logger.warn("TavilyService not available:", (err as Error).message);
             return false;
         }
     },
@@ -82,9 +107,9 @@ export const webSearch: ActionWithParams = {
         callback?: HandlerCallback
     ): Promise<ActionResult> => {
         try {
-            const webSearchService = runtime.getService<WebSearchService>(WebSearchService.serviceType);
-            if (!webSearchService) {
-                throw new Error("WebSearchService not initialized");
+            const tavilyService = runtime.getService<TavilyService>("TAVILY");
+            if (!tavilyService) {
+                throw new Error("TavilyService not initialized");
             }
 
             // Read parameters from state (extracted by multiStepDecisionTemplate)
@@ -113,20 +138,39 @@ export const webSearch: ActionWithParams = {
                 return emptyResult;
             }
 
-            logger.info(`[WEB_SEARCH] Searching for: "${query}"`);
+            const source = params?.source?.trim();
+            const topic = params?.topic === "finance" 
+                ? "finance" 
+                : "general";
+            const maxResults = params?.max_results ? Math.min(Math.max(1, params.max_results), 20) : 5;
+            const searchDepth = params?.search_depth === "advanced" ? "advanced" : "basic";
+
+            // Build enhanced query with source if provided
+            let enhancedQuery = query;
+            if (source) {
+                enhancedQuery = `${query} site:${source}`;
+                logger.info(`[WEB_SEARCH] Searching with source filter: ${source}`);
+            }
+
+            logger.info(`[WEB_SEARCH] Searching for: "${enhancedQuery}" (topic: ${topic})`);
 
             // Store input parameters for return
             const inputParams = { 
                 query,
+                topic,
+                source,
+                max_results: maxResults,
+                search_depth: searchDepth,
                 time_range: params?.time_range,
                 start_date: params?.start_date,
                 end_date: params?.end_date,
             };
 
             // Use provided parameters or defaults
-            const searchResponse = await webSearchService.search(query, {
-                max_results: 5,
-                search_depth: "basic",
+            const searchResponse = await tavilyService.search(enhancedQuery, {
+                topic,
+                max_results: maxResults,
+                search_depth: searchDepth,
                 time_range: params?.time_range,
                 start_date: params?.start_date,
                 end_date: params?.end_date,
@@ -182,6 +226,10 @@ export const webSearch: ActionWithParams = {
             const params = composedState?.data?.actionParams || composedState?.data?.webSearch || {};
             const failureInputParams = {
                 query: params?.query,
+                topic: params?.topic,
+                source: params?.source,
+                max_results: params?.max_results,
+                search_depth: params?.search_depth,
                 time_range: params?.time_range,
                 start_date: params?.start_date,
                 end_date: params?.end_date,
@@ -204,6 +252,27 @@ export const webSearch: ActionWithParams = {
         }
     },
     examples: [
+        [
+            {
+                name: "{{user}}",
+                content: {
+                    text: "Latest Aave news",
+                },
+            },
+            {
+                name: "{{agent}}",
+                content: {
+                    text: "Let me search for Aave news from crypto sources:",
+                    action: "WEB_SEARCH",
+                    actionParams: {
+                        query: "Aave protocol",
+                        topic: "finance",
+                        source: "theblock.com",
+                        time_range: "week"
+                    }
+                },
+            },
+        ],
         [
             {
                 name: "{{user}}",
