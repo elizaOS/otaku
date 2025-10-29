@@ -1081,7 +1081,7 @@ async function runSingleShotCore({ runtime, message, state }: { runtime: IAgentR
   };
 }
 
-async function runMultiStepCore({ runtime, message, state, callback }: { runtime: IAgentRuntime, message: Memory, state: State, callback?: HandlerCallback }): Promise<StrategyResult> {
+async function runMultiStepCore({ runtime, message, state, callback: _callback }: { runtime: IAgentRuntime, message: Memory, state: State, callback?: HandlerCallback }): Promise<StrategyResult> {
   const traceActionResult: MultiStepActionResult[] = [];
   let accumulatedState: State = state;
   const maxIterations = parseInt(runtime.getSetting('MAX_MULTISTEP_ITERATIONS') || '6');
@@ -1140,12 +1140,7 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
     if (!action) {
       if (isFinish === 'true' || isFinish === true) {
         runtime.logger.info(`[MultiStep] Task marked as complete at iteration ${iterationCount}`);
-        if (callback) {
-          await callback({
-            text: '',
-            thought: thought ?? '',
-          });
-        }
+        // Don't send empty text callback - let summary generation handle the final response
         break;
       } else {
         runtime.logger.warn(
@@ -1242,12 +1237,7 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
     // After executing actions, check if we should finish
     if (isFinish === 'true' || isFinish === true) {
       runtime.logger.info(`[MultiStep] Task marked as complete at iteration ${iterationCount} after executing action`);
-      if (callback) {
-        await callback({
-          text: '',
-          thought: thought ?? '',
-        });
-      }
+      // Don't send empty text callback - let summary generation handle the final response
       break;
     }
   }
@@ -1259,6 +1249,9 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
   }
 
   accumulatedState = await runtime.composeState(message, ['RECENT_MESSAGES', 'ACTION_STATE']);
+  if (!accumulatedState.data) accumulatedState.data = {} as any;
+  accumulatedState.data.actionResults = traceActionResult;
+
   const summaryPrompt = composePromptFromState({
     state: accumulatedState,
     template: runtime.character.templates?.multiStepSummaryTemplate || multiStepSummaryTemplate,
