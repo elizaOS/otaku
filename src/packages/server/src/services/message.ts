@@ -472,19 +472,19 @@ export class MessageBusService extends Service {
     );
 
     try {
-      console.log('🔍 [MessageBusService] Starting validation checks...');
+      console.log('↻ [MessageBusService] Starting validation checks...');
       
       if (!(await this.validateServerSubscription(message))) {
-        console.log('❌ [MessageBusService] validateServerSubscription failed');
+        console.log('✗ [MessageBusService] validateServerSubscription failed');
         return;
       }
-      console.log('✅ [MessageBusService] validateServerSubscription passed');
+      console.log('✓ [MessageBusService] validateServerSubscription passed');
       
       if (!(await this.validateNotSelfMessage(message))) {
-        console.log('❌ [MessageBusService] validateNotSelfMessage failed');
+        console.log('✗ [MessageBusService] validateNotSelfMessage failed');
         return;
       }
-      console.log('✅ [MessageBusService] validateNotSelfMessage passed');
+      console.log('✓ [MessageBusService] validateNotSelfMessage passed');
 
       logger.info(
         `[${this.runtime.character.name}] MessageBusService: All checks passed, proceeding to create agent memory and emit MESSAGE_RECEIVED event`
@@ -560,7 +560,7 @@ export class MessageBusService extends Service {
         },
       });
       
-      console.log('✅ [MessageBusService] MESSAGE_RECEIVED event emitted successfully');
+      console.log('✓ [MessageBusService] MESSAGE_RECEIVED event emitted successfully');
     } catch (error) {
       logger.error(
         `[${this.runtime.character.name}] MessageBusService: Error processing incoming message:`,
@@ -754,7 +754,7 @@ export class MessageBusService extends Service {
         channel_id: channelId,
         server_id: serverId,
         author_id: this.runtime.agentId,
-        content: `⚠️ Error: ${errorMessage}`,
+        content: `⚠ Error: ${errorMessage}`,
         source_type: 'agent_error',
         raw_message: {
           error: errorMessage,

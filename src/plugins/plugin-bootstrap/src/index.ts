@@ -68,7 +68,7 @@ Determine the next step the assistant should take in this conversation to help t
 **Actions Completed in THIS Execution Round**: {{traceActionResult.length}}
 
 {{#if traceActionResult.length}}
-⚠️ You have ALREADY taken {{traceActionResult.length}} action(s) in this execution round. Review them carefully before deciding next steps.
+⚠ You have ALREADY taken {{traceActionResult.length}} action(s) in this execution round. Review them carefully before deciding next steps.
 {{else}}
 ✓ This is your FIRST decision step - no actions have been taken yet in this round.
 {{/if}}
@@ -112,7 +112,7 @@ You have executed the following actions in THIS multi-step execution round:
 
 {{actionResults}}
 
-⚠️ **CRITICAL**: These are actions YOU took in this execution, not from earlier in the conversation.
+⚠ **CRITICAL**: These are actions YOU took in this execution, not from earlier in the conversation.
 - If the user's request has been satisfied by these actions, set \`isFinish: true\`
 - Do NOT repeat an action unless it failed or the user explicitly asked for multiple executions
 
@@ -149,7 +149,7 @@ CRITICAL: Only set isFinish: true when the COMPLETE user request is fulfilled.
 "isFinish" Set to true ONLY when the user's ENTIRE request is satisfied by actions taken in THIS round
 </keys>
 
-⚠️ CRITICAL STOP-CONDITION CHECKS:
+⚠ CRITICAL STOP-CONDITION CHECKS:
 - What step am I on? ({{iterationCount}}/{{maxIterations}})
 - How many actions have I taken THIS round? ({{traceActionResult.length}})
 - If > 0 actions: Have I completed ALL parts of the user's request? → If YES, set isFinish: true to exit loop

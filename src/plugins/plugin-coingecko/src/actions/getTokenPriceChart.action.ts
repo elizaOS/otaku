@@ -206,7 +206,7 @@ Please check the following:
    
 3. **Timeframe**: Optional - '1h', '24h', '7d', '30d', or '1y' (default: '24h')
 
-💡 **Tip**: Use GET_TOKEN_METADATA action first to retrieve the correct chain and contract address for non-native tokens.
+→ **Tip**: Use GET_TOKEN_METADATA action first to retrieve the correct chain and contract address for non-native tokens.
 
 Example: "Show me the price chart for BTC on ethereum over the last 7 days"
 Example: "Get the chart for 0x1bc0c42215582d5a085795f4badbac3ff36d1bcb on base for 30 days"`;

@@ -331,7 +331,7 @@ export function watchFiles(
   let isCleanedUp = false;
 
   console.log(`📁 Watching ${directory} for changes...`);
-  console.log('💡 Press Ctrl+C to stop\n');
+  console.log('→ Press Ctrl+C to stop\n');
 
   // Cleanup function to close watcher and clear timers
   const cleanup = () => {
@@ -389,7 +389,7 @@ export function watchFiles(
     console.error(`Failed to start file watcher: ${errorMessage}`);
 
     if (errorMessage.includes('EMFILE')) {
-      console.error('\n⚠️  Too many open files error detected!');
+      console.error('\n⚠  Too many open files error detected!');
       console.error('Try one of these solutions:');
       console.error('  1. Increase system file limit: ulimit -n 4096');
       console.error('  2. Close other applications using file watchers');
@@ -441,9 +441,9 @@ export async function runBuild(options: BuildRunnerOptions & { isRebuild?: boole
   if (isRebuild) {
     console.clear();
     const timestamp = new Date().toLocaleTimeString();
-    console.log(`[${timestamp}] 🔄 Rebuilding ${packageName}...\n`);
+    console.log(`[${timestamp}] ↻ Rebuilding ${packageName}...\n`);
   } else {
-    console.log(`🚀 Building ${packageName}...\n`);
+    console.log(`→ Building ${packageName}...\n`);
   }
 
   try {
@@ -503,8 +503,8 @@ export async function runBuild(options: BuildRunnerOptions & { isRebuild?: boole
       console.log(`✓ Post-build tasks completed (${postBuildTimer.elapsed()}ms)`);
     }
 
-    console.log(`\n✅ ${packageName} build complete!`);
-    console.log(`⏱️  Total build time: ${totalTimer.elapsed()}ms`);
+    console.log(`\n✓ ${packageName} build complete!`);
+    console.log(`⧗  Total build time: ${totalTimer.elapsed()}ms`);
 
     onBuildComplete?.(true);
     return true;
@@ -544,7 +544,7 @@ export function createBuildRunner(options: BuildRunnerOptions) {
         cleanupWatcher = watchFiles(srcDir, async () => {
           await build(true);
           console.log('📁 Watching src/ directory for changes...');
-          console.log('💡 Press Ctrl+C to stop\n');
+          console.log('→ Press Ctrl+C to stop\n');
         });
       } catch (error: unknown) {
         console.error('Failed to start watch mode:', error);

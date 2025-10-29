@@ -166,7 +166,7 @@ export const cdpWalletInfo: ActionWithParams = {
 
       // Token summary
       if (walletInfo.tokens.length > 0) {
-        text += `🪙 **Tokens (${walletInfo.tokens.length}):**\n`;
+        text += `◈ **Tokens (${walletInfo.tokens.length}):**\n`;
         
         // Group tokens by chain
         const tokensByChain = walletInfo.tokens.reduce((acc, token) => {
@@ -195,11 +195,11 @@ export const cdpWalletInfo: ActionWithParams = {
           }
         }
       } else {
-        text += `🪙 **Tokens:** None found\n`;
+        text += `◈ **Tokens:** None found\n`;
       }
 
       // NFT summary
-      text += `\n🖼️ **NFTs:** ${walletInfo.nfts.length} item${walletInfo.nfts.length !== 1 ? 's' : ''}`;
+      text += `\n□ **NFTs:** ${walletInfo.nfts.length} item${walletInfo.nfts.length !== 1 ? 's' : ''}`;
       
       if (walletInfo.nfts.length > 0) {
         // Group NFTs by chain
@@ -249,7 +249,7 @@ export const cdpWalletInfo: ActionWithParams = {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("[USER_WALLET_INFO] Action failed:", errorMessage);
       
-      const errorText = `❌ Failed to fetch wallet info: ${errorMessage}`;
+      const errorText = `✗ Failed to fetch wallet info: ${errorMessage}`;
       const errorResult: ActionResult = {
         text: errorText,
         success: false,
