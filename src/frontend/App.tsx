@@ -692,7 +692,7 @@ function AppContent({
                   OTAKU
                 </h1>
                 <button
-                  onClick={() => window.open('https://github.com/elizaOS/otaku', '_blank')}
+                  onClick={() => window.open('https://github.com/elizaOS/otaku', '_blank', 'noopener,noreferrer')}
                   className="ml-auto text-xs md:text-sm text-muted-foreground hover:text-foreground uppercase transition-colors px-3 py-1 rounded border border-border hover:border-foreground"
                 >
                   About
