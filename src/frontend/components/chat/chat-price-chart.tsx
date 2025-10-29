@@ -112,7 +112,7 @@ export function ChatPriceChart({ data }: ChatPriceChartProps) {
       </div>
 
       {/* Chart Type Tabs + Current Value + Change % */}
-      <div className="flex items-center gap-3 justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between">
        
 
         <div className='flex items-center gap-2'>
@@ -242,9 +242,10 @@ export function ChatPriceChart({ data }: ChatPriceChartProps) {
                 axisLine={false}
                 tickMargin={0}
                 tickCount={6}
-                className="text-[10px] fill-muted-foreground"
+                className="text-[10px] fill-muted-foreground hidden sm:block"
                 tickFormatter={formatYAxisValue}
                 domain={['auto', 'auto']}
+                hide={typeof window !== 'undefined' && window.innerWidth < 640}
               />
               <ChartTooltip
                 cursor={false}
@@ -328,9 +329,10 @@ export function ChatPriceChart({ data }: ChatPriceChartProps) {
                 axisLine={false}
                 tickMargin={0}
                 tickCount={6}
-                className="text-[10px] fill-muted-foreground"
+                className="text-[10px] fill-muted-foreground hidden sm:block"
                 tickFormatter={formatYAxisValue}
                 domain={['auto', 'auto']}
+                hide={typeof window !== 'undefined' && window.innerWidth < 640}
               />
               <ChartTooltip
                 cursor={false}

@@ -294,6 +294,12 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
             <p className="text-sm text-muted-foreground">{token.name}</p>
           </div>
         </div>
+        <button
+          onClick={() => hideModal(modalId)}
+          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+        >
+          <X className="w-6 h-6" />
+        </button>
       </div>
 
       {/* Price Info */}
@@ -376,8 +382,8 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
 
       {/* Price Chart */}
       <div className="space-y-4">
-        <div className="flex items-center w-full gap-2">
-          <div className="flex items-center w-full justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center w-full gap-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center w-full justify-between gap-2">
           
             {/* Chart Type Tabs */}
             <div className="inline-flex h-8 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
@@ -503,9 +509,10 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
                   axisLine={false}
                   tickMargin={0}
                   tickCount={6}
-                  className="text-[10px] fill-muted-foreground"
+                  className="text-[10px] fill-muted-foreground hidden sm:block"
                   tickFormatter={formatYAxisValue}
                   domain={['auto', 'auto']}
+                  hide={typeof window !== 'undefined' && window.innerWidth < 640}
                 />
                 <ChartTooltip
                   cursor={false}
@@ -589,9 +596,10 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
                   axisLine={false}
                   tickMargin={0}
                   tickCount={6}
-                  className="text-[10px] fill-muted-foreground"
+                  className="text-[10px] fill-muted-foreground hidden sm:block"
                   tickFormatter={formatYAxisValue}
                   domain={['auto', 'auto']}
+                  hide={typeof window !== 'undefined' && window.innerWidth < 640}
                 />
                 <ChartTooltip
                   cursor={false}

@@ -756,6 +756,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                   <button
                     key={`${token.chain}-${token.contractAddress || token.symbol}-${index}`}
                     onClick={() => {
+                      onActionClick?.();
                       showModal(
                         <TokenDetailModalContent token={token as any} />,
                         'token-detail-modal',
@@ -806,6 +807,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                   <button
                     key={`${nft.chain}-${nft.contractAddress}-${nft.tokenId}-${index}`}
                     onClick={() => {
+                      onActionClick?.();
                       showModal(
                         <NFTDetailModalContent
                           nft={nft}
