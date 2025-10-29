@@ -681,13 +681,22 @@ function AppContent({
                     <MessageSquare className="opacity-50 md:opacity-100 size-4 md:size-5" />
                   </div>
                 )} */}
-                <div className="rounded bg-primary size-7 md:size-9 flex items-center justify-center my-auto flex-shrink-0"/>
+                <div className="rounded bg-primary size-7 md:size-9 flex items-center justify-center my-auto flex-shrink-0 overflow-hidden">
+                  <img 
+                    src="/avatars/otaku.png" 
+                    alt="OTAKU" 
+                    className="w-full h-full object-cover" 
+                  />
+                </div>
                 <h1 className="text-xl lg:text-4xl font-display leading-[1] mb-1">
-                  Agent
+                  OTAKU
                 </h1>
-                <span className="ml-auto text-xs md:text-sm text-muted-foreground block uppercase">
-                  Your AI DeFi Assistant
-                </span>
+                <button
+                  onClick={() => window.open('https://github.com/elizaOS/otaku', '_blank')}
+                  className="ml-auto text-xs md:text-sm text-muted-foreground hover:text-foreground uppercase transition-colors px-3 py-1 rounded border border-border hover:border-foreground"
+                >
+                  About
+                </button>
               </div>
               
               {/* Content Area */}
