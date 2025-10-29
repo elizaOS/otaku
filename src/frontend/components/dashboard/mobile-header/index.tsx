@@ -26,14 +26,18 @@ export function MobileHeader({ mockData, onHomeClick }: MobileHeaderProps) {
         {/* Left: Sidebar Menu */}
         <SidebarTrigger />
 
-        {/* Center: Monkey Logo + Time */}
+        {/* Center: OTAKU Logo */}
         <button 
           onClick={onHomeClick}
           className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
         >
           <div className="flex items-center gap-2">
-            <div className="h-8 w-16 bg-primary rounded flex items-center justify-center">
-              <MonkeyIcon className="size-6 text-primary-foreground" />
+            <div className="h-8 w-16 bg-primary rounded flex items-center justify-center overflow-hidden">
+              <img 
+                src="/avatars/otaku.png" 
+                alt="OTAKU" 
+                className="h-full w-full object-cover" 
+              />
             </div>
           </div>
         </button>

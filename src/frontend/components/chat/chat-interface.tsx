@@ -3,31 +3,19 @@ import { ToolGroup } from "@/components/action-tool-group"
 import { AnimatedResponse } from "@/components/chat/animated-response"
 import { ChatPriceChart } from "@/components/chat/chat-price-chart"
 import ArrowRightIcon from "@/components/icons/arrow-right"
+import ArrowLeftIcon from "@/components/icons/arrow-left"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { convertActionMessageToToolPart, isActionMessage } from "@/lib/action-message-utils"
 import { elizaClient } from '@/lib/elizaClient'
 import { socketManager } from '@/lib/socketManager'
 import { cn } from "@/lib/utils"
+import { getPlugins, type PluginMetadata } from "@/constants/plugins"
 import type { Agent, UUID } from '@elizaos/core'
 import { Loader2 } from "lucide-react"
 import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Textarea } from "../ui/textarea"
-
-// Quick start prompts for new conversations (static fallback)
-const DEFAULT_QUICK_PROMPTS = [
-  "Show my wallet portfolio",
-  "What's trending on Base?",
-  "Compare Aave vs Uniswap TVL",
-  "Show me trending NFT collections",
-  "Get ETH price chart and insights",
-  "Compare Eigen vs Morpho",
-  "Latest DeFi news"
-]
-
-// Number of prompts to show on mobile before "+X more" button
-const MOBILE_VISIBLE_PROMPTS = 2
 
 // Helper function to extract chart data from a message
 const extractChartData = (message: Message): any => {
@@ -101,6 +89,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
   const [error, setError] = useState<string | null>(null)
   const [showDummyToolGroup, setShowDummyToolGroup] = useState(false)
   const [showPromptsModal, setShowPromptsModal] = useState(false)
+  const [selectedPlugin, setSelectedPlugin] = useState<PluginMetadata | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const isUserScrollingRef = useRef(false) // Track if user is actively scrolling
@@ -108,6 +97,9 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   
   const MAX_TEXTAREA_HEIGHT = 160
+  
+  // Get all available plugins
+  const plugins = getPlugins()
 
   // Stabilize agent.id and agent.name to prevent unnecessary re-renders
   // Use refs to store stable values that don't trigger re-renders
@@ -669,45 +661,92 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
             {/* Quick Prompts - Only show when no messages and not creating/typing (show if error) */}
             {messages.length === 0 && !isCreatingChannel && !isTyping && !isLoadingMessages && (
               <div className="pt-3 md:pt-4 border-t border-border">
-                <p className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground mb-2 md:mb-3 font-mono">
-                  {error ? 'Try Again' : 'Quick Start'}
-                </p>
-                
-                {/* Mobile: Single line with scroll + More button */}
-                <div className="md:hidden">
-                  <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-                    {DEFAULT_QUICK_PROMPTS.slice(0, MOBILE_VISIBLE_PROMPTS).map((prompt, index) => (
-                      <button
-                        key={index}
-                        onClick={() => handleQuickPrompt(prompt)}
-                        className="px-2 py-1 text-[11px] bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors whitespace-nowrap flex-shrink-0"
+                {/* Plugin selection or plugin-specific prompts */}
+                {!selectedPlugin ? (
+                  <>
+                    <p className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground mb-2 md:mb-3 font-mono">
+                      {error ? 'Try Again' : 'Select a Plugin'}
+                    </p>
+                    
+                    {/* Mobile: Single line with scroll */}
+                    <div className="md:hidden">
+                      <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
+                        {plugins.map((plugin, index) => (
+                          <button
+                            key={index}
+                            onClick={() => setSelectedPlugin(plugin)}
+                            className="px-3 py-2 text-[11px] bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors whitespace-nowrap flex-shrink-0 flex items-center gap-1.5"
+                          >
+                            <span className="text-base">{plugin.icon}</span>
+                            <span>{plugin.displayName}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Desktop: Show all in wrapped layout */}
+                    <div className="hidden md:flex flex-wrap gap-2">
+                      {plugins.map((plugin, index) => (
+                        <button
+                          key={index}
+                          onClick={() => setSelectedPlugin(plugin)}
+                          className="px-4 py-3 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left flex items-center gap-2"
+                        >
+                          <span className="text-2xl">{plugin.icon}</span>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{plugin.displayName}</span>
+                            <span className="text-xs text-muted-foreground">{plugin.description}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 mb-2 md:mb-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedPlugin(null)}
+                        className="text-muted-foreground hover:text-foreground p-1 h-auto"
                       >
-                        {prompt}
-                      </button>
-                    ))}
-                    {DEFAULT_QUICK_PROMPTS.length > MOBILE_VISIBLE_PROMPTS && (
-                      <button
-                        onClick={() => setShowPromptsModal(true)}
-                        className="px-2 py-1 text-[11px] bg-accent hover:bg-accent/80 text-foreground/40 rounded border border-border transition-colors whitespace-nowrap flex-shrink-0"
-                      >
-                        +{DEFAULT_QUICK_PROMPTS.length - MOBILE_VISIBLE_PROMPTS} more
-                      </button>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Desktop: Show all in wrapped layout */}
-                <div className="hidden md:flex flex-wrap gap-2">
-                  {DEFAULT_QUICK_PROMPTS.map((prompt, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleQuickPrompt(prompt)}
-                      className="px-3 py-2 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
+                        <ArrowLeftIcon className="size-4" />
+                      </Button>
+                      <p className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground font-mono flex items-center gap-2">
+                        <span className="text-base">{selectedPlugin.icon}</span>
+                        {selectedPlugin.displayName} Actions
+                      </p>
+                    </div>
+                    
+                    {/* Mobile: Single line with scroll */}
+                    <div className="md:hidden">
+                      <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
+                        {selectedPlugin.samplePrompts.map((prompt, index) => (
+                          <button
+                            key={index}
+                            onClick={() => handleQuickPrompt(prompt)}
+                            className="px-2 py-1 text-[11px] bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors whitespace-nowrap flex-shrink-0"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Desktop: Show all in wrapped layout */}
+                    <div className="hidden md:flex flex-wrap gap-2">
+                      {selectedPlugin.samplePrompts.map((prompt, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleQuickPrompt(prompt)}
+                          className="px-3 py-2 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
             
@@ -715,32 +754,84 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
             {showPromptsModal && (
               <div 
                 className="fixed inset-0 bg-black/50 z-50 flex items-end md:hidden"
-                onClick={() => setShowPromptsModal(false)}
+                onClick={() => {
+                  setShowPromptsModal(false)
+                  setSelectedPlugin(null)
+                }}
               >
                 <div 
                   className="bg-background rounded-t-2xl w-full max-h-[60vh] overflow-y-auto p-4 animate-in slide-in-from-bottom"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold">Quick Start Options</h3>
-                    <button
-                      onClick={() => setShowPromptsModal(false)}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 gap-2">
-                    {DEFAULT_QUICK_PROMPTS.map((prompt, index) => (
-                      <button
-                        key={index}
-                        onClick={() => handleQuickPrompt(prompt)}
-                        className="px-3 py-2.5 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
+                  {!selectedPlugin ? (
+                    <>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-semibold">Select a Plugin</h3>
+                        <button
+                          onClick={() => setShowPromptsModal(false)}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {plugins.map((plugin, index) => (
+                          <button
+                            key={index}
+                            onClick={() => setSelectedPlugin(plugin)}
+                            className="px-3 py-3 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left flex items-center gap-3"
+                          >
+                            <span className="text-2xl">{plugin.icon}</span>
+                            <div className="flex flex-col">
+                              <span className="font-medium">{plugin.displayName}</span>
+                              <span className="text-xs text-muted-foreground">{plugin.description}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedPlugin(null)}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            <ArrowLeftIcon className="size-5" />
+                          </button>
+                          <h3 className="text-sm font-semibold flex items-center gap-2">
+                            <span className="text-lg">{selectedPlugin.icon}</span>
+                            {selectedPlugin.displayName}
+                          </h3>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowPromptsModal(false)
+                            setSelectedPlugin(null)
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {selectedPlugin.samplePrompts.map((prompt, index) => (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              handleQuickPrompt(prompt)
+                              setShowPromptsModal(false)
+                              setSelectedPlugin(null)
+                            }}
+                            className="px-3 py-2.5 text-sm bg-accent hover:bg-accent/80 text-foreground rounded border border-border transition-colors text-left"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

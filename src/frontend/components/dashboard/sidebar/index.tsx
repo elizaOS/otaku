@@ -147,7 +147,11 @@ export function DashboardSidebar({
           className="flex gap-3 flex-row flex-1 group cursor-pointer hover:opacity-80 transition-opacity"
         >
           <div className="flex overflow-clip size-12 shrink-0 items-center justify-center rounded bg-sidebar-primary-foreground/10 transition-colors group-hover:bg-sidebar-primary text-sidebar-primary-foreground">
-            <MonkeyIcon className="size-10 group-hover:scale-[1.7] origin-top-left transition-transform" />
+            <img 
+              src="/avatars/otaku.png" 
+              alt="OTAKU" 
+              className="size-full object-cover rounded group-hover:scale-110 transition-transform" 
+            />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
             <span className="text-2xl font-display">OTAKU</span>
