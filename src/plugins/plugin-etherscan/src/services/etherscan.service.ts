@@ -57,6 +57,16 @@ export class EtherscanService extends Service {
     return "Etherscan blockchain data service for checking transaction confirmations and status across 60+ EVM chains using V2 API";
   }
 
+  constructor(runtime: IAgentRuntime) {
+    super(runtime);
+  }
+
+  static async start(runtime: IAgentRuntime): Promise<EtherscanService> {
+    const svc = new EtherscanService(runtime);
+    await svc.initialize(runtime);
+    return svc;
+  }
+
   async initialize(runtime: IAgentRuntime): Promise<void> {
     this.apiKey = runtime.getSetting("ETHERSCAN_API_KEY") || "";
     
@@ -71,12 +81,18 @@ export class EtherscanService extends Service {
     }
   }
 
-  async start(): Promise<void> {
-    // Service is ready to use after initialization
-  }
-
   async stop(): Promise<void> {
     // No cleanup needed for this service
+  }
+
+  /**
+   * Validate that the API key is configured
+   * @throws Error if API key is not configured
+   */
+  private validateApiKey(): void {
+    if (!this.apiKey) {
+      throw new Error("ETHERSCAN_API_KEY is not configured. Please set it in your environment variables or character settings.");
+    }
   }
 
   /**
@@ -95,24 +111,40 @@ export class EtherscanService extends Service {
 
   /**
    * Get transaction receipt including confirmation status
+   * Uses Etherscan V2 API with chainid parameter
    * @param txHash Transaction hash to check
    * @param chain Chain name (optional, defaults to Ethereum)
    * @returns Transaction receipt with confirmation details
    */
   async getTransactionReceipt(txHash: string, chain?: string): Promise<TransactionReceipt> {
+    this.validateApiKey();
     const chainId = this.getChainId(chain);
     const url = `${this.baseUrl}?chainid=${chainId}&module=proxy&action=eth_getTransactionReceipt&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
 
+      // Handle Etherscan V2 API error responses
       if (data.error) {
-        throw new Error(data.error.message || "Failed to fetch transaction receipt");
+        const errorMessage = typeof data.error === 'object' 
+          ? data.error.message || JSON.stringify(data.error)
+          : String(data.error);
+        throw new Error(`Etherscan API error: ${errorMessage}`);
+      }
+
+      // Handle V2 API status codes
+      if (data.status === "0" && data.message !== "OK") {
+        throw new Error(`Etherscan API: ${data.message || 'Unknown error'} ${data.result || ''}`);
       }
 
       if (!data.result) {
-        throw new Error("Transaction not found or pending");
+        throw new Error("Transaction not found or pending. Please verify the transaction hash and try again.");
       }
 
       const receipt = data.result;
@@ -120,7 +152,21 @@ export class EtherscanService extends Service {
       // Get current block to calculate confirmations
       const currentBlockUrl = `${this.baseUrl}?chainid=${chainId}&module=proxy&action=eth_blockNumber&apikey=${this.apiKey}`;
       const blockResponse = await fetch(currentBlockUrl);
+      
+      if (!blockResponse.ok) {
+        throw new Error(`Failed to fetch current block: HTTP ${blockResponse.status}`);
+      }
+
       const blockData = await blockResponse.json();
+
+      if (blockData.error) {
+        throw new Error(`Failed to get current block: ${typeof blockData.error === 'object' ? blockData.error.message : blockData.error}`);
+      }
+
+      if (!blockData.result) {
+        throw new Error("Failed to retrieve current block number");
+      }
+
       const currentBlock = parseInt(blockData.result, 16);
       const txBlock = parseInt(receipt.blockNumber, 16);
       const confirmations = currentBlock - txBlock + 1;
@@ -132,8 +178,8 @@ export class EtherscanService extends Service {
         transactionHash: receipt.transactionHash,
         transactionIndex: receipt.transactionIndex,
         from: receipt.from,
-        to: receipt.to,
-        contractAddress: receipt.contractAddress,
+        to: receipt.to || null,
+        contractAddress: receipt.contractAddress || null,
         gasUsed: receipt.gasUsed,
         cumulativeGasUsed: receipt.cumulativeGasUsed,
         effectiveGasPrice: receipt.effectiveGasPrice,
@@ -141,23 +187,38 @@ export class EtherscanService extends Service {
         success: receipt.status === "0x1",
       };
     } catch (error) {
-      throw new Error(`Failed to get transaction receipt: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get transaction receipt: ${errorMessage}`);
     }
   }
 
   /**
    * Check transaction execution status
+   * Uses Etherscan V2 API with chainid parameter
    * @param txHash Transaction hash to check
    * @param chain Chain name (optional, defaults to Ethereum)
    * @returns Transaction status (success/failure with error description)
    */
   async getTransactionStatus(txHash: string, chain?: string): Promise<TransactionStatus> {
+    this.validateApiKey();
     const chainId = this.getChainId(chain);
     const url = `${this.baseUrl}?chainid=${chainId}&module=transaction&action=getstatus&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+
+      if (data.error) {
+        const errorMessage = typeof data.error === 'object' 
+          ? data.error.message || JSON.stringify(data.error)
+          : String(data.error);
+        throw new Error(`Etherscan API error: ${errorMessage}`);
+      }
 
       if (data.status === "0") {
         throw new Error(data.message || "Failed to fetch transaction status");
@@ -171,17 +232,31 @@ export class EtherscanService extends Service {
 
   /**
    * Check transaction receipt status (simple success/fail check)
+   * Uses Etherscan V2 API with chainid parameter
    * @param txHash Transaction hash to check
    * @param chain Chain name (optional, defaults to Ethereum)
    * @returns Receipt status
    */
   async getTransactionReceiptStatus(txHash: string, chain?: string): Promise<{ status: string }> {
+    this.validateApiKey();
     const chainId = this.getChainId(chain);
     const url = `${this.baseUrl}?chainid=${chainId}&module=transaction&action=gettxreceiptstatus&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
+
+      if (data.error) {
+        const errorMessage = typeof data.error === 'object' 
+          ? data.error.message || JSON.stringify(data.error)
+          : String(data.error);
+        throw new Error(`Etherscan API error: ${errorMessage}`);
+      }
 
       if (data.status === "0") {
         throw new Error(data.message || "Failed to fetch receipt status");
@@ -195,20 +270,30 @@ export class EtherscanService extends Service {
 
   /**
    * Get transaction details by hash
+   * Uses Etherscan V2 API with chainid parameter
    * @param txHash Transaction hash
    * @param chain Chain name (optional, defaults to Ethereum)
    * @returns Transaction details
    */
   async getTransactionByHash(txHash: string, chain?: string): Promise<Record<string, unknown>> {
+    this.validateApiKey();
     const chainId = this.getChainId(chain);
     const url = `${this.baseUrl}?chainid=${chainId}&module=proxy&action=eth_getTransactionByHash&txhash=${txHash}&apikey=${this.apiKey}`;
 
     try {
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
 
       if (data.error) {
-        throw new Error(data.error.message || "Failed to fetch transaction");
+        const errorMessage = typeof data.error === 'object' 
+          ? data.error.message || JSON.stringify(data.error)
+          : String(data.error);
+        throw new Error(`Etherscan API error: ${errorMessage}`);
       }
 
       if (!data.result) {
