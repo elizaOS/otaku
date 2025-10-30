@@ -22,6 +22,7 @@
  * 
  * Usage:
  *   bun run scripts/test-x402-jobs.ts
+ *   bun run scripts/test-x402-jobs.ts --prompt "What is the weather today?"
  */
 
 import { createWalletClient, createPublicClient, http, type Address } from 'viem';
@@ -36,6 +37,24 @@ const PRIVATE_KEY = process.env.EVM_PRIVATE_KEY || process.env.TEST_WALLET_PRIVA
 const MAX_PAYMENT_USDC = 0.02; // $0.02 per request
 const POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
 const MAX_POLL_ATTEMPTS = 30; // Max 60 seconds of polling
+
+// Parse command-line arguments
+function parseArgs(): { prompt?: string } {
+  const args = process.argv.slice(2);
+  const result: { prompt?: string } = {};
+  
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--prompt' && i + 1 < args.length) {
+      result.prompt = args[i + 1];
+      i++; // Skip next arg as it's the value
+    }
+  }
+  
+  return result;
+}
+
+const CLI_ARGS = parseArgs();
+const DEFAULT_PROMPT = 'What are the key advantages of Base L2 over Ethereum mainnet, and what are the current top DeFi protocols on Base?';
 
 // Base mainnet USDC contract
 const USDC_CONTRACT_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913' as Address;
@@ -481,7 +500,9 @@ async function main(): Promise<void> {
 
     // Test 2: Make a paid request (if wallet is configured)
     if (PRIVATE_KEY) {
-      await testPaidRequest('What are the key advantages of Base L2 over Ethereum mainnet, and what are the current top DeFi protocols on Base?');
+      const prompt = CLI_ARGS.prompt || DEFAULT_PROMPT;
+      console.log(`\n📝 Using prompt: "${prompt}"\n`);
+      await testPaidRequest(prompt);
     } else {
       console.log('\n⚠️  Skipping paid request tests - no private key configured');
       console.log('   Set EVM_PRIVATE_KEY, TEST_WALLET_PRIVATE_KEY, or CDP_API_KEY_PRIVATE_KEY to enable');
