@@ -1,12 +1,13 @@
 import {
   logger,
   validateUuid,
+  stringToUuid,
   type UUID,
   type ElizaOS,
   ChannelType,
 } from '@elizaos/core';
 import express from 'express';
-import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
+import { v4 as uuidv4 } from 'uuid';
 import { paymentMiddleware } from 'x402-express';
 import type { AgentServer } from '../../index';
 import {
@@ -164,17 +165,6 @@ function extractPayerAddressFromPayment(req: express.Request): string | null {
   }
 
   return null;
-}
-
-/**
- * Generate deterministic UUID from a string using UUID v5
- * Uses a fixed namespace UUID for jobs API
- */
-function stringToUUID(input: string): UUID {
-  // Use a fixed namespace UUID for deterministic generation
-  // This ensures the same input always produces the same UUID
-  const NAMESPACE_UUID = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'; // Standard DNS namespace
-  return uuidv5(input, NAMESPACE_UUID) as UUID;
 }
 
 /**
@@ -347,7 +337,7 @@ export function createJobsRouter(
           }
           
           // Generate deterministic UUID from payer address
-          userId = stringToUUID(payerAddress);
+          userId = stringToUuid(payerAddress);
           logger.info(
             `[Jobs API] Derived userId ${userId} from payment signature (payer: ${payerAddress.substring(0, 10)}...)`
           );
