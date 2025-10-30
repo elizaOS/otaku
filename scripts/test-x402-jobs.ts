@@ -7,6 +7,7 @@
  * - Default job timeout: 3 minutes (180000ms)
  * - Maximum job timeout: 5 minutes (300000ms)
  * - USDC Contract: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+ * - Auto-detects local server or falls back to https://otaku.so
  * 
  * This script demonstrates how to:
  * 1. Test the 402 Payment Required response
@@ -16,7 +17,7 @@
  * 5. Check API health status
  * 
  * Prerequisites:
- * - Server running with X402_RECEIVING_WALLET configured
+ * - Server running locally at http://localhost:3000 OR production at https://otaku.so
  * - For Test 2 (paid requests):
  *   - Wallet with USDC on Base mainnet
  *   - EVM_PRIVATE_KEY, TEST_WALLET_PRIVATE_KEY, or CDP_API_KEY_PRIVATE_KEY environment variable
@@ -27,10 +28,12 @@
  * - x402-fetch is the proven working implementation (used in plugin-cdp)
  * - This tests BASE MAINNET payments - you need real USDC on Base
  * - For testing without real funds, skip Test 2 by not setting a private key
+ * - Script auto-detects available server: local first, then falls back to otaku.so
  * 
  * Usage:
  *   bun run scripts/test-x402-jobs.ts
  *   bun run scripts/test-x402-jobs.ts --prompt "Explain EigenLayer restaking"
+ *   API_URL=https://custom.domain bun run scripts/test-x402-jobs.ts  # Override URL
  */
 
 import { createWalletClient, createPublicClient, http, type Address } from 'viem';
@@ -38,9 +41,48 @@ import { base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { wrapFetchWithPayment, decodeXPaymentResponse } from 'x402-fetch';
 
+/**
+ * Check if a server is available
+ */
+async function checkServerAvailability(url: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    const response = await fetch(`${url}/api/messaging/jobs/health`, {
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Determine the API base URL (local or production)
+ */
+async function getApiBaseUrl(): Promise<string> {
+  if (process.env.API_URL) {
+    return process.env.API_URL;
+  }
+  
+  const localUrl = 'http://localhost:3000';
+  console.log('🔍 Checking for local server...');
+  const isLocalAvailable = await checkServerAvailability(localUrl);
+  
+  if (isLocalAvailable) {
+    console.log('✅ Local server found at', localUrl);
+    return localUrl;
+  }
+  
+  const productionUrl = 'https://otaku.so';
+  console.log('⚠️  Local server not found, using production:', productionUrl);
+  return productionUrl;
+}
+
 // Configuration
-const API_BASE_URL = process.env.API_URL || 'http://localhost:3000';
-const JOBS_ENDPOINT = `${API_BASE_URL}/api/messaging/jobs`;
 const PRIVATE_KEY = process.env.EVM_PRIVATE_KEY || process.env.TEST_WALLET_PRIVATE_KEY || process.env.CDP_API_KEY_PRIVATE_KEY;
 const MAX_PAYMENT_USDC = 0.02; // $0.02 per request
 const POLL_INTERVAL_MS = 2000; // Poll every 2 seconds
@@ -148,11 +190,11 @@ async function checkUSDCBalance(walletAddress: Address): Promise<number> {
 /**
  * Test 1: Verify 402 Payment Required response
  */
-async function testPaymentRequired(): Promise<void> {
+async function testPaymentRequired(jobsEndpoint: string): Promise<void> {
   console.log('\n🧪 Test 1: Verifying 402 Payment Required response...\n');
 
   try {
-    const response = await fetch(JOBS_ENDPOINT, {
+    const response = await fetch(jobsEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -195,7 +237,7 @@ async function testPaymentRequired(): Promise<void> {
 /**
  * Test 2: Make a paid request and wait for completion
  */
-async function testPaidRequest(prompt: string): Promise<void> {
+async function testPaidRequest(jobsEndpoint: string, prompt: string): Promise<void> {
   console.log('\n🧪 Test 2: Making paid request with x402...\n');
 
   if (!PRIVATE_KEY) {
@@ -236,7 +278,7 @@ async function testPaidRequest(prompt: string): Promise<void> {
     console.log(`✅ Sufficient balance for payment\n`);
 
     // Get receiving wallet address from the 402 response
-    const testResponse = await fetch(JOBS_ENDPOINT, {
+    const testResponse = await fetch(jobsEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: 'test' }),
@@ -268,12 +310,12 @@ async function testPaidRequest(prompt: string): Promise<void> {
       maxPaymentInBaseUnits
     );
 
-    console.log(`Sending request to: ${JOBS_ENDPOINT}`);
+    console.log(`Sending request to: ${jobsEndpoint}`);
     console.log(`Prompt: "${prompt}"\n`);
 
     // Make paid request
     console.log('💳 Making request with x402-fetch (will pay if required)...');
-    const response = await fetchWithPayment(JOBS_ENDPOINT, {
+    const response = await fetchWithPayment(jobsEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -356,7 +398,7 @@ async function testPaidRequest(prompt: string): Promise<void> {
       console.log(`Expires: ${new Date(job.expiresAt).toISOString()}`);
 
       // Poll for completion
-      await pollForCompletion(job.jobId);
+      await pollForCompletion(jobsEndpoint, job.jobId);
     } else {
       const errorText = await response.text();
       console.error(`❌ Unexpected response (${response.status}):`, errorText);
@@ -380,7 +422,7 @@ async function testPaidRequest(prompt: string): Promise<void> {
 /**
  * Poll for job completion
  */
-async function pollForCompletion(jobId: string): Promise<void> {
+async function pollForCompletion(jobsEndpoint: string, jobId: string): Promise<void> {
   console.log(`\n⏳ Polling for job completion (job: ${jobId})...`);
   console.log(`   Max wait time: ${(MAX_POLL_ATTEMPTS * POLL_INTERVAL_MS) / 1000}s (job timeout: 180s)\n`);
 
@@ -388,7 +430,7 @@ async function pollForCompletion(jobId: string): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
 
     try {
-      const response = await fetch(`${JOBS_ENDPOINT}/${jobId}`);
+      const response = await fetch(`${jobsEndpoint}/${jobId}`);
       
       if (!response.ok) {
         console.error(`❌ Failed to get job status: ${response.status}`);
@@ -428,11 +470,11 @@ async function pollForCompletion(jobId: string): Promise<void> {
 /**
  * Test 3: Verify list jobs endpoint is protected (expected 402)
  */
-async function testListJobsProtection(): Promise<void> {
+async function testListJobsProtection(jobsEndpoint: string): Promise<void> {
   console.log('\n🧪 Test 3: Verifying job listing protection...\n');
 
   try {
-    const response = await fetch(`${JOBS_ENDPOINT}?limit=5`);
+    const response = await fetch(`${jobsEndpoint}?limit=5`);
     
     if (response.status === 402) {
       const error = await response.json();
@@ -454,11 +496,11 @@ async function testListJobsProtection(): Promise<void> {
 /**
  * Test 4: Health check
  */
-async function testHealthCheck(): Promise<void> {
+async function testHealthCheck(jobsEndpoint: string): Promise<void> {
   console.log('\n🧪 Test 4: Checking jobs API health...\n');
 
   try {
-    const response = await fetch(`${JOBS_ENDPOINT}/health`);
+    const response = await fetch(`${jobsEndpoint}/health`);
     
     if (!response.ok) {
       console.error(`❌ Health check failed: ${response.status}`);
@@ -493,7 +535,11 @@ async function main(): Promise<void> {
   console.log('╔════════════════════════════════════════════════════════════╗');
   console.log('║  x402 Payment Integration Test Suite for Jobs API         ║');
   console.log('║              BASE MAINNET - Real USDC Required             ║');
-  console.log('╚════════════════════════════════════════════════════════════╝');
+  console.log('╚════════════════════════════════════════════════════════════╝\n');
+  
+  const API_BASE_URL = await getApiBaseUrl();
+  const JOBS_ENDPOINT = `${API_BASE_URL}/api/messaging/jobs`;
+  
   console.log(`\nConfiguration:`);
   console.log(`  API URL: ${API_BASE_URL}`);
   console.log(`  Endpoint: ${JOBS_ENDPOINT}`);
@@ -504,23 +550,23 @@ async function main(): Promise<void> {
 
   try {
     // Test 1: Verify 402 response
-    await testPaymentRequired();
+    await testPaymentRequired(JOBS_ENDPOINT);
 
     // Test 2: Make a paid request (if wallet is configured)
     if (PRIVATE_KEY) {
       const prompt = CLI_ARGS.prompt || DEFAULT_PROMPT;
       console.log(`\n📝 Using prompt: "${prompt}"\n`);
-      await testPaidRequest(prompt);
+      await testPaidRequest(JOBS_ENDPOINT, prompt);
     } else {
       console.log('\n⚠️  Skipping paid request tests - no private key configured');
       console.log('   Set EVM_PRIVATE_KEY, TEST_WALLET_PRIVATE_KEY, or CDP_API_KEY_PRIVATE_KEY to enable');
     }
 
     // Test 3: Verify job listing protection
-    await testListJobsProtection();
+    await testListJobsProtection(JOBS_ENDPOINT);
 
     // Test 4: Health check
-    await testHealthCheck();
+    await testHealthCheck(JOBS_ENDPOINT);
 
     console.log('\n✅ All tests completed!\n');
   } catch (error) {

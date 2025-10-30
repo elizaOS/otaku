@@ -216,13 +216,19 @@ export function createJobsRouter(
     // Apply x402 payment middleware to POST /jobs endpoint only
     // Price: $0.015 per request
     // Network: Base mainnet with CDP facilitator  
+    // Determine resource URL based on environment
+    const isProduction = process.env.NODE_ENV === 'production';
+    const resourceUrl = (isProduction
+      ? 'https://otaku.so/api/messaging/jobs'
+      : `http://localhost:${process.env.SERVER_PORT || '3000'}/api/messaging/jobs`) as `${string}://${string}`;
+    
     router.use(
       paymentMiddleware(receivingWallet as `0x${string}`, {
         'POST /jobs': {
           price: '$0.015',
           network: 'base',
             config: {
-              resource: `http://localhost:${process.env.SERVER_PORT || '3000'}/api/messaging/jobs`,
+              resource: resourceUrl,
               description:
                 'Access AI-powered research and news processing capabilities. ' +
                 'Submit queries for research analysis, news summarization, and information processing. ' +
