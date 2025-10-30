@@ -72,33 +72,33 @@ const pluginItems: PluginItem[] = [
   },
   {
     name: 'DeFiLlama',
-    category: 'Protocol Analytics',
+    category: 'Analytics',
     summary: 'Total value locked, ecosystem growth, and category-level flows across chains.',
     points: [
       'Identify which sectors are expanding fastest by TVL shift.',
       'Spot emerging protocols before capital concentration peaks.',
     ],
-    example: '“Show me the top 5 lending protocols by TVL this week.”',
+    example: '"Show me the top 5 lending protocols by TVL this week."',
   },
   {
     name: 'Powered by ElizaOS',
-    category: 'Reasoning & Planning',
+    category: 'AI Engine',
     summary: 'Advanced language understanding, strategy synthesis, and scenario planning.',
     points: [
       'Break down complex DeFi concepts into executable steps.',
       'Draft hedging or farming strategies tailored to your wallet profile.',
     ],
-    example: '“Explain the risks of staking ETH on Lido vs. RocketPool.”',
+    example: '"Explain the risks of staking ETH on Lido vs. RocketPool."',
   },
   {
     name: 'Coinbase Developer Platform',
-    category: 'Execution Layer',
+    category: 'Execution',
     summary: 'Secure non-custodial smart wallets, balance checks, and seamless transaction signing.',
     points: [
       'Spin up smart wallets linked to your session for trustless execution.',
       'Sign and broadcast transfers without leaving chat.',
     ],
-    example: '“Send 0.1 ETH to my friend on Base.”',
+    example: '"Send 0.1 ETH to my friend on Base."',
   },
   {
     name: 'Morpho',
@@ -112,37 +112,37 @@ const pluginItems: PluginItem[] = [
   },
   {
     name: 'Clanker',
-    category: 'Token Launchpad',
+    category: 'Launchpad',
     summary: 'Deploy ERC-20 tokens, configure liquidity pools, and manage launches end-to-end.',
     points: [
       'Spin up memecoins or utility tokens with sensible defaults.',
       'Seed liquidity pools and monitor launch health in real time.',
     ],
-    example: '“Deploy a new token on Base with 1 ETH of liquidity.”',
+    example: '"Deploy a new token on Base with 1 ETH of liquidity."',
   },
   {
     name: 'Web Search',
-    category: 'Narrative Radar',
+    category: 'News',
     summary: 'Latest news, governance proposals, and on-chain narratives pulled from trusted sources.',
     points: [
       'Stay ahead of catalysts with real-time sentiment scans.',
       'Cross-check on-chain moves against breaking headlines.',
     ],
-    example: '“What’s the latest on EigenLayer restaking yields?”',
+    example: '"What is the latest on EigenLayer restaking yields?"',
   },
   {
     name: 'SQL Workspace',
-    category: 'Knowledge Base',
-    summary: 'Query Otaku’s structured DeFi dataset for trades, logs, and historical insights.',
+    category: 'Database',
+    summary: "Query Otaku's structured DeFi dataset for trades, logs, and historical insights.",
     points: [
       'Pull portfolio summaries or transaction histories instantly.',
       'Validate trade ideas with custom metrics or cohort analysis.',
     ],
-    example: '“Summarize my recent swaps and profits.”',
+    example: '"Summarize my recent swaps and profits."',
   },
   {
     name: 'Bootstrap',
-    category: 'Memory & Context',
+    category: 'Memory',
     summary: 'Persistent reasoning, memory recall, and adaptive response logic across sessions.',
     points: [
       'Otaku remembers preferences, risk tolerances, and previous moves.',
