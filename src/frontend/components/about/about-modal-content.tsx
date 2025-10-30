@@ -81,8 +81,8 @@ const pluginItems: PluginItem[] = [
     example: '“Show me the top 5 lending protocols by TVL this week.”',
   },
   {
-    name: 'OpenAI & Anthropic',
-    category: 'Reasoning Engine',
+    name: 'Powered by ElizaOS',
+    category: 'Reasoning & Planning',
     summary: 'Advanced language understanding, strategy synthesis, and scenario planning.',
     points: [
       'Break down complex DeFi concepts into executable steps.',
@@ -154,8 +154,9 @@ const pluginItems: PluginItem[] = [
 
 export function AboutModalContent({ onClose }: AboutModalContentProps) {
   return (
-    <div className="space-y-8 text-foreground">
-      <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+    <div className="flex h-[80vh] max-h-[700px] flex-col text-foreground">
+      {/* Fixed Header */}
+      <header className="flex shrink-0 flex-col gap-6 border-b border-border/60 pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-4">
           <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             <Bullet className="size-2.5" />
@@ -193,6 +194,9 @@ export function AboutModalContent({ onClose }: AboutModalContentProps) {
           <X className="size-4" />
         </Button>
       </header>
+
+      {/* Scrollable Content Area */}
+      <div className="flex-1 space-y-8 overflow-y-auto py-6">
 
       <section className="space-y-4">
         <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-muted-foreground">
@@ -257,22 +261,19 @@ export function AboutModalContent({ onClose }: AboutModalContentProps) {
         </div>
       </section>
 
-      <section className="rounded-lg border border-border/60 bg-linear-to-r from-primary/10 via-background to-accent/20 p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-              Tip
-            </p>
-            <p className="text-sm text-foreground/90">
-              Ask Otaku to build multi-step playbooks—she remembers previous trades, adapts to your risk
-              settings, and can execute when you are ready.
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onClose} className="uppercase">
-            Close
-          </Button>
+      <section className="space-y-4">
+        <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-muted-foreground">
+          <Bullet className="size-2.5" />
+          Pro Tip
+        </div>
+        <div className="rounded-lg border border-border/60 bg-background/80 p-4">
+          <p className="text-sm text-foreground/90">
+            Ask Otaku to build multi-step playbooks—she remembers previous trades, adapts to your risk
+            settings, and can execute when you are ready.
+          </p>
         </div>
       </section>
+      </div>
     </div>
   );
 }

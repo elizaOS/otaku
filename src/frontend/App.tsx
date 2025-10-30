@@ -702,11 +702,12 @@ function AppContent({
                   CHAT
                 </h1>
                 <button 
-                  className="ml-auto rounded-full p-2 transition-colors hover:bg-accent"
+                  className="ml-auto rounded-full px-3 py-2 transition-colors hover:bg-accent flex items-center gap-2"
                   title="About"
                   onClick={handleOpenAbout}
                 >
                   <Info className="size-4 md:size-5 text-muted-foreground" />
+                  <span className="text-sm md:text-base text-muted-foreground">About</span>
                 </button>
               </div>
               
