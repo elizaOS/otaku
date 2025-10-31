@@ -654,7 +654,7 @@ function AppContent({
       <MobileHeader onHomeClick={() => setCurrentView('chat')} />
 
       {/* Desktop Layout - 3 columns */}
-      <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-gap lg:px-sides">
+      <div className="w-full min-h-screen h-screen grid grid-cols-1 lg:grid-cols-12 gap-gap lg:px-sides">
         {/* Left Sidebar - Chat History */}
         <div className="hidden lg:block col-span-2 top-0 relative">
           <DashboardSidebar
@@ -672,7 +672,7 @@ function AppContent({
         </div>
 
         {/* Center - Chat Interface / Account */}
-        <div className="col-span-1 lg:col-span-7">
+        <div className="col-span-1 lg:col-span-7 h-full">
           {currentView === 'account' ? (
             <AccountPage 
               totalBalance={totalBalance} 
@@ -680,7 +680,7 @@ function AppContent({
               onUpdateProfile={updateUserProfile}
             />
           ) : (
-            <div className="flex flex-col relative w-full gap-1 min-h-full">
+            <div className="flex flex-col relative w-full gap-1 min-h-0 h-full">
               {/* Header */}
               <div className="flex items-center lg:items-baseline gap-2.5 md:gap-4 px-4 md:px-6 py-3 md:pb-4 lg:pt-7 ring-2 ring-pop sticky top-header-mobile lg:top-0 bg-background z-10">
                 {/* {(agent as any)?.settings?.avatar ? (
@@ -712,34 +712,36 @@ function AppContent({
               </div>
               
               {/* Content Area */}
-              <div className="min-h-full flex-1 flex flex-col gap-8 md:gap-14 px-3 lg:px-6 py-10 md:py-6 ring-2 ring-pop bg-background">
+              <div className="min-h-0 flex-1 flex flex-col gap-8 md:gap-14 px-3 lg:px-6 pt-10 md:pt-6 ring-2 ring-pop bg-background">
                 {userId && connected && !isLoadingChannels && (activeChannelId || isNewChatMode) && (
-                  <ChatInterface
-                    agent={agent}
-                    userId={userId}
-                    serverId={userId} // Use userId as serverId for Socket.IO-level isolation
-                    channelId={activeChannelId}
-                    isNewChatMode={isNewChatMode}
-                    onChannelCreated={(channelId, channelName) => {
-                      // Add new channel to the list and set it as active
-                      const now = Date.now();
-                      setChannels((prev: Channel[]) => [
-                        {
-                          id: channelId,
-                          name: channelName,
-                          createdAt: now,
-                        },
-                        ...prev,
-                      ]);
-                      setActiveChannelId(channelId);
-                      setIsNewChatMode(false);
-                    }}
-                    onActionCompleted={async () => {
-                      // Refresh wallet data when agent completes an action
-                      console.log(' Agent action completed - refreshing wallet...');
-                      await walletRef.current?.refreshAll();
-                    }}
-                  />
+                  <div className="flex-1 min-h-0">
+                    <ChatInterface
+                      agent={agent}
+                      userId={userId}
+                      serverId={userId} // Use userId as serverId for Socket.IO-level isolation
+                      channelId={activeChannelId}
+                      isNewChatMode={isNewChatMode}
+                      onChannelCreated={(channelId, channelName) => {
+                        // Add new channel to the list and set it as active
+                        const now = Date.now();
+                        setChannels((prev: Channel[]) => [
+                          {
+                            id: channelId,
+                            name: channelName,
+                            createdAt: now,
+                          },
+                          ...prev,
+                        ]);
+                        setActiveChannelId(channelId);
+                        setIsNewChatMode(false);
+                      }}
+                      onActionCompleted={async () => {
+                        // Refresh wallet data when agent completes an action
+                        console.log(' Agent action completed - refreshing wallet...');
+                        await walletRef.current?.refreshAll();
+                      }}
+                    />
+                  </div>
                 )}
               </div>
             </div>

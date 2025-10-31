@@ -622,10 +622,10 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
   }, [])
 
   return (
-    <div className="flex flex-col h-[calc(100vh-12rem)] gap-6">
+    <div className="flex flex-col h-full min-h-0 gap-0">
       <Card className="flex-1 overflow-hidden">
         <CardContent className="h-full p-0">
-          <div ref={messagesContainerRef} className="h-full overflow-y-auto p-6">
+          <div ref={messagesContainerRef} className="h-full overflow-y-auto p-6 pb-2">
             <div className="space-y-4 h-full flex flex-col">
             {/* Messages */}
             <div className="flex-1 space-y-4">
@@ -907,6 +907,17 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
           )}
         </Button>
       </div>
+
+      {/* ElizaOS Attribution Badge */}
+      <div className="px-3 pb-4 pt-3 flex justify-start">
+       <img 
+         src="/assets/elizaos_badge.svg" 
+         alt="Powered by ElizaOS" 
+         className="h-10"
+       />
+     </div>
     </div>
-  )
+
+
+  )  
 }
