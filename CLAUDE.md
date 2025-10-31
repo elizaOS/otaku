@@ -190,7 +190,7 @@ socketManager.onMessage((data) => console.log('New message:', data));
 **CDP Features (required for wallet functionality):**
 - `VITE_CDP_PROJECT_ID` - Frontend CDP sign-in
 - `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` - Backend CDP SDK
-- `COINBASE_WALLET_SECRET` - Random 32-byte hex for wallet encryption
+- `CDP_WALLET_SECRET` - Random 32-byte hex for wallet encryption
 - `ALCHEMY_API_KEY` - Fetches balances, tokens, NFTs
 
 **Optional:**
@@ -334,7 +334,7 @@ The CDP plugin includes `FETCH_WITH_PAYMENT` action for making x402 requests fro
 
 **"CDP wallet features not working":**
 - Verify `VITE_CDP_PROJECT_ID` (frontend sign-in)
-- Set backend keys: `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `COINBASE_WALLET_SECRET`
+- Set backend keys: `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`
 - Set `ALCHEMY_API_KEY` for balance/NFT fetching
 - Check browser allows popups for CDP sign-in
 

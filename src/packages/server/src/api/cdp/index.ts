@@ -643,7 +643,7 @@ function getCdpClient(): CdpClient | null {
 
   const apiKeyId = process.env.CDP_API_KEY_ID || process.env.CDP_API_KEY_ID;
   const apiKeySecret = process.env.CDP_API_KEY_SECRET || process.env.CDP_API_KEY_SECRET;
-  const walletSecret = process.env.COINBASE_WALLET_SECRET;
+  const walletSecret = process.env.CDP_WALLET_SECRET;
 
   if (!apiKeyId || !apiKeySecret || !walletSecret) {
     logger.warn('[CDP API] Missing CDP credentials in environment variables');

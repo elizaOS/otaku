@@ -108,7 +108,7 @@ VITE_CDP_PROJECT_ID=your-cdp-project-id
 # You can also use CDP_API_KEY_ID/CDP_API_KEY_SECRET as aliases
 CDP_API_KEY_ID=your-cdp-api-key-id
 CDP_API_KEY_SECRET=your-cdp-api-key-secret
-COINBASE_WALLET_SECRET=$(openssl rand -hex 32)
+CDP_WALLET_SECRET=$(openssl rand -hex 32)
 
 # Onchain data (required for balances/NFT fetch)
 ALCHEMY_API_KEY=your-alchemy-key
@@ -449,7 +449,7 @@ bun install
 ### CDP Not Working
 
 1. Verify `VITE_CDP_PROJECT_ID` is set (frontend)
-2. Set backend keys: `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `COINBASE_WALLET_SECRET`
+2. Set backend keys: `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`
 3. Set `ALCHEMY_API_KEY` for onchain data (balances/NFTs)
 4. Ensure browser allows popups for CDP sign-in
 
@@ -487,7 +487,7 @@ Once running:
 
 - `VITE_CDP_PROJECT_ID` - Coinbase Developer Platform project ID (frontend sign-in)
 - `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` - CDP API credentials (backend)
-- `COINBASE_WALLET_SECRET` - Random 32-byte hex string for CDP wallet encryption
+- `CDP_WALLET_SECRET` - Random 32-byte hex string for CDP wallet encryption
 - `ALCHEMY_API_KEY` - Used to fetch balances, tokens, and NFTs
 
 ### Optional

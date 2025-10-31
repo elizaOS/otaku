@@ -27,7 +27,7 @@ import { executeTransfer } from "../utils/transfer";
 const cdpConfigSchema = z.object({
   apiKeyId: z.string().min(1, "CDP_API_KEY_ID must be a non-empty string"),
   apiKeySecret: z.string().min(1, "CDP_API_KEY_SECRET must be a non-empty string"),
-  walletSecret: z.string().min(1, "COINBASE_WALLET_SECRET must be a non-empty string"),
+  walletSecret: z.string().min(1, "CDP_WALLET_SECRET must be a non-empty string"),
 });
 
 type CdpConfig = z.infer<typeof cdpConfigSchema>;
@@ -90,7 +90,7 @@ export class CdpService extends Service {
     try {
       const apiKeyId = process.env.CDP_API_KEY_ID || process.env.CDP_API_KEY_ID;
       const apiKeySecret = process.env.CDP_API_KEY_SECRET || process.env.CDP_API_KEY_SECRET;
-      const walletSecret = process.env.COINBASE_WALLET_SECRET;
+      const walletSecret = process.env.CDP_WALLET_SECRET;
 
       if (!apiKeyId || !apiKeySecret) {
         logger.warn(
@@ -102,7 +102,7 @@ export class CdpService extends Service {
 
       if (!walletSecret) {
         logger.warn(
-          "CDP_SERVICE: COINBASE_WALLET_SECRET is required for wallet operations. Generate one with: openssl rand -hex 32",
+          "CDP_SERVICE: CDP_WALLET_SECRET is required for wallet operations. Generate one with: openssl rand -hex 32",
         );
         this.client = null;
         return;
