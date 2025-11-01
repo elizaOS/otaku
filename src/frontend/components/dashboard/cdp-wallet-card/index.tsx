@@ -9,6 +9,7 @@ import { TokenDetailModalContent } from './TokenDetailModal';
 import { NFTDetailModalContent } from './NFTDetailModal';
 import { FundModalContent } from './FundModal';
 import { elizaClient } from '../../../lib/elizaClient';
+import { formatTokenBalance } from '../../../lib/number-format';
 import { getTokenIconBySymbol, SUPPORTED_CHAINS, CHAIN_UI_CONFIGS, getChainWalletIcon } from '../../../constants/chains';
 import { useModal } from '../../../contexts/ModalContext';
 
@@ -777,10 +778,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                           </span>
                         </div>
                         <span className="text-xs text-muted-foreground truncate">
-                          {parseFloat(token.balanceFormatted) < 0.0001 
-                            ? parseFloat(token.balanceFormatted).toExponential(2)
-                            : parseFloat(token.balanceFormatted).toFixed(6).replace(/\.?0+$/, '')
-                          }
+                          {formatTokenBalance(token.balanceFormatted)}
                         </span>
                       </div>
                     </div>

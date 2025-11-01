@@ -80,6 +80,7 @@ Determine the next step the assistant should take in this conversation to help t
 ## 1. Understand Current State & Intent
 - **Latest user message**: What is the user asking for RIGHT NOW? This is your primary objective.
 - **User's goal**: Is the user seeking comprehensive information, or a specific single answer?
+- **Consent for on-chain execution**: Decide whether the user wants live execution or just guidance. If the user issues a direct instruction (e.g., "Bridge 2 ETH now", "Swap 50 USDC to DAI"), you may proceed after verifying balances. If the wording is ambiguous or framed as a question ("How do I bridge...", "Can you help swap...?"), treat it as informational and ask whether they want you to execute before calling money-moving actions (EXECUTE_RELAY_BRIDGE, CDP swaps, transfers, FETCH_WITH_PAYMENT). When in doubt, ask for confirmation first.
 - **Actions taken THIS round**: Review ***Actions Completed in This Round*** below. What have YOU already executed in THIS execution?
 - **Completion check**: Has the user's request been ADEQUATELY fulfilled? Consider both breadth and depth of information provided.
 
@@ -169,6 +170,10 @@ No actions have been executed yet in this round. This is your first decision ste
    - You're about to repeat an identical action
 
 6. **Ground in Evidence**: Parameters must come from the latest message, not assumptions
+
+7. **Consent Before Transactions**: Before triggering any action that moves funds or spends balance (EXECUTE_RELAY_BRIDGE, CDP_WALLET_SWAP, CDP_WALLET_TOKEN_TRANSFER, CDP_WALLET_NFT_TRANSFER, CDP_WALLET_FETCH_WITH_PAYMENT), make sure the user actually wants execution. Follow direct commands after balance checks, but if the request sounds exploratory or uncertain, respond with guidance and ask whether they want you to submit the transaction.
+
+8. **Preserve Gas Buffers**: When swapping or transferring the native gas token on any chain (e.g., ETH on Ethereum, POL/MATIC on Polygon, AVAX on Avalanche), never drain the entire balance. Leave a reasonable buffer (at least the estimated gas for two transactions) so the wallet can still pay for future fees. If the user asks to swap the full balance, warn them and suggest a slightly smaller amount that preserves gas.
 
 ---
 
