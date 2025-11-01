@@ -36,7 +36,6 @@ import {
 } from '@elizaos/core';
 import { v4 } from 'uuid';
 
-// import * as actions from './actions/index.ts';
 import * as evaluators from './evaluators/index.js';
 import * as providers from './providers/index.js';
 
@@ -47,227 +46,75 @@ export * from './actions/index.js';
 export * from './evaluators/index.js';
 export * from './providers/index.js';
 
-export const multiStepDecisionTemplate = `<task>
-Determine the next step the assistant should take in this conversation to help the user reach their goal.
-</task>
+export const multiStepDecisionTemplate = `<task>Decide the assistant's next step to satisfy the user's latest request.</task>
 
 {{system}}
 
----
-
 {{time}}
-
----
 
 {{recentMessages}}
 
----
-
-# Current Execution Context
-**Current Step**: {{iterationCount}} of {{maxIterations}} maximum iterations
-**Actions Completed in THIS Execution Round**: {{traceActionResult.length}}
-
+# Execution Snapshot
+Step: {{iterationCount}} of {{maxIterations}}
+Actions this round: {{traceActionResult.length}}
 {{#if traceActionResult.length}}
- You have ALREADY taken {{traceActionResult.length}} action(s) in this execution round. Review them carefully before deciding next steps.
-{{else}}
- This is your FIRST decision step - no actions have been taken yet in this round.
-{{/if}}
-
----
-
-# Decision Process (Follow in Order)
-
-## 1. Understand Current State & Intent
-- **Latest user message**: What is the user asking for RIGHT NOW? This is your primary objective.
-- **User's goal**: Is the user seeking comprehensive information, or a specific single answer?
-- **Actions taken THIS round**: Review ***Actions Completed in This Round*** below. What have YOU already executed in THIS execution?
-- **Completion check**: Has the user's request been ADEQUATELY fulfilled? Consider both breadth and depth of information provided.
-
-## 2. Evaluate Redundancy vs Complementarity (CRITICAL)
-**AVOID REDUNDANCY** (these are DUPLICATES - DO NOT repeat):
-- ❌ Executing the SAME action with the SAME parameters you just executed
-- ❌ Executing multiple swap actions for the same token pair
-- ❌ Checking the same balance multiple times in a row
-- ❌ Fetching the same price data twice
-
-**ENCOURAGE COMPLEMENTARITY** (these are RELATED but ADD VALUE):
-- ✅ Different actions that provide different perspectives (e.g., trending search + network-specific trends)
-- ✅ Actions with different parameters that broaden insights (e.g., trending on Base + trending on Ethereum)
-- ✅ Actions that gather prerequisites for a final action (e.g., get price → check balance → swap)
-- ✅ Multiple related queries that together paint a fuller picture
-
-**Decision Logic**:
-- If you've executed an action, ask: "Would adding another related action provide NEW valuable insights?"
-- If YES (complementary): Proceed with the related action
-- If NO (redundant): Set \`isFinish: true\`
-
-## 3. Identify Information Gaps
-- Does the user's request require information you don't have?
-- Have you already gathered this in a prior step of THIS round?
-- Would executing related actions provide **additional context or insights** that better serve the user?
-
-## 4. Choose Next Action
-- Based on what you've ALREADY done in THIS round, what (if anything) would ADD VALUE?
-- **For simple, specific requests** (e.g., "send 0.05 ETH", "what's the price of BTC"):
-  * Execute the ONE action needed
-  * Set \`isFinish: true\` after successful execution
-- **For exploratory/broad requests** (e.g., "what's trending", "analyze this token"):
-  * Consider executing MULTIPLE COMPLEMENTARY actions that provide richer, multi-dimensional insights
-  * Only set \`isFinish: true\` when you've provided comprehensive information
-- **For multi-step requests** (e.g., "get price then swap"):
-  * Execute each step in sequence
-  * Set \`isFinish: true\` only when ALL steps are complete
-- Extract parameters from the **latest user message first**, then results from THIS round.
-
----
-
-{{actionsWithParams}}
-
----
-
-# Actions Completed in This Round
-
-{{#if traceActionResult.length}}
-You have executed the following actions in THIS multi-step execution round:
-
+Recent action results:
 {{actionResults}}
-
- **IMPORTANT**: These are actions YOU took in this execution, not from earlier in the conversation.
-- If the user's request has been ADEQUATELY satisfied, set \`isFinish: true\`
-- Do NOT repeat the EXACT SAME action with the SAME parameters
-- DO consider executing RELATED/COMPLEMENTARY actions that add different value
-
-{{else}}
-No actions have been executed yet in this round. This is your first decision step.
+{{/if}}
+{{#if actionsWithParams}}
+Proposed actions:
+{{actionsWithParams}}
 {{/if}}
 
----
+# Rules
+- Focus on the latest user request and current evidence.
+- Do not repeat an action with identical parameters.
+- Prefer complementary data or follow-up steps that add new value.
+- Set isFinish true once the request is fully satisfied or no useful action remains.
 
-# Decision Rules
-
-1. **Step Awareness**: You are on step {{iterationCount}} of {{maxIterations}}. If step > 1, check what you've already done.
-
-2. **Request Type Classification**:
-   - **Specific/Transactional** (e.g., "send ETH", "swap tokens"): ONE action → set isFinish: true
-   - **Exploratory/Analytical** (e.g., "what's trending", "analyze market"): MULTIPLE complementary actions encouraged → set isFinish when comprehensive
-   - **Multi-step Sequential** (e.g., "check balance then swap"): Execute in order → set isFinish when all complete
-
-3. **Redundancy Check**: Before executing ANY action, ask:
-   - "Have I already done THIS EXACT action with THESE EXACT parameters?"
-   - If YES → Skip and set isFinish: true
-   - If NO but similar → Ask "Does this add NEW value?" If yes, proceed
-
-4. **Complementary Actions**: When in doubt about whether to add another action:
-   - If it provides a DIFFERENT data source or perspective: **DO IT**
-   - If it provides the SAME data with different parameters that broaden scope: **DO IT**
-   - If it's just repeating the same query: **DON'T**
-
-5. **When to Finish**: Set isFinish: true when:
-   - Specific requests: The ONE required action is completed successfully
-   - Exploratory requests: You've gathered comprehensive, multi-faceted information
-   - Multi-step requests: ALL steps are complete
-   - You're about to repeat an identical action
-
-6. **Ground in Evidence**: Parameters must come from the latest message, not assumptions
-
----
-
-<keys>
-"thought" 
-START WITH: "Step {{iterationCount}}/{{maxIterations}}. Actions taken this round: {{traceActionResult.length}}."
-THEN: Quote the latest user request.
-THEN: Classify request type (Specific/Exploratory/Multi-step).
-THEN: If actions > 0, state "I have already completed: [list actions with brief result summary]. Evaluating if more complementary actions would add value."
-THEN: Explain your decision:
-  - If finishing: "The request is adequately fulfilled with [breadth/depth] of information. Setting isFinish: true."
-  - If continuing: "Next action: [action name] because [how it complements prior actions or provides new perspective]."
-
-"action" Name of the action to execute (empty string "" if setting isFinish: true or if no action needed)
-"parameters" JSON object with exact parameter names. Empty object {} if action has no parameters.
-"isFinish" Set to true when the user's request is adequately satisfied (see Decision Rules)
-</keys>
-
- CRITICAL CHECKS:
-- What step am I on? ({{iterationCount}}/{{maxIterations}})
-- How many actions have I taken THIS round? ({{traceActionResult.length}})
-- What TYPE of request is this? (Specific/Exploratory/Multi-step)
-- If > 0 actions: Have I adequately addressed the request?
-- Am I about to execute the EXACT SAME action with EXACT SAME parameters?  If YES, STOP
-- If executing a related but different action: Does it add NEW value/insights?  If YES, PROCEED
-
-# IMPORTANT
-YOUR FINAL OUTPUT MUST BE IN THIS XML FORMAT:
-
+# Output
+Return XML in this exact shape:
 <output>
-<response>
-  <thought>Step {{iterationCount}}/{{maxIterations}}. Actions taken this round: {{traceActionResult.length}}. [Your reasoning]</thought>
-  <action>ACTION_NAME or ""</action>
-  <parameters>
-    {
-      "param1": "value1",
-      "param2": value2
-    }
-  </parameters>
-  <isFinish>true | false</isFinish>
-</response>
+  <response>
+    <thought>Step {{iterationCount}}/{{maxIterations}}. Actions taken this round: {{traceActionResult.length}}. [concise reasoning]</thought>
+    <action>ACTION_NAME or ""</action>
+    <parameters>{"key": "value"}</parameters>
+    <isFinish>true or false</isFinish>
+  </response>
 </output>`;
 
-export const multiStepSummaryTemplate = `<task>
-Generate a final, user-facing response based on what the assistant accomplished and the results obtained.
-</task>
+export const multiStepSummaryTemplate = `<task>Write the final reply for the user using the completed actions.</task>
 
 {{bio}}
 
----
-
 {{system}}
-
----
 
 {{messageDirections}}
 
----
-
 {{time}}
-
----
 
 {{recentMessages}}
 
----
-
+{{#if actionResults}}
+Action results:
 {{actionResults}}
-
-**These are the steps taken and their results. Use successful results to answer the user; acknowledge failures if relevant.**
-
----
+{{/if}}
 
 {{actionsWithDescriptions}}
 
----
+Last reasoning: {{recentThought}}
 
-# Assistant's Last Reasoning Step
-{{recentThought}}
+# Guidance
+- Lead with the answer the user needs.
+- Use successful action outcomes as evidence; note failures if they block completion.
+- Keep the response concise and helpful.
 
----
-
-# Instructions
-
-1. **Review the latest user message**: What did they originally ask for?
-2. **Check execution results**: What data/outcomes did the actions produce? Focus on successful results.
-3. **Synthesize answer**: Provide a clear, direct response using the information gathered. If results are insufficient or actions failed, explain what happened and suggest next steps.
-4. **Be concise and helpful**: Users want answers, not a list of what you did. Lead with the result, not the process.
-
-**Tone**: Professional, direct, and focused on delivering value. Avoid overly technical jargon unless the user expects it.
-
-# IMPORTANT
-YOUR FINAL OUTPUT MUST BE IN THIS XML FORMAT:
-
+# Output
 <output>
-<response>
-  <thought>Briefly summarize the user's request and the key results obtained. Note any gaps or issues.</thought>
-  <text>Your direct, helpful answer to the user based on the results. Lead with the information they asked for.</text>
-</response>
+  <response>
+    <thought>Brief summary of the request, key results, and remaining gaps if any.</thought>
+    <text>Direct user-facing reply grounded in the gathered results.</text>
+  </response>
 </output>
 `;
 
@@ -298,50 +145,6 @@ interface MultiStepActionResult {
 const latestResponseIds = new Map<string, Map<string, string>>();
 
 /**
- * Escapes special characters in a string to make it JSON-safe.
- */
-/* // Removing JSON specific helpers
-function escapeForJson(input: string): string {
-  return input
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n')
-    .replace(/```/g, '\\`\\`\\`');
-}
-
-function sanitizeJson(rawJson: string): string {
-  try {
-    // Try parsing directly
-    JSON.parse(rawJson);
-    return rawJson; // Already valid
-  } catch {
-    // Continue to sanitization
-  }
-
-  // first, replace all newlines with \n
-  const sanitized = rawJson
-    .replace(/\n/g, '\\n')
-
-    // then, replace all backticks with \\\`
-    .replace(/`/g, '\\\`');
-
-  // Regex to find and escape the "text" field
-  const fixed = sanitized.replace(/"text"\s*:\s*"([\s\S]*?)"\s*,\s*"simple"/, (_match, group) => {
-    const escapedText = escapeForJson(group);
-    return `"text": "${escapedText}", "simple"`;
-  });
-
-  // Validate that the result is actually parseable
-  try {
-    JSON.parse(fixed);
-    return fixed;
-  } catch (e) {
-    throw new Error(`Failed to sanitize JSON: ${e.message}`);
-  }
-}
-*/
-
-/**
  * Fetches media data from a list of attachments, supporting both HTTP URLs and local file paths.
  *
  * @param attachments Array of Media objects containing URLs or file paths to fetch media from
@@ -365,12 +168,6 @@ export async function fetchMediaData(attachments: Media[]): Promise<MediaData[]>
         const mediaType = attachment.contentType || 'image/png';
         return { data: mediaBuffer, mediaType };
       }
-      // if (fs.existsSync(attachment.url)) {
-      //   // Handle local file paths
-      //   const mediaBuffer = await fs.promises.readFile(path.resolve(attachment.url));
-      //   const mediaType = attachment.contentType || 'image/png';
-      //   return { data: mediaBuffer, mediaType };
-      // }
       throw new Error(`File not found: ${attachment.url}. Make sure the path is correct.`);
     })
   );
@@ -588,7 +385,8 @@ const messageReceivedHandler = async ({
     
     // Check if this is a job request (x402 paid API)
     // Job requests are isolated one-off operations that don't need race tracking
-    const isJobRequest = message.content.metadata?.isJobMessage === true;
+    const messageMetadata = message.content.metadata;
+    const isJobRequest = isJobMessage(messageMetadata) && messageMetadata.isJobMessage === true;
     
     // Get or create the agent-specific map
     if (!latestResponseIds.has(runtime.agentId)) {
@@ -751,10 +549,6 @@ const messageReceivedHandler = async ({
 
         let shouldRespond = true;
 
-        // I don't think we need these right now
-        //runtime.logger.debug('shouldRespond is', shouldRespond);
-        //runtime.logger.debug('shouldSkipShouldRespond', shouldSkipShouldRespond);
-
         let responseContent: Content | null = null;
         let responseMessages: Memory[] = [];
 
@@ -770,7 +564,9 @@ const messageReceivedHandler = async ({
           // Race check before we send anything
           // IMPORTANT: Bypass race check for job requests (x402 paid API)
           // Job requests are one-off operations that must always complete
-          const isJobRequest = message.content.metadata?.isJobMessage === true;
+          const messageMetadata = message.content.metadata;
+          const isJobRequest =
+            isJobMessage(messageMetadata) && messageMetadata.isJobMessage === true;
           
           if (!isJobRequest) {
             const currentResponseId = agentResponses.get(message.roomId);
@@ -1025,6 +821,30 @@ type StrategyResult = {
   mode: StrategyMode;
 };
 
+function mergeState(base: State, updates: State): State {
+  return {
+    ...base,
+    ...updates,
+    data: {
+      ...(base.data ?? {}),
+      ...(updates.data ?? {}),
+    },
+    values: {
+      ...(base.values ?? {}),
+      ...(updates.values ?? {}),
+    },
+  };
+}
+
+function isJobMessage(metadata: unknown): metadata is { isJobMessage: boolean } {
+  return (
+    typeof metadata === 'object' &&
+    metadata !== null &&
+    'isJobMessage' in metadata &&
+    typeof (metadata as { isJobMessage: unknown }).isJobMessage === 'boolean'
+  );
+}
+
 async function runSingleShotCore({ runtime, message, state }: { runtime: IAgentRuntime, message: Memory, state: State }): Promise<StrategyResult> {
   state = await runtime.composeState(message, ['ACTIONS']);
 
@@ -1153,18 +973,30 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
     'PROVIDERS',
     'WALLET_STATE',
   ]);
+  if (!accumulatedState.data) {
+    accumulatedState.data = {} as any;
+  }
   accumulatedState.data.actionResults = traceActionResult;
+  let needsStateRefresh = false;
 
   // Standard multi-step loop (wallet already exists)
   while (iterationCount < maxIterations) {
     iterationCount++;
     runtime.logger.debug(`[MultiStep] Starting iteration ${iterationCount}/${maxIterations}`);
 
-    accumulatedState = await runtime.composeState(message, [
-      'RECENT_MESSAGES',
-      'ACTION_STATE',
-      'WALLET_STATE',
-    ]);
+    if (needsStateRefresh) {
+      const refreshedState = await runtime.composeState(message, [
+        'RECENT_MESSAGES',
+        'ACTION_STATE',
+        'WALLET_STATE',
+      ]);
+      accumulatedState = mergeState(accumulatedState, refreshedState);
+      needsStateRefresh = false;
+    }
+
+    if (!accumulatedState.data) {
+      accumulatedState.data = {} as any;
+    }
     accumulatedState.data.actionResults = traceActionResult;
    
     // Add iteration context to state for template
@@ -1326,6 +1158,7 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
           values: result?.values,
           error: success ? undefined : result?.text,
         });
+        needsStateRefresh = true;
       }
     } catch (err) {
       runtime.logger.error({ err }, '[MultiStep] Error executing step');
@@ -1355,7 +1188,11 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
     );
   }
 
-  accumulatedState = await runtime.composeState(message, ['RECENT_MESSAGES', 'ACTION_STATE']);
+  if (needsStateRefresh) {
+    const summaryState = await runtime.composeState(message, ['RECENT_MESSAGES', 'ACTION_STATE']);
+    accumulatedState = mergeState(accumulatedState, summaryState);
+    needsStateRefresh = false;
+  }
   const summaryPrompt = composePromptFromState({
     state: accumulatedState,
     template: runtime.character.templates?.multiStepSummaryTemplate || multiStepSummaryTemplate,
