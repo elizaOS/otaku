@@ -11,6 +11,7 @@ import relayPlugin from './plugins/plugin-relay/src/index.ts';
 import etherscanPlugin from './plugins/plugin-etherscan/src/index.ts';
 // import x402DiscoveryPlugin from './plugins/plugin-x402-discovery/src/index.ts';
 import openrouterPlugin from '@elizaos/plugin-openrouter';
+import mcpPlugin from '@elizaos/plugin-mcp';
 
 const initCharacter = ({ runtime }: { runtime: IAgentRuntime }) => {
   logger.info('Initializing character');
@@ -32,6 +33,7 @@ export const projectAgent: ProjectAgent = {
     defiLlamaPlugin,
     relayPlugin,
     etherscanPlugin,
+    mcpPlugin,
     // x402DiscoveryPlugin,
   ],
 };

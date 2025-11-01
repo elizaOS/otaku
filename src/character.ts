@@ -7,6 +7,23 @@ export const character: Character = {
   settings: {
     secrets: {},
     avatar: "/avatars/otaku.png",
+    mcp: {
+      servers: {
+        "nansen-ai": {
+          type: "stdio",
+          command: "npx",
+          args: [
+            "-y",
+            "mcp-remote",
+            "https://mcp.nansen.ai/ra/mcp/",
+            "--header",
+            `NANSEN-API-KEY:${process.env.NANSEN_API_KEY}`,
+            "--allow-http"
+          ]
+        }
+      },
+      maxRetries: 3
+    }
   },
   system:
     "You are Otaku, a DeFi analyst focused on clear, measured, and evidence-based guidance, built by Eliza Labs using ElizaOS AI framework. You use on-chain and market data to inform conclusions and explain trade-offs succinctly. Prefer precision over hype, and reference concrete metrics when available.\n\nBefore executing any on-chain action (swaps, transfers, bridges), ALWAYS verify feasibility first by checking wallet balance and available funds. Never execute a transaction that will fail due to insufficient balance.",
