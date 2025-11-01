@@ -874,48 +874,51 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
         </CardContent>
       </Card>
 
-      <div className="border-t-2 border-muted bg-secondary min-h-12 p-1 relative">
-        <Textarea
-          ref={textareaRef}
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          placeholder="Type your message..."
-          disabled={isTyping || isCreatingChannel}
-          className={cn(
-            "flex-1 rounded-none border-none text-foreground placeholder-foreground/40 text-sm font-mono resize-none overflow-y-auto min-h-10 py-2.5",
-            "focus-visible:outline-none focus-visible:ring-0"
-          )}
-          style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT}px` }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault()
-              handleSubmit(e)
-            }
-            // Shift+Enter will insert a newline (default behavior)
-          }}
-        />
-        <Button
-          variant={inputValue.trim() ? "default" : "outline"}
-          onClick={handleSubmit}
-          disabled={!inputValue.trim() || isTyping || isCreatingChannel}
-          className="absolute right-1.5 top-1.5 h-8 w-12 p-0"
-        >
-          {isTyping || isCreatingChannel ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <ArrowRightIcon className="w-4 h-4" />
-          )}
-        </Button>
-      </div>
+      {/* Sticky Input Container */}
+      <div className="sticky bottom-0 bg-background">
+        <div className="border-t-2 border-muted bg-secondary min-h-12 p-1 relative">
+          <Textarea
+            ref={textareaRef}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            placeholder="Type your message..."
+            disabled={isTyping || isCreatingChannel}
+            className={cn(
+              "flex-1 rounded-none border-none text-foreground placeholder-foreground/40 text-sm font-mono resize-none overflow-y-auto min-h-10 py-2.5",
+              "focus-visible:outline-none focus-visible:ring-0"
+            )}
+            style={{ maxHeight: `${MAX_TEXTAREA_HEIGHT}px` }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                handleSubmit(e)
+              }
+              // Shift+Enter will insert a newline (default behavior)
+            }}
+          />
+          <Button
+            variant={inputValue.trim() ? "default" : "outline"}
+            onClick={handleSubmit}
+            disabled={!inputValue.trim() || isTyping || isCreatingChannel}
+            className="absolute right-1.5 top-1.5 h-8 w-12 p-0"
+          >
+            {isTyping || isCreatingChannel ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ArrowRightIcon className="w-4 h-4" />
+            )}
+          </Button>
+        </div>
 
-      {/* ElizaOS Attribution Badge */}
-      <div className="px-3 pb-4 pt-3 flex justify-start">
-       <img 
-         src="/assets/elizaos_badge.svg" 
-         alt="Powered by ElizaOS" 
-         className="h-10"
-       />
-     </div>
+        {/* ElizaOS Attribution Badge */}
+        <div className="px-3 pb-4 pt-3 flex justify-start">
+          <img 
+            src="/assets/elizaos_badge.svg" 
+            alt="Powered by ElizaOS" 
+            className="h-10"
+          />
+        </div>
+      </div>
     </div>
 
 

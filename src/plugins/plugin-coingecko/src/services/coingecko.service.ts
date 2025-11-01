@@ -15,6 +15,32 @@ export interface CoinGeckoTokenMetadata {
   [key: string]: unknown;
 }
 
+interface MarketRow {
+  id: string;
+  market_cap?: number | null;
+  total_volume?: number | null;
+  market_cap_rank?: number | null;
+}
+
+export interface TokenMetadataCandidate {
+  id: string;
+  coinId: string;
+  confidence: number;
+  marketCap: number | null;
+  totalVolume: number | null;
+  marketCapRank: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TokenMetadataResolution {
+  id: string;
+  success: boolean;
+  resolvedCoinId?: string;
+  data?: Record<string, unknown>;
+  error?: string;
+  candidates: TokenMetadataCandidate[];
+}
+
 /**
  * Map of native token symbols to their CoinGecko IDs
  * These tokens can be used directly by symbol in price chart queries
@@ -41,6 +67,7 @@ export class CoinGeckoService extends Service {
   private idSet = new Set<string>();
   private symbolToIds = new Map<string, string[]>();
   private nameToIds = new Map<string, string[]>();
+  private coinDetailCache = new Map<string, CoinGeckoTokenMetadata>();
 
   constructor(runtime: IAgentRuntime) {
     super(runtime);
@@ -65,102 +92,73 @@ export class CoinGeckoService extends Service {
    * Uses Pro API when COINGECKO_API_KEY is set; otherwise public API.
    * Never throws for per-id failures; returns an entry with error message instead.
    */
-  async getTokenMetadata(ids: string | string[]): Promise<Array<{ id: string; success: boolean; data?: any; error?: string }>> {
+  async getTokenMetadata(ids: string | string[]): Promise<TokenMetadataResolution[]> {
     const normalizedIds = (Array.isArray(ids) ? ids : [ids])
-      .map((s) => (s || "").trim())
-      .filter(Boolean);
+      .map((identifier) => (identifier || "").trim())
+      .filter((identifier) => identifier.length > 0);
     const isPro = Boolean(this.proApiKey);
     const baseUrl = isPro ? "https://pro-api.coingecko.com/api/v3" : "https://api.coingecko.com/api/v3";
 
-    const results: Array<{ id: string; success: boolean; data?: any; error?: string }> = [];
+    const results: TokenMetadataResolution[] = [];
 
     for (const rawId of normalizedIds) {
-      const q = (rawId || "").trim();
+      const q = rawId.trim();
 
-      // Contract address handling
       if (isEvmAddress(q)) {
-        try {
-          const platforms = ["ethereum", "base", "arbitrum-one", "optimistic-ethereum", "polygon-pos", "bsc"];
-          const byContract = await this.fetchByContractAddress(baseUrl, q, platforms);
-          if (byContract) {
-            results.push({ id: q, success: true, data: byContract });
-          } else {
-            results.push({ id: q, success: false, error: `No CoinGecko match for EVM address: ${q}` });
-          }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          logger.warn(`[CoinGecko] EVM address lookup failed for ${q}: ${msg}`);
-          results.push({ id: q, success: false, error: msg });
-        }
+        const resolution = await this.handleContractLookup(
+          baseUrl,
+          q,
+          ["ethereum", "base", "arbitrum-one", "optimistic-ethereum", "polygon-pos", "bsc"],
+          "EVM",
+        );
+        results.push(resolution);
         continue;
       }
 
       if (isSolanaAddress(q)) {
-        try {
-          const byContract = await this.fetchByContractAddress(baseUrl, q, ["solana"]);
-          if (byContract) {
-            results.push({ id: q, success: true, data: byContract });
-          } else {
-            results.push({ id: q, success: false, error: `No CoinGecko match for Solana address: ${q}` });
-          }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          logger.warn(`[CoinGecko] Solana address lookup failed for ${q}: ${msg}`);
-          results.push({ id: q, success: false, error: msg });
-        }
+        const resolution = await this.handleContractLookup(baseUrl, q, ["solana"], "Solana");
+        results.push(resolution);
         continue;
       }
 
-      // Resolve symbol/name/id via local index
-      let resolvedId: string | null = null;
+      let candidates: TokenMetadataCandidate[] = [];
       try {
-        resolvedId = await this.resolveIdFromCache(q);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        logger.warn(`[CoinGecko] resolveIdFromCache failed for ${q}: ${msg}`);
+        candidates = await this.resolveCandidates(q);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[CoinGecko] resolveCandidates failed for ${q}: ${message}`);
       }
 
-      if (!resolvedId) {
-        results.push({ id: q, success: false, error: `Unknown coin id/symbol/name: ${q}` });
-        continue;
-      }
-
-      const endpoint = `/coins/${encodeURIComponent(resolvedId)}`;
-      const url = `${baseUrl}${endpoint}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-
-      try {
-        logger.debug(`[CoinGecko] GET ${url}`);
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-            ...(isPro && this.proApiKey ? { "x-cg-pro-api-key": this.proApiKey } : {}),
-            "User-Agent": "ElizaOS-CoinGecko-Plugin/1.0",
-          },
-          signal: controller.signal,
+      if (candidates.length === 0) {
+        results.push({
+          id: q,
+          success: false,
+          error: `Unknown coin id/symbol/name: ${q}`,
+          candidates: [],
         });
-
-        clearTimeout(timeout);
-
-        if (!res.ok) {
-          const body = await safeReadJson(res);
-          const msg = `CoinGecko error ${res.status}: ${res.statusText}${body ? ` - ${JSON.stringify(body)}` : ""}`;
-          logger.warn(`[CoinGecko] request failed for ${resolvedId}: ${msg}`);
-          results.push({ id: q, success: false, error: msg });
-          continue;
-        }
-
-        const data = (await res.json()) as CoinGeckoTokenMetadata;
-        results.push({ id: q, success: true, data: formatCoinMetadata(resolvedId, data as any) });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logger.error(`[CoinGecko] request failed for ${resolvedId ?? q}: ${msg}`);
-        results.push({ id: q, success: false, error: msg });
-      } finally {
-        clearTimeout(timeout);
+        continue;
       }
+
+      const enrichedCandidates = await this.enrichCandidateMetadata(baseUrl, candidates);
+      const primaryCandidate = enrichedCandidates.find((candidate) => Boolean(candidate.metadata));
+
+      if (!primaryCandidate) {
+        results.push({
+          id: q,
+          success: false,
+          error: `Failed to fetch metadata for candidates: ${q}`,
+          candidates: enrichedCandidates,
+        });
+        continue;
+      }
+
+      results.push({
+        id: q,
+        success: true,
+        resolvedCoinId: primaryCandidate.coinId,
+        data: primaryCandidate.metadata,
+        candidates: enrichedCandidates,
+      });
     }
 
     return results;
@@ -170,7 +168,7 @@ export class CoinGeckoService extends Service {
     baseUrl: string,
     address: string,
     platforms: string[],
-  ): Promise<any | null> {
+  ): Promise<Record<string, unknown> | null> {
     for (const platform of platforms) {
       const url = `${baseUrl}/coins/${platform}/contract/${address}`;
       try {
@@ -191,13 +189,67 @@ export class CoinGeckoService extends Service {
           continue;
         }
 
-        const data = (await res.json()) as Record<string, any>;
-        return formatCoinMetadata((data && typeof data === "object" ? (data as any).id : undefined) ?? platform, data, platform);
+        const data = (await res.json()) as CoinGeckoTokenMetadata;
+        const tokenId = typeof data.id === "string" && data.id.length > 0 ? data.id : platform;
+        return formatCoinMetadata(tokenId, data, platform) as Record<string, unknown>;
       } catch {
         // try next platform
       }
     }
     return null;
+  }
+
+  private async handleContractLookup(
+    baseUrl: string,
+    address: string,
+    platforms: string[],
+    networkLabel: string,
+  ): Promise<TokenMetadataResolution> {
+    try {
+      const metadata = await this.fetchByContractAddress(baseUrl, address, platforms);
+      if (!metadata) {
+        return {
+          id: address,
+          success: false,
+          error: `No CoinGecko match for ${networkLabel} address: ${address}`,
+          candidates: [],
+        };
+      }
+
+      const coinId = this.extractCoinId(metadata, address);
+      const ranked = await this.rankByMarkets([coinId]);
+      const metrics = ranked[0] ?? {
+        id: coinId,
+        coinId,
+        confidence: 1,
+        marketCap: null,
+        totalVolume: null,
+        marketCapRank: null,
+      };
+
+      const candidate: TokenMetadataCandidate = {
+        ...metrics,
+        confidence: 1,
+        metadata,
+      };
+
+      return {
+        id: address,
+        success: true,
+        resolvedCoinId: candidate.coinId,
+        data: candidate.metadata,
+        candidates: [candidate],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`[CoinGecko] Contract lookup failed for ${address}: ${message}`);
+      return {
+        id: address,
+        success: false,
+        error: message,
+        candidates: [],
+      };
+    }
   }
 
   private async loadCoinsIndex(): Promise<void> {
@@ -266,56 +318,119 @@ export class CoinGeckoService extends Service {
     }
   }
 
-  private async resolveIdFromCache(input: string): Promise<string | null> {
-    const q = (input || "").trim().toLowerCase();
-    console.log("[CoinGecko:resolveIdFromCache] query:", q);
-    if (!q) return null;
-    if (this.idSet.has(q)) {
-      console.log("[CoinGecko:resolveIdFromCache] hit idSet");
-      return q;
+  private async resolveCandidates(input: string): Promise<TokenMetadataCandidate[]> {
+    const query = (input || "").trim().toLowerCase();
+    if (!query) {
+      return [];
     }
-    const bySymbol = this.symbolToIds.get(q);
-    if (bySymbol && bySymbol.length > 0) {
-      console.log("[CoinGecko:resolveIdFromCache] symbol matches:", bySymbol);
-      return await this.pickMostPopular(bySymbol);
+
+    const candidateIds = new Set<string>();
+
+    if (this.idSet.has(query)) {
+      candidateIds.add(query);
     }
-    const byName = this.nameToIds.get(q);
-    if (byName && byName.length > 0) {
-      console.log("[CoinGecko:resolveIdFromCache] name matches:", byName);
-      return await this.pickMostPopular(byName);
+
+    const symbolMatches = this.symbolToIds.get(query);
+    if (symbolMatches) {
+      symbolMatches.forEach((id) => candidateIds.add(id));
     }
+
+    const nameMatches = this.nameToIds.get(query);
+    if (nameMatches) {
+      nameMatches.forEach((id) => candidateIds.add(id));
+    }
+
+    if (candidateIds.size > 0) {
+      const ranked = await this.rankByMarkets(Array.from(candidateIds));
+      if (ranked.length > 0) {
+        logger.debug({ query, ranked: ranked.map((candidate) => candidate.coinId) }, "[CoinGecko] Ranked candidate matches");
+        return ranked;
+      }
+
+      const uniformConfidence = 1 / candidateIds.size;
+      return Array.from(candidateIds).map((id) => ({
+        id,
+        coinId: id,
+        confidence: uniformConfidence,
+        marketCap: null,
+        totalVolume: null,
+        marketCapRank: null,
+      }));
+    }
+
     const nearSymbols = Array.from(this.symbolToIds.keys())
-      .filter((k) => k === q || k.startsWith(q) || k.includes(q))
+      .filter((key) => key === query || key.startsWith(query) || key.includes(query))
       .slice(0, 10);
     const nearNames = Array.from(this.nameToIds.keys())
-      .filter((k) => k === q || k.startsWith(q) || k.includes(q))
+      .filter((key) => key === query || key.startsWith(query) || key.includes(query))
       .slice(0, 10);
-    console.log("[CoinGecko:resolveIdFromCache] no matches. Nearby:", {
-      nearSymbols,
-      nearNames,
-    });
-    return null;
+
+    logger.debug({ query, nearSymbols, nearNames }, "[CoinGecko] No direct candidate matches");
+    return [];
   }
 
-  private async pickMostPopular(ids: string[]): Promise<string | null> {
-    if (ids.length === 1) return ids[0];
-    const ranked = await this.rankByMarkets(ids);
-    return ranked[0] || ids[0] || null;
-  }
-
-  private async rankByMarkets(ids: string[]): Promise<string[]> {
-    try {
-      const ranked = await this.fetchMarketsAndRank(ids);
-      return ranked.length > 0 ? ranked : ids;
-    } catch (e) {
-      console.log("[CoinGecko:rankByMarkets] ranking failed, fallback to input order", e instanceof Error ? e.message : String(e));
-      return ids;
+  private async rankByMarkets(ids: string[]): Promise<TokenMetadataCandidate[]> {
+    if (ids.length === 0) {
+      return [];
     }
+
+    const rows = await this.fetchMarketRows(ids);
+    const rowMap = new Map<string, MarketRow>();
+    rows.forEach((row) => {
+      rowMap.set(row.id, row);
+    });
+
+    const candidates = ids.map<TokenMetadataCandidate>((id) => {
+      const marketRow = rowMap.get(id);
+      const marketCap = typeof marketRow?.market_cap === "number" ? marketRow.market_cap : null;
+      const totalVolume = typeof marketRow?.total_volume === "number" ? marketRow.total_volume : null;
+      const marketCapRank = typeof marketRow?.market_cap_rank === "number" ? marketRow.market_cap_rank : null;
+      return {
+        id,
+        coinId: id,
+        confidence: 0,
+        marketCap,
+        totalVolume,
+        marketCapRank,
+      };
+    });
+
+    if (candidates.length === 1) {
+      return [{ ...candidates[0], confidence: 1 }];
+    }
+
+    const capValues = candidates.map((candidate) => candidate.marketCap ?? 0);
+    const volumeValues = candidates.map((candidate) => candidate.totalVolume ?? 0);
+    const maxCap = capValues.length > 0 ? Math.max(...capValues) : 0;
+    const maxVolume = volumeValues.length > 0 ? Math.max(...volumeValues) : 0;
+
+    const scored = candidates.map((candidate) => {
+      const capScore = maxCap > 0 ? (candidate.marketCap ?? 0) / maxCap : 0;
+      const volumeScore = maxVolume > 0 ? (candidate.totalVolume ?? 0) / maxVolume : 0;
+      const rankScore = candidate.marketCapRank && candidate.marketCapRank > 0 ? 1 / candidate.marketCapRank : 0;
+      const rawScore = capScore * 0.65 + volumeScore * 0.25 + rankScore * 0.1;
+      return {
+        candidate,
+        rawScore,
+      };
+    });
+
+    const totalScore = scored.reduce((sum, entry) => sum + entry.rawScore, 0);
+    const fallbackConfidence = scored.length > 0 ? 1 / scored.length : 0;
+
+    return scored
+      .map((entry) => ({
+        ...entry.candidate,
+        confidence: totalScore > 0 ? entry.rawScore / totalScore : fallbackConfidence,
+      }))
+      .sort((a, b) => b.confidence - a.confidence);
   }
 
-  private async fetchMarketsAndRank(ids: string[]): Promise<string[]> {
-    // Note: CoinGecko markets endpoint supports comma-separated ids; default vs_currency=usd
-    // We'll request top metrics and sort by market_cap desc, then total_volume desc, then market_cap_rank asc
+  private async fetchMarketRows(ids: string[]): Promise<MarketRow[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
     const isPro = Boolean(this.proApiKey);
     const baseUrl = isPro ? "https://pro-api.coingecko.com/api/v3" : "https://api.coingecko.com/api/v3";
     const params = new URLSearchParams({
@@ -330,7 +445,7 @@ export class CoinGeckoService extends Service {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      const r = await fetch(url, {
+      const response = await fetch(url, {
         method: "GET",
         headers: {
           Accept: "application/json",
@@ -340,34 +455,118 @@ export class CoinGeckoService extends Service {
         signal: controller.signal,
       });
       clearTimeout(timeout);
-      if (!r.ok) return ids;
-      const rows = (await r.json()) as Array<{
-        id: string;
-        market_cap?: number | null;
-        total_volume?: number | null;
-        market_cap_rank?: number | null;
-      }>;
-      return rows
-        .slice()
-        .sort((a, b) => {
-          const volA = typeof a.total_volume === "number" ? a.total_volume : 0;
-          const volB = typeof b.total_volume === "number" ? b.total_volume : 0;
-          if (volB !== volA) return volB - volA; // prioritize higher volume
 
-          const mcA = typeof a.market_cap === "number" ? a.market_cap : 0;
-          const mcB = typeof b.market_cap === "number" ? b.market_cap : 0;
-          if (mcB !== mcA) return mcB - mcA; // then higher market cap
+      if (!response.ok) {
+        const body = await safeReadJson(response);
+        logger.debug(
+          {
+            status: response.status,
+            statusText: response.statusText,
+            body,
+            ids,
+          },
+          "[CoinGecko] fetchMarketRows request failed",
+        );
+        return [];
+      }
 
-          const rankA = typeof a.market_cap_rank === "number" && a.market_cap_rank > 0 ? a.market_cap_rank : 10_000_000;
-          const rankB = typeof b.market_cap_rank === "number" && b.market_cap_rank > 0 ? b.market_cap_rank : 10_000_000;
-          return rankA - rankB; // then lower rank
-        })
-        .map((row) => row.id);
-    } catch (e) {
+      const rows = (await response.json()) as MarketRow[];
+      return rows.filter((row) => ids.includes(row.id));
+    } catch (error) {
       clearTimeout(timeout);
-      console.log("[CoinGecko:fetchMarketsAndRank] fetch failed", e instanceof Error ? e.message : String(e));
-      return ids;
+      const message = error instanceof Error ? error.message : String(error);
+      logger.debug({ ids, message }, "[CoinGecko] fetchMarketRows error");
+      return [];
     }
+  }
+
+  private async enrichCandidateMetadata(
+    baseUrl: string,
+    candidates: TokenMetadataCandidate[],
+    limit: number = 3,
+  ): Promise<TokenMetadataCandidate[]> {
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    const cappedLimit = Math.max(1, Math.min(limit, candidates.length));
+    const primaryCandidates = candidates.slice(0, cappedLimit);
+    const enriched: TokenMetadataCandidate[] = [];
+
+    for (const candidate of primaryCandidates) {
+      const detail = await this.fetchCoinDetail(baseUrl, candidate.coinId);
+      if (detail) {
+        const formatted = formatCoinMetadata(candidate.coinId, detail) as Record<string, unknown>;
+        enriched.push({
+          ...candidate,
+          metadata: formatted,
+        });
+      } else {
+        enriched.push(candidate);
+      }
+    }
+
+    if (cappedLimit < candidates.length) {
+      enriched.push(...candidates.slice(cappedLimit));
+    }
+
+    return enriched;
+  }
+
+  private async fetchCoinDetail(baseUrl: string, coinId: string): Promise<CoinGeckoTokenMetadata | null> {
+    if (this.coinDetailCache.has(coinId)) {
+      return this.coinDetailCache.get(coinId) ?? null;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const url = `${baseUrl}/coins/${encodeURIComponent(coinId)}`;
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          ...(this.proApiKey ? { "x-cg-pro-api-key": this.proApiKey } : {}),
+          "User-Agent": "ElizaOS-CoinGecko-Plugin/1.0",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const body = await safeReadJson(response);
+        logger.debug(
+          {
+            coinId,
+            status: response.status,
+            statusText: response.statusText,
+            body,
+          },
+          "[CoinGecko] fetchCoinDetail request failed",
+        );
+        return null;
+      }
+
+      const data = (await response.json()) as CoinGeckoTokenMetadata;
+      this.coinDetailCache.set(coinId, data);
+      return data;
+    } catch (error) {
+      clearTimeout(timeout);
+      const message = error instanceof Error ? error.message : String(error);
+      logger.debug({ coinId, message }, "[CoinGecko] fetchCoinDetail error");
+      return null;
+    }
+  }
+
+  private extractCoinId(metadata: Record<string, unknown>, fallback: string): string {
+    const attributesRaw = (metadata as { attributes?: unknown }).attributes;
+    if (attributesRaw && typeof attributesRaw === "object") {
+      const coinIdValue = (attributesRaw as { coingecko_coin_id?: unknown }).coingecko_coin_id;
+      if (typeof coinIdValue === "string" && coinIdValue.trim().length > 0) {
+        return coinIdValue;
+      }
+    }
+    return fallback;
   }
 
   /**

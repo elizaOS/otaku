@@ -7,7 +7,98 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { CoinGeckoService } from "../services/coingecko.service";
+import {
+  CoinGeckoService,
+  TokenMetadataCandidate,
+  TokenMetadataResolution,
+} from "../services/coingecko.service";
+
+const MAX_ALTERNATIVE_CANDIDATES = 3;
+
+function normalizeConfidence(confidence: number): number {
+  if (!Number.isFinite(confidence)) {
+    return 0;
+  }
+  if (confidence < 0) {
+    return 0;
+  }
+  if (confidence > 1) {
+    return 1;
+  }
+  return confidence;
+}
+
+function formatConfidencePercentage(confidence: number): string {
+  const value = normalizeConfidence(confidence) * 100;
+  return `${value.toFixed(1)}%`;
+}
+
+function extractAttribute(
+  metadata: Record<string, unknown> | undefined,
+  key: "name" | "symbol",
+): string | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  const attributesRaw = (metadata as { attributes?: unknown }).attributes;
+  if (attributesRaw && typeof attributesRaw === "object") {
+    const value = (attributesRaw as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function describeCandidate(candidate: TokenMetadataCandidate): string {
+  const symbol = extractAttribute(candidate.metadata, "symbol");
+  const name = extractAttribute(candidate.metadata, "name");
+
+  if (symbol && name) {
+    return `${symbol.toUpperCase()} (${name})`;
+  }
+
+  if (symbol) {
+    return symbol.toUpperCase();
+  }
+
+  if (name) {
+    return name;
+  }
+
+  return candidate.coinId;
+}
+
+function summarizeResolution(result: TokenMetadataResolution): string {
+  if (!result.success) {
+    const errorText = result.error ?? "Unable to resolve token";
+    return `${result.id}: ${errorText}`;
+  }
+
+  const primaryCandidate =
+    result.candidates.find((candidate) => candidate.metadata) ?? result.candidates[0];
+
+  if (!primaryCandidate) {
+    return `${result.id}: No matching tokens found`;
+  }
+
+  const summaryParts: string[] = [
+    `${result.id} → ${describeCandidate(primaryCandidate)} [${formatConfidencePercentage(primaryCandidate.confidence)}]`,
+  ];
+
+  const alternativeCandidates = result.candidates
+    .filter((candidate) => candidate !== primaryCandidate)
+    .slice(0, MAX_ALTERNATIVE_CANDIDATES);
+
+  if (alternativeCandidates.length > 0) {
+    const alternativesText = alternativeCandidates
+      .map((candidate) => `${describeCandidate(candidate)} (${formatConfidencePercentage(candidate.confidence)})`)
+      .join(", ");
+    summaryParts.push(`Alternatives: ${alternativesText}`);
+  }
+
+  return summaryParts.join(" | ");
+}
 
 export const getTokenMetadataAction: Action = {
   name: "GET_TOKEN_METADATA",
@@ -53,10 +144,10 @@ export const getTokenMetadataAction: Action = {
 
       // Read parameters from state (extracted by multiStepDecisionTemplate)
       const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
-      const params = composedState?.data?.actionParams || {};
+      const actionParams = composedState?.data?.actionParams as Record<string, string | undefined> | undefined;
 
       // Extract and validate tokens parameter (required)
-      const tokensRaw: string | undefined = params?.tokens?.trim();
+      const tokensRaw = actionParams?.tokens ? actionParams.tokens.trim() : undefined;
 
       if (!tokensRaw) {
         const errorMsg = "Missing required parameter 'tokens'. Please specify which token(s) to fetch metadata for (e.g., 'bitcoin,ethereum' or 'BTC,ETH').";
@@ -104,17 +195,22 @@ export const getTokenMetadataAction: Action = {
       const inputParams = { tokens: tokensRaw, parsedIds: ids };
 
       // Fetch token metadata
-      const serviceResults = await svc.getTokenMetadata(ids);
-      const successes = serviceResults.filter((r) => r.success);
-      const failures = serviceResults.filter((r) => !r.success);
+      const serviceResults: TokenMetadataResolution[] = await svc.getTokenMetadata(ids);
+      const successes = serviceResults.filter((result) => result.success);
+      const failures = serviceResults.filter((result) => !result.success);
+      const summaryLines = serviceResults.map((result) => summarizeResolution(result));
 
-      const text = `Fetched metadata for ${successes.length} token(s)` + (failures.length ? `, ${failures.length} failed` : "");
+      const header = `Resolved ${successes.length}/${serviceResults.length} token queries.`;
+      const text = [header, ...summaryLines].join("\n");
 
       if (callback) {
         await callback({
           text,
           actions: ["GET_TOKEN_METADATA"],
-          content: serviceResults as any,
+          content: {
+            results: serviceResults,
+            summary: summaryLines,
+          },
           source: message.content.source,
         });
       }
@@ -123,7 +219,12 @@ export const getTokenMetadataAction: Action = {
         text,
         success: successes.length > 0,
         data: serviceResults,
-        values: serviceResults,
+        values: {
+          results: serviceResults,
+          summary: summaryLines,
+          successCount: successes.length,
+          failureCount: failures.length,
+        },
         input: inputParams,
       } as ActionResult & { input: typeof inputParams };
     } catch (error) {
@@ -132,9 +233,9 @@ export const getTokenMetadataAction: Action = {
       
       // Try to capture input params even in failure
       const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
-      const params = composedState?.data?.actionParams || {};
+      const actionParams = composedState?.data?.actionParams as Record<string, string | undefined> | undefined;
       const failureInputParams = {
-        tokens: params?.tokens,
+        tokens: actionParams?.tokens,
       };
       
       const errorResult: ActionResult = {

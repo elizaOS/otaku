@@ -5,6 +5,7 @@ import { useLoadingPanel } from '../../../contexts/LoadingPanelContext';
 import { useModal } from '../../../contexts/ModalContext';
 import { elizaClient } from '../../../lib/elizaClient';
 import { getTokenIconBySymbol } from '../../../constants/chains';
+import { formatTokenBalance } from '../../../lib/number-format';
 
 interface Token {
   symbol: string;
