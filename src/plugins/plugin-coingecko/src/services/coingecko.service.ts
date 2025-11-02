@@ -1034,6 +1034,122 @@ export class CoinGeckoService extends Service {
         return `${day}/${month}`;
     }
   }
+
+  /**
+   * Get list of all coin categories (ID map)
+   * Uses Pro API when COINGECKO_API_KEY is set; otherwise public API.
+   */
+  async getCategoriesList(): Promise<Array<{ category_id: string; name: string }>> {
+    const isPro = Boolean(this.proApiKey);
+    const baseUrl = isPro ? "https://pro-api.coingecko.com/api/v3" : "https://api.coingecko.com/api/v3";
+    
+    const url = `${baseUrl}/coins/categories/list`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      logger.debug(`[CoinGecko] GET ${url}`);
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          ...(isPro && this.proApiKey ? { "x-cg-pro-api-key": this.proApiKey } : {}),
+          "User-Agent": "ElizaOS-CoinGecko-Plugin/1.0",
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        const body = await safeReadJson(res);
+        const msg = `CoinGecko categories list API error ${res.status}: ${res.statusText}${body ? ` - ${JSON.stringify(body)}` : ""}`;
+        logger.warn(`[CoinGecko] categories list request failed: ${msg}`);
+        throw new Error(msg);
+      }
+
+      const data = (await res.json()) as Array<{ category_id: string; name: string }>;
+      return data;
+    } catch (err) {
+      clearTimeout(timeout);
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`[CoinGecko] getCategoriesList failed: ${msg}`);
+      throw err;
+    }
+  }
+
+  /**
+   * Get list of all coin categories with market data
+   * Uses Pro API when COINGECKO_API_KEY is set; otherwise public API.
+   */
+  async getCategoriesWithMarketData(
+    order: 'market_cap_desc' | 'market_cap_asc' | 'name_desc' | 'name_asc' | 'market_cap_change_24h_desc' | 'market_cap_change_24h_asc' = 'market_cap_desc'
+  ): Promise<Array<{
+    id: string;
+    name: string;
+    market_cap: number;
+    market_cap_change_24h: number;
+    content: string;
+    top_3_coins_id: string[];
+    top_3_coins: string[];
+    volume_24h: number;
+    updated_at: string;
+  }>> {
+    const isPro = Boolean(this.proApiKey);
+    const baseUrl = isPro ? "https://pro-api.coingecko.com/api/v3" : "https://api.coingecko.com/api/v3";
+    
+    const params = new URLSearchParams();
+    if (order) {
+      params.append('order', order);
+    }
+
+    const url = `${baseUrl}/coins/categories${params.toString() ? `?${params.toString()}` : ''}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      logger.debug(`[CoinGecko] GET ${url}`);
+      const res = await fetch(url, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          ...(isPro && this.proApiKey ? { "x-cg-pro-api-key": this.proApiKey } : {}),
+          "User-Agent": "ElizaOS-CoinGecko-Plugin/1.0",
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        const body = await safeReadJson(res);
+        const msg = `CoinGecko categories API error ${res.status}: ${res.statusText}${body ? ` - ${JSON.stringify(body)}` : ""}`;
+        logger.warn(`[CoinGecko] categories request failed: ${msg}`);
+        throw new Error(msg);
+      }
+
+      const data = (await res.json()) as Array<{
+        id: string;
+        name: string;
+        market_cap: number;
+        market_cap_change_24h: number;
+        content: string;
+        top_3_coins_id: string[];
+        top_3_coins: string[];
+        volume_24h: number;
+        updated_at: string;
+      }>;
+
+      return data;
+    } catch (err) {
+      clearTimeout(timeout);
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`[CoinGecko] getCategoriesWithMarketData failed: ${msg}`);
+      throw err;
+    }
+  }
 }
 
 function isEvmAddress(s: string): boolean {

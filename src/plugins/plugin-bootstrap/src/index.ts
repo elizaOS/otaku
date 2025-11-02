@@ -83,6 +83,7 @@ Determine the next step the assistant should take in this conversation to help t
 - **Consent for on-chain execution**: Decide whether the user wants live execution or just guidance. If the user issues a direct instruction (e.g., "Bridge 2 ETH now", "Swap 50 USDC to DAI"), you may proceed after verifying balances. If the wording is ambiguous or framed as a question ("How do I bridge...", "Can you help swap...?"), treat it as informational and ask whether they want you to execute before calling money-moving actions (EXECUTE_RELAY_BRIDGE, CDP swaps, transfers, FETCH_WITH_PAYMENT). When in doubt, ask for confirmation first.
 - **Actions taken THIS round**: Review ***Actions Completed in This Round*** below. What have YOU already executed in THIS execution?
 - **Completion check**: Has the user's request been ADEQUATELY fulfilled? Consider both breadth and depth of information provided.
+- **Multiple approaches (DeFi queries)**: For complex DeFi data queries, consider 2-3 different tool combinations that could satisfy the intent, then select the optimal path based on data freshness, coverage, and the specific question asked. Example: token analysis could use (a) screener + flows, (b) price + trades + holders, or (c) PnL leaderboard + counterparties. Choose the path that best matches user intent.
 
 ## 2. Evaluate Redundancy vs Complementarity (CRITICAL)
 **AVOID REDUNDANCY** (these are DUPLICATES - DO NOT repeat):
@@ -183,6 +184,7 @@ START WITH: "Step {{iterationCount}}/{{maxIterations}}. Actions taken this round
 THEN: Quote the latest user request.
 THEN: Classify request type (Specific/Exploratory/Multi-step).
 THEN: If actions > 0, state "I have already completed: [list actions with brief result summary]. Evaluating if more complementary actions would add value."
+THEN: For DeFi data queries, briefly outline 2-3 possible approaches (e.g., "Could use: (a) screener + flows for market view, (b) price + trades for activity, or (c) PnL + holders for trader insight. Selecting [chosen approach] because [reason].")
 THEN: Explain your decision:
   - If finishing: "The request is adequately fulfilled with [breadth/depth] of information. Setting isFinish: true."
   - If continuing: "Next action: [action name] because [how it complements prior actions or provides new perspective]."

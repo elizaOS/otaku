@@ -7,7 +7,7 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { DefiLlamaService } from "../services/defillama.service";
+import { DefiLlamaService, type ProtocolLookupResult, type ProtocolSummary } from "../services/defillama.service";
 
 // Extend Action type to support parameter schemas for tool calling
 
@@ -44,7 +44,7 @@ export const getProtocolTvlAction: Action = {
     runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
-    _options?: any,
+    _options?: Record<string, never>,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
@@ -107,7 +107,7 @@ export const getProtocolTvlAction: Action = {
 
       // Fetch protocol TVL data
       const results = await svc.getProtocolsByNames(names);
-      
+
       if (!Array.isArray(results) || results.length === 0) {
         const errorMsg = "No protocols matched the provided names";
         logger.error(`[GET_PROTOCOL_TVL] ${errorMsg}`);
@@ -126,8 +126,10 @@ export const getProtocolTvlAction: Action = {
         return errorResult;
       }
 
-      const successes = results.filter((r: any) => r && r.success && r.data);
-      const failed = results.filter((r: any) => !r || !r.success);
+      const successes = results.filter(
+        (result): result is ProtocolLookupResult & { data: ProtocolSummary } => Boolean(result.success && result.data)
+      );
+      const failed = results.filter((result) => !result.success);
       
       if (successes.length === 0) {
         const errorMsg = "No protocols matched the provided names";
@@ -155,7 +157,7 @@ export const getProtocolTvlAction: Action = {
         await callback({
           text: messageText,
           actions: ["GET_PROTOCOL_TVL"],
-          content: results as any, // include successes and failures with error messages
+          content: results,
           source: message.content.source,
         });
       }
@@ -163,8 +165,8 @@ export const getProtocolTvlAction: Action = {
       return {
         text: messageText,
         success: true,
-        data: results, // full per-input results including errors
-        values: successes.map((r: any) => r.data), // successful shaped protocols only
+        data: results,
+        values: successes.map((r) => r.data),
         input: inputParams,
       } as ActionResult & { input: typeof inputParams };
     } catch (error) {

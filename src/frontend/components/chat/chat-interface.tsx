@@ -744,7 +744,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                   >
                     <div
                       className={cn(
-                        "max-w-[70%] rounded-lg px-3 py-2 text-sm font-medium",
+                        "max-w-[70%] rounded-lg px-3 py-2 text-base font-medium",
                         isErrorMessage 
                           ? "bg-destructive/10 border border-destructive/20 text-destructive"
                           : message.isAgent 
