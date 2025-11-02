@@ -123,7 +123,7 @@ export default function ChatConversation({
                     delay: messageIndex * 0.05,
                   }}
                   className={cn(
-                    "max-w-[70%] rounded-lg px-3 py-2 text-sm font-medium",
+                    "max-w-[70%] rounded-lg px-3 py-2 text-base font-medium",
                     group.isFromCurrentUser
                       ? "bg-primary text-primary-foreground"
                       : "bg-accent text-foreground",
