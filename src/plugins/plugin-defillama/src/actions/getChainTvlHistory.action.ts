@@ -2,6 +2,7 @@ import {
   Action,
   ActionResult,
   HandlerCallback,
+  HandlerOptions,
   IAgentRuntime,
   Memory,
   State,
@@ -12,6 +13,13 @@ import {
   type ChainTvlHistoryOptions,
   type ChainTvlPoint,
 } from "../services/defillama.service";
+import {
+  limitSeries,
+  parsePositiveInteger,
+  respondWithError,
+  sanitizeChainName,
+  sanitizeFilterSegment,
+} from "../utils/action-helpers";
 
 const DEFAULT_CHAIN_HISTORY_WINDOW = 365;
 
@@ -52,7 +60,7 @@ export const getChainTvlHistoryAction: Action = {
     runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
-    _options?: Record<string, never>,
+    _options?: HandlerOptions,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
@@ -64,15 +72,29 @@ export const getChainTvlHistoryAction: Action = {
       const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
       const params = composedState?.data?.actionParams ?? {};
 
-      const chainParam = typeof params?.chain === "string" ? params.chain.trim() : "";
-      if (!chainParam) {
+      const chainParamRaw = typeof params?.chain === "string" ? params.chain.trim() : "";
+      const chainParam = sanitizeChainName(chainParamRaw);
+      if (!chainParamRaw || !chainParam) {
         const errorMsg = "Missing required parameter 'chain'.";
         logger.error(`[GET_CHAIN_TVL_HISTORY] ${errorMsg}`);
-        return await respondWithError(callback, errorMsg, "missing_required_parameter");
+        return await respondWithError(callback, errorMsg, chainParamRaw ? "invalid_parameter" : "missing_required_parameter", {
+          chain: chainParamRaw,
+        });
       }
 
-      const filterParam = typeof params?.filter === "string" ? params.filter.trim() : "";
-      const daysParam = parsePositiveInteger(params?.days as string | number | null | undefined);
+      const filterParamRaw = typeof params?.filter === "string" ? params.filter.trim() : "";
+      const filterParam = sanitizeFilterSegment(filterParamRaw);
+      if (filterParamRaw && !filterParam) {
+        const errorMsg = "Invalid 'filter' parameter. Use lowercase letters or hyphen (e.g., staking).";
+        logger.error(`[GET_CHAIN_TVL_HISTORY] ${errorMsg}`);
+        return await respondWithError(callback, errorMsg, "invalid_parameter", { filter: filterParamRaw });
+      }
+
+      const daysParamRaw = params?.days;
+      const daysParam =
+        typeof daysParamRaw === "string" || typeof daysParamRaw === "number"
+          ? parsePositiveInteger(daysParamRaw)
+          : undefined;
       const limitDays = daysParam ?? DEFAULT_CHAIN_HISTORY_WINDOW;
 
       const options: ChainTvlHistoryOptions | undefined = filterParam
@@ -84,7 +106,7 @@ export const getChainTvlHistoryAction: Action = {
       );
 
       const series = await svc.getChainTvlHistory(chainParam, options);
-      const limitedSeries = limitChainSeries(series, limitDays);
+      const limitedSeries = limitSeries(series, limitDays);
 
       if (limitedSeries.length === 0) {
         const errorMsg = `No TVL history data returned for chain '${chainParam}'.`;
@@ -176,46 +198,5 @@ type ChainHistoryResponse = {
     requestedDays?: number | null;
   };
 };
-
-function parsePositiveInteger(value: string | number | null | undefined): number | undefined {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return undefined;
-}
-
-function limitChainSeries(series: ChainTvlPoint[], limit: number): ChainTvlPoint[] {
-  if (!limit || series.length <= limit) {
-    return series;
-  }
-  return series.slice(series.length - limit);
-}
-
-async function respondWithError(
-  callback: HandlerCallback | undefined,
-  messageText: string,
-  errorCode: string,
-  details?: Record<string, string>,
-): Promise<ActionResult> {
-  if (callback) {
-    await callback({
-      text: messageText,
-      content: { error: errorCode, details },
-    });
-  }
-
-  return {
-    text: messageText,
-    success: false,
-    error: errorCode,
-    data: details,
-  };
-}
 
 

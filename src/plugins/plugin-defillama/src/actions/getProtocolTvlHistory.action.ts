@@ -2,6 +2,7 @@ import {
   Action,
   ActionResult,
   HandlerCallback,
+  HandlerOptions,
   IAgentRuntime,
   Memory,
   State,
@@ -14,6 +15,12 @@ import {
   type ProtocolTvlHistory,
   type ProtocolTvlPoint,
 } from "../services/defillama.service";
+import {
+  limitSeries,
+  parsePositiveInteger,
+  respondWithError,
+  sanitizeChainName,
+} from "../utils/action-helpers";
 
 const MAX_SERIES_DEFAULT = 365;
 
@@ -56,9 +63,10 @@ export const getProtocolTvlHistoryAction: Action = {
     runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
-    _options?: Record<string, never>,
+    _options?: HandlerOptions,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
+    let validatedChain: string | undefined;
     try {
       const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
       if (!svc) {
@@ -76,10 +84,19 @@ export const getProtocolTvlHistoryAction: Action = {
       }
 
       const chainParamRaw = typeof params?.chain === "string" ? params.chain.trim() : "";
-      const chainParam = chainParamRaw || undefined;
+      const chainParam = chainParamRaw ? sanitizeChainName(chainParamRaw) : undefined;
+      if (chainParamRaw && !chainParam) {
+        const errorMsg = "Invalid 'chain' parameter. Use letters, numbers, spaces, or -_/().";
+        logger.error(`[GET_PROTOCOL_TVL_HISTORY] ${errorMsg}`);
+        return await respondWithError(callback, errorMsg, "invalid_parameter", { chain: chainParamRaw });
+      }
+      validatedChain = chainParam;
 
       const daysParamRaw = params?.days;
-      const parsedDays = parsePositiveInteger(daysParamRaw);
+      const parsedDays =
+        typeof daysParamRaw === "string" || typeof daysParamRaw === "number"
+          ? parsePositiveInteger(daysParamRaw)
+          : undefined;
       const limitDays = parsedDays ?? MAX_SERIES_DEFAULT;
 
       const lookupResults = await svc.getProtocolsByNames([protocolParam]);
@@ -118,7 +135,7 @@ export const getProtocolTvlHistoryAction: Action = {
       const limitedChainSeries = buildChainSeries(history, chainParam, limitDays);
 
       const messageText = chainParam
-        ? buildChainMessage(match.data.name, limitedTotalSeries.length, chainParam, limitedChainSeries)
+        ? `Retrieved ${limitedTotalSeries.length} TVL data points for ${match.data.name} on ${Object.keys(limitedChainSeries).join(", ")}.`
         : `Retrieved ${limitedTotalSeries.length} TVL data points for ${match.data.name}.`;
 
       const responsePayload = {
@@ -165,7 +182,13 @@ export const getProtocolTvlHistoryAction: Action = {
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
       logger.error(`[GET_PROTOCOL_TVL_HISTORY] Action failed: ${messageText}`);
-      return await respondWithError(callback, `Failed to fetch protocol TVL history: ${messageText}`, "action_failed");
+      const isChainMiss = validatedChain && messageText.includes("No chain breakdown matched");
+      const responseMessage = isChainMiss
+        ? messageText
+        : `Failed to fetch protocol TVL history: ${messageText}`;
+      const errorCode = isChainMiss ? "no_chain_match" : "action_failed";
+      const details = isChainMiss ? { chain: validatedChain ?? null } : undefined;
+      return await respondWithError(callback, responseMessage, errorCode, details ?? undefined);
     }
   },
   examples: [
@@ -214,19 +237,6 @@ type ProtocolHistoryResponse = {
   };
 };
 
-function parsePositiveInteger(value: string | number | null | undefined): number | undefined {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return undefined;
-}
-
 function determineSlug(summary: ProtocolSummary): string | undefined {
   if (summary.slug && summary.slug.trim()) {
     return summary.slug.trim();
@@ -236,13 +246,6 @@ function determineSlug(summary: ProtocolSummary): string | undefined {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slugified || undefined;
-}
-
-function limitSeries(series: ProtocolTvlPoint[], limit: number): ProtocolTvlPoint[] {
-  if (!limit || series.length <= limit) {
-    return series;
-  }
-  return series.slice(series.length - limit);
 }
 
 function buildChainSeries(
@@ -262,42 +265,10 @@ function buildChainSeries(
   const matched = Object.entries(history.chainSeries).find(([chainName]) => chainName.toLowerCase() === chainLookup);
   if (matched) {
     chainSeries[matched[0]] = limitSeries(matched[1], limit);
-  }
-  return chainSeries;
-}
-
-async function respondWithError(
-  callback: HandlerCallback | undefined,
-  messageText: string,
-  errorCode: string,
-  details?: Record<string, string | number | null>,
-): Promise<ActionResult> {
-  if (callback) {
-    await callback({
-      text: messageText,
-      content: { error: errorCode, details },
-    });
+    return chainSeries;
   }
 
-  return {
-    text: messageText,
-    success: false,
-    error: errorCode,
-    data: details,
-  };
-}
-
-function buildChainMessage(
-  protocolName: string,
-  totalPoints: number,
-  requestedChain: string,
-  chainSeries: Record<string, ProtocolTvlPoint[]>,
-): string {
-  const chainKeys = Object.keys(chainSeries);
-  if (chainKeys.length === 0) {
-    return `Retrieved ${totalPoints} TVL data points for ${protocolName}, but no chain breakdown matched '${requestedChain}'.`;
-  }
-  return `Retrieved ${totalPoints} TVL data points for ${protocolName} on ${chainKeys.join(", ")}.`;
+  throw new Error(`No chain breakdown matched '${chain}'.`);
 }
 
 

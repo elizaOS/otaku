@@ -125,14 +125,17 @@ export class DefiLlamaService extends Service {
   private cache: DefiLlamaProtocol[] = [];
   private cacheTimestampMs: number = 0;
   private ttlMs: number = 300000; // 5 minutes
+  private protocolIndex: Map<string, DefiLlamaProtocol> = new Map();
 
   // Protocol history cache
   private protocolHistoryCache: Map<string, { timestamp: number; data: ProtocolTvlHistory }> = new Map();
   private protocolHistoryTtlMs: number = 300000;
+  private protocolHistoryMaxEntries: number = 128;
 
   // Chain history cache
   private chainHistoryCache: Map<string, { timestamp: number; data: ChainTvlPoint[] }> = new Map();
   private chainHistoryTtlMs: number = 300000;
+  private chainHistoryMaxEntries: number = 128;
 
   // Yields cache
   private yieldsCache: YieldPool[] = [];
@@ -161,10 +164,22 @@ export class DefiLlamaService extends Service {
       if (!Number.isNaN(parsed) && parsed >= 0) this.protocolHistoryTtlMs = parsed;
     }
 
+    const protocolHistoryMaxSetting = runtime.getSetting("DEFILLAMA_PROTOCOL_HISTORY_MAX_ENTRIES");
+    if (protocolHistoryMaxSetting) {
+      const parsed = Number(protocolHistoryMaxSetting);
+      if (!Number.isNaN(parsed) && parsed > 0) this.protocolHistoryMaxEntries = parsed;
+    }
+
     const chainHistoryTtlSetting = runtime.getSetting("DEFILLAMA_CHAIN_TVL_TTL_MS");
     if (chainHistoryTtlSetting) {
       const parsed = Number(chainHistoryTtlSetting);
       if (!Number.isNaN(parsed) && parsed >= 0) this.chainHistoryTtlMs = parsed;
+    }
+
+    const chainHistoryMaxSetting = runtime.getSetting("DEFILLAMA_CHAIN_TVL_MAX_ENTRIES");
+    if (chainHistoryMaxSetting) {
+      const parsed = Number(chainHistoryMaxSetting);
+      if (!Number.isNaN(parsed) && parsed > 0) this.chainHistoryMaxEntries = parsed;
     }
 
     // Initialize yields TTL
@@ -197,33 +212,8 @@ export class DefiLlamaService extends Service {
 
       const qLower = q.toLowerCase();
 
-      let picked: DefiLlamaProtocol | null = null;
+      let picked = this.protocolIndex.get(qLower) ?? null;
 
-      for (const protocol of this.cache) {
-        const name = (protocol.name || "").toLowerCase();
-        if (name === qLower) {
-          picked = protocol;
-          break;
-        }
-      }
-      if (!picked) {
-        for (const protocol of this.cache) {
-          const symbol = (protocol.symbol || "").toLowerCase();
-          if (symbol && symbol === qLower) {
-            picked = protocol;
-            break;
-          }
-        }
-      }
-      if (!picked) {
-        for (const protocol of this.cache) {
-          const slugValue = typeof protocol.slug === "string" ? protocol.slug.toLowerCase() : "";
-          if (slugValue && slugValue === qLower) {
-            picked = protocol;
-            break;
-          }
-        }
-      }
       if (!picked) {
         for (const protocol of this.cache) {
           const name = (protocol.name || "").toLowerCase();
@@ -365,8 +355,9 @@ export class DefiLlamaService extends Service {
     }
 
     const cacheKey = trimmedSlug.toLowerCase();
-    const cached = this.protocolHistoryCache.get(cacheKey);
     const now = Date.now();
+    this.evictExpiredHistoryCaches(now);
+    const cached = this.protocolHistoryCache.get(cacheKey);
     if (cached && now - cached.timestamp <= this.protocolHistoryTtlMs) {
       return cached.data;
     }
@@ -379,7 +370,7 @@ export class DefiLlamaService extends Service {
     });
 
     const shaped = shapeProtocolHistory(raw, trimmedSlug);
-    this.protocolHistoryCache.set(cacheKey, { timestamp: now, data: shaped });
+    this.setProtocolHistoryCache(cacheKey, shaped, now);
     return shaped;
   }
 
@@ -391,8 +382,9 @@ export class DefiLlamaService extends Service {
 
     const filterSegment = options?.filter?.trim();
     const cacheKey = `${trimmedChain.toLowerCase()}${filterSegment ? `__${filterSegment.toLowerCase()}` : ""}`;
-    const cached = this.chainHistoryCache.get(cacheKey);
     const now = Date.now();
+    this.evictExpiredHistoryCaches(now);
+    const cached = this.chainHistoryCache.get(cacheKey);
     if (cached && now - cached.timestamp <= this.chainHistoryTtlMs) {
       return cached.data;
     }
@@ -420,7 +412,7 @@ export class DefiLlamaService extends Service {
       throw new Error(`No TVL history returned for chain: ${trimmedChain}`);
     }
 
-    this.chainHistoryCache.set(cacheKey, { timestamp: now, data: shapedSeries });
+    this.setChainHistoryCache(cacheKey, shapedSeries, now);
     return shapedSeries;
   }
 
@@ -428,6 +420,8 @@ export class DefiLlamaService extends Service {
     const now = Date.now();
     if (this.cache.length === 0 || now - this.cacheTimestampMs > this.ttlMs) {
       await this.loadIndex();
+    } else if (this.cache.length > 0 && this.protocolIndex.size === 0) {
+      this.rebuildProtocolIndex();
     }
   }
 
@@ -488,13 +482,14 @@ export class DefiLlamaService extends Service {
         const list = (await res.json()) as DefiLlamaProtocol[];
         this.cache = Array.isArray(list) ? list : [];
         this.cacheTimestampMs = Date.now();
+        this.rebuildProtocolIndex();
         logger.info(`[DefiLlama] Protocols loaded: ${this.cache.length} (ttlMs=${this.ttlMs})`);
         return;
       } catch (e) {
         clearTimeout(timeout);
         const isLast = attempt === maxAttempts;
         const msg = e instanceof Error ? e.message : String(e);
-        if (isLast) { logger.error(`[DefiLlama] Failed to load protocols after ${maxAttempts} attempts: ${msg}`); break; }
+        if (isLast) { logger.error(`[DefiLlama] Failed to load protocols after ${maxAttempts} attempts: ${msg}`); throw new Error(`Unable to load DefiLlama protocol index: ${msg}`); }
         const backoff = baseDelayMs * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 200);
         logger.warn(`[DefiLlama] Fetch failed (attempt ${attempt}): ${msg}. Retrying in ${backoff}ms...`);
         await new Promise((r) => setTimeout(r, backoff));
@@ -536,10 +531,65 @@ export class DefiLlamaService extends Service {
         clearTimeout(timeout);
         const isLast = attempt === maxAttempts;
         const msg = e instanceof Error ? e.message : String(e);
-        if (isLast) { logger.error(`[DefiLlama] Failed to load yields pools after ${maxAttempts} attempts: ${msg}`); break; }
+        if (isLast) { logger.error(`[DefiLlama] Failed to load yields pools after ${maxAttempts} attempts: ${msg}`); throw new Error(`Unable to load DefiLlama yields pools: ${msg}`); }
         const backoff = baseDelayMs * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 200);
         logger.warn(`[DefiLlama] Yields fetch failed (attempt ${attempt}): ${msg}. Retrying in ${backoff}ms...`);
         await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+  }
+
+  private setProtocolHistoryCache(key: string, data: ProtocolTvlHistory, now: number): void {
+    if (this.protocolHistoryCache.has(key)) {
+      this.protocolHistoryCache.delete(key);
+    }
+    while (this.protocolHistoryCache.size >= this.protocolHistoryMaxEntries) {
+      const oldestKey = this.protocolHistoryCache.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      this.protocolHistoryCache.delete(oldestKey);
+    }
+    this.protocolHistoryCache.set(key, { timestamp: now, data });
+  }
+
+  private setChainHistoryCache(key: string, data: ChainTvlPoint[], now: number): void {
+    if (this.chainHistoryCache.has(key)) {
+      this.chainHistoryCache.delete(key);
+    }
+    while (this.chainHistoryCache.size >= this.chainHistoryMaxEntries) {
+      const oldestKey = this.chainHistoryCache.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      this.chainHistoryCache.delete(oldestKey);
+    }
+    this.chainHistoryCache.set(key, { timestamp: now, data });
+  }
+
+  private evictExpiredHistoryCaches(now: number): void {
+    for (const [key, entry] of this.protocolHistoryCache.entries()) {
+      if (now - entry.timestamp > this.protocolHistoryTtlMs) {
+        this.protocolHistoryCache.delete(key);
+      }
+    }
+    for (const [key, entry] of this.chainHistoryCache.entries()) {
+      if (now - entry.timestamp > this.chainHistoryTtlMs) {
+        this.chainHistoryCache.delete(key);
+      }
+    }
+  }
+
+  private rebuildProtocolIndex(): void {
+    this.protocolIndex.clear();
+    for (const protocol of this.cache) {
+      const nameKey = (protocol.name || "").toLowerCase();
+      if (nameKey) {
+        this.protocolIndex.set(nameKey, protocol);
+      }
+      const symbolKey = (protocol.symbol || "").toLowerCase();
+      if (symbolKey) {
+        this.protocolIndex.set(symbolKey, protocol);
+      }
+      const slugKey = typeof protocol.slug === "string" ? protocol.slug.toLowerCase() : "";
+      if (slugKey) {
+        this.protocolIndex.set(slugKey, protocol);
       }
     }
   }
@@ -628,19 +678,29 @@ function shapeProtocol(p: DefiLlamaProtocol): ProtocolSummary {
   const toNumberOrNull = (value: number | string | null | undefined): number | null =>
     typeof value === "number" && Number.isFinite(value) ? value : null;
 
+  const slugValue = typeof p.slug === "string" ? p.slug : null;
+  const urlValue = typeof p.url === "string" ? p.url : null;
+  const logoValue = typeof p.logo === "string" ? p.logo : null;
+  const categoryValue = typeof p.category === "string" ? p.category : null;
+  const addressValue = typeof p.address === "string" ? p.address : null;
+  const geckoValue = typeof p.gecko_id === "string" ? p.gecko_id : null;
+  const cmcValue = typeof p.cmcId === "string" ? p.cmcId : null;
+  const twitterValue = typeof p.twitter === "string" ? p.twitter : null;
+  const symbolValue = typeof p.symbol === "string" ? p.symbol : null;
+
   return {
     id: p.id,
-    slug: typeof (p as { slug?: string }).slug === "string" ? (p as { slug?: string }).slug : null,
+    slug: slugValue,
     name: p.name,
-    symbol: typeof p.symbol === "string" ? p.symbol : null,
-    url: typeof (p as { url?: string }).url === "string" ? (p as { url?: string }).url : null,
-    logo: typeof (p as { logo?: string }).logo === "string" ? (p as { logo?: string }).logo : null,
-    category: typeof (p as { category?: string }).category === "string" ? (p as { category?: string }).category : null,
+    symbol: symbolValue,
+    url: urlValue,
+    logo: logoValue,
+    category: categoryValue,
     chains,
-    address: typeof (p as { address?: string }).address === "string" ? (p as { address?: string }).address : null,
-    geckoId: typeof (p as { gecko_id?: string }).gecko_id === "string" ? (p as { gecko_id?: string }).gecko_id : null,
-    cmcId: typeof (p as { cmcId?: string }).cmcId === "string" ? (p as { cmcId?: string }).cmcId : null,
-    twitter: typeof (p as { twitter?: string }).twitter === "string" ? (p as { twitter?: string }).twitter : null,
+    address: addressValue,
+    geckoId: geckoValue,
+    cmcId: cmcValue,
+    twitter: twitterValue,
     tvl: toNumberOrNull((p as { tvl?: number }).tvl),
     tvlChange1h: toNumberOrNull((p as { change_1h?: number }).change_1h),
     tvlChange1d: toNumberOrNull((p as { change_1d?: number }).change_1d),

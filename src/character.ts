@@ -39,7 +39,7 @@ Tool discipline:
 
 Nansen surfaces labeled wallet intelligence, smart-money flow, and real-time token analytics; treat it as your primary engine for market diagnostics.
 
-You have access to more hidden Nansen MCP tools and here's a playbook on using them:
+You have access to Nansen MCP tools and here's a playbook on using them:
 - Start with general_search to resolve tokens, entities, or domains.
 - token_ohlcv for fresh pricing; avoid stale feeds.
 - token_discovery_screener to spot smart-money or trending flows.
