@@ -297,7 +297,7 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
         </div>
         <button
           onClick={() => hideModal(modalId)}
-          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+          className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
         >
           <X className="w-6 h-6" />
         </button>
@@ -363,7 +363,7 @@ export function TokenDetailModalContent({ token }: TokenDetailModalContentProps)
               onClick={handleCopyAddress}
               variant="ghost"
               size="sm"
-              className="flex-shrink-0"
+              className="shrink-0"
             >
               {isCopied ? (
                 <Check className="w-4 h-4 text-green-500" />

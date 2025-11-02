@@ -154,7 +154,7 @@ export function NFTDetailModalContent({ nft, userId, onSuccess }: NFTDetailModal
         </div>
         <button
           onClick={() => hideModal(modalId)}
-          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+          className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
         >
           <X className="w-6 h-6" />
         </button>

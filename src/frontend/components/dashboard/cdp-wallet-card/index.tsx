@@ -99,15 +99,28 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
 
-  // Helper: Sort tokens by chain order (matches SUPPORTED_CHAINS order)
-  const sortTokensByChainOrder = (tokensToSort: Token[]): Token[] => {
-    return tokensToSort.sort((a, b) => {
-      const aIndex = SUPPORTED_CHAINS.indexOf(a.chain as any);
-      const bIndex = SUPPORTED_CHAINS.indexOf(b.chain as any);
-      // If chain not found, put it at the end
-      const aOrder = aIndex === -1 ? 999 : aIndex;
-      const bOrder = bIndex === -1 ? 999 : bIndex;
-      return aOrder - bOrder;
+  const getChainSortOrder = (chain: string): number => {
+    const index = SUPPORTED_CHAINS.indexOf(chain as (typeof SUPPORTED_CHAINS)[number]);
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  };
+
+  // Helper: Sort tokens by USD value (highest first), fallback to chain order then symbol
+  const sortTokensByUsdValueDesc = (tokensToSort: Token[]): Token[] => {
+    return [...tokensToSort].sort((a, b) => {
+      const valueA = a.usdValue ?? 0;
+      const valueB = b.usdValue ?? 0;
+
+      if (valueB !== valueA) {
+        return valueB - valueA;
+      }
+
+      const chainOrderA = getChainSortOrder(a.chain);
+      const chainOrderB = getChainSortOrder(b.chain);
+      if (chainOrderA !== chainOrderB) {
+        return chainOrderA - chainOrderB;
+      }
+
+      return a.symbol.localeCompare(b.symbol);
     });
   };
 
@@ -165,8 +178,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
               const otherChainTokens = prevTokens.filter(token => token.chain !== chain);
               // Add new tokens from this chain
               const mergedTokens = [...otherChainTokens, ...data.tokens];
-              // Sort by chain order to maintain consistent display
-              return sortTokensByChainOrder(mergedTokens);
+              return sortTokensByUsdValueDesc(mergedTokens);
             });
           }
           
@@ -252,8 +264,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
               const otherChainTokens = prevTokens.filter(token => token.chain !== chain);
               // Add new tokens from this chain
               const mergedTokens = [...otherChainTokens, ...data.tokens];
-              // Sort by chain order to maintain consistent display
-              return sortTokensByChainOrder(mergedTokens);
+              return sortTokensByUsdValueDesc(mergedTokens);
             });
           }
           
@@ -545,7 +556,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                           className="flex items-center justify-between gap-0.5 p-1 rounded hover:bg-muted/50 transition-colors group"
                         >
                           {/* First Group: Icon & Name */}
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <div className="w-5 h-5 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center overflow-hidden bg-white">
                               {chainWalletIcon ? (
                                 <img 
@@ -570,7 +581,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-5 w-5 p-0 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                              className="h-5 w-5 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                             >
                               {copiedChain === chain ? (
                                 <Check className="w-2.5 h-2.5 text-green-500" />
@@ -767,7 +778,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                     className="w-full flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors min-w-0 cursor-pointer text-left"
                   >
                     <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-muted flex items-center justify-center overflow-hidden flex-shrink-0">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-muted flex items-center justify-center overflow-hidden shrink-0">
                         {getTokenIcon(token)}
                       </div>
                       <div className="flex flex-col min-w-0 flex-1">
@@ -782,7 +793,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                         </span>
                       </div>
                     </div>
-                    <span className="text-xs sm:text-sm font-mono flex-shrink-0 ml-2">
+                    <span className="text-xs sm:text-sm font-mono shrink-0 ml-2">
                       ${token.usdValue?.toFixed(2) ?? '0.00'}
                     </span>
                   </button>
@@ -824,7 +835,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                     }}
                     className="w-full flex items-center gap-2 sm:gap-3 p-2 rounded hover:bg-muted/50 transition-colors min-w-0 cursor-pointer text-left"
                   >
-                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-muted flex items-center justify-center overflow-hidden flex-shrink-0 border border-border/30">
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0 border border-border/30">
                       {nft.image ? (
                         <img 
                           src={nft.image} 
@@ -845,7 +856,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                     <div className="flex flex-col min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
                         <span className="text-xs sm:text-sm font-medium truncate flex-1 min-w-0">{nft.name}</span>
-                        <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono whitespace-nowrap flex-shrink-0">
+                        <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono whitespace-nowrap shrink-0">
                           {nft.chain}
                         </span>
                       </div>
@@ -908,7 +919,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                                 className="w-full flex items-center justify-between p-2 rounded hover:bg-muted/50 transition-colors text-left cursor-pointer"
                               >
                                 <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                                  <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                  <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center shrink-0 ${
                                     isReceived ? 'bg-green-500/10' : 'bg-red-500/10'
                                   }`}>
                                     <span className="text-base sm:text-lg">
@@ -920,7 +931,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                                       <span className="text-xs sm:text-sm font-medium truncate">
                                         {isReceived ? 'Received' : 'Sent'}
                                       </span>
-                                      <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono whitespace-nowrap flex-shrink-0">
+                                      <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono whitespace-nowrap shrink-0">
                                         {tx.chain}
                                       </span>
                                     </div>
@@ -932,7 +943,7 @@ export const CDPWalletCard = forwardRef<CDPWalletCardRef, CDPWalletCardProps>(
                                     </span>
                                   </div>
                                 </div>
-                                <div className="flex flex-col items-end flex-shrink-0 ml-2" style={{ maxWidth: '35%', minWidth: 0 }}>
+                                <div className="flex flex-col items-end shrink-0 ml-2" style={{ maxWidth: '35%', minWidth: 0 }}>
                                   <span className={`text-xs sm:text-sm font-mono font-medium overflow-hidden text-ellipsis whitespace-nowrap w-full text-right ${
                                     isReceived ? 'text-green-500' : 'text-red-500'
                                   }`} title={`${isReceived ? '+' : '-'}${amount.toFixed(8)} ${tx.asset}`}>
