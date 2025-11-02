@@ -441,7 +441,7 @@ Deployments kick off automatically after configuration changes, or you can trigg
 
 ### 5. Finalize networking
 
-- Under **Networking**, attach the default Railway URL (e.g. `otaku-fe-production.up.railway.app`) or connect your custom domain (`otaku.so`).
+- Under **Networking**, attach the default Railway URL generated for the service (for example, `your-service-name.up.railway.app`) or connect your own domain.
 - If you use a custom domain, point the DNS `CNAME` record to the Railway edge URL and wait for the certificate status to show "Setup complete".
 
 ### 6. Post-deploy checklist
