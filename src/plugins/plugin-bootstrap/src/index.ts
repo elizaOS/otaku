@@ -5,16 +5,13 @@ import {
   composePromptFromState,
   type Content,
   type ControlMessage,
-  ContentType,
   createUniqueUuid,
   type EntityPayload,
   type EvaluatorEventPayload,
   type EventPayload,
   EventType,
   type IAgentRuntime,
-  imageDescriptionTemplate,
   logger,
-  type Media,
   type Memory,
   messageHandlerTemplate,
   type MessagePayload,
@@ -29,7 +26,6 @@ import {
   truncateToCompleteSentence,
   type UUID,
   type WorldPayload,
-  getLocalServerUrl,
   type State,
   Action,
   HandlerCallback,
@@ -42,74 +38,8 @@ import * as providers from './providers/index.js';
 
 import { TaskService } from './services/task.js';
 import { EmbeddingGenerationService } from './services/embedding.js';
-import { multiStepDecisionTemplate } from './templates/index.js';
-import { refreshStateAfterAction, type MediaData, fetchMediaData, processAttachments } from './utils/index.js';
-
-export * from './actions/index.js';
-export * from './evaluators/index.js';
-export * from './providers/index.js';
-export * from './templates/index.js';
-export * from './utils/index.js';
-
-export const multiStepSummaryTemplate = `<task>
-Generate a final, user-facing response based on what the assistant accomplished and the results obtained.
-</task>
-
-{{bio}}
-
----
-
-{{system}}
-
----
-
-{{messageDirections}}
-
----
-
-{{time}}
-
----
-
-{{recentMessages}}
-
----
-
-{{actionResults}}
-
-**These are the steps taken and their results. Use successful results to answer the user; acknowledge failures if relevant.**
-
----
-
-{{actionsWithDescriptions}}
-
----
-
-# Assistant's Last Reasoning Step
-{{recentThought}}
-
----
-
-# Instructions
-
-1. **Review the latest user message**: What did they originally ask for?
-2. **Check execution results**: What data/outcomes did the actions produce? Focus on successful results.
-3. **Synthesize answer**: Provide a clear, direct response using the information gathered. If results are insufficient or actions failed, explain what happened and suggest next steps.
-4. **Be concise and helpful**: Users want answers, not a list of what you did. Lead with the result, not the process.
-
-**Tone**: Professional, direct, and focused on delivering value. Avoid overly technical jargon unless the user expects it.
-
-# IMPORTANT
-YOUR FINAL OUTPUT MUST BE IN THIS XML FORMAT:
-
-<output>
-<response>
-  <thought>Briefly summarize the user's request and the key results obtained. Note any gaps or issues.</thought>
-  <text>Your direct, helpful answer to the user based on the results. Lead with the information they asked for.</text>
-</response>
-</output>
-`;
-
+import { multiStepDecisionTemplate, multiStepSummaryTemplate } from './templates/index.js';
+import { refreshStateAfterAction } from './utils/index.js';
 
 
 /**
