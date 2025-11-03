@@ -282,7 +282,15 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
   };
 
   return (
-    <DashboardPageLayout
+    <>
+      {/* Preload avatar images to prevent loading delay when modal opens */}
+      <div className="hidden">
+        {predefinedAvatars.map((avatarUrl, index) => (
+          <img key={index} src={avatarUrl} alt="" />
+        ))}
+      </div>
+
+      <DashboardPageLayout
         header={{
           title: "Account",
           description: "Your profile and account information",
@@ -446,5 +454,6 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
           </div>
         </div>
       </DashboardPageLayout>
+    </>
   );
 }
