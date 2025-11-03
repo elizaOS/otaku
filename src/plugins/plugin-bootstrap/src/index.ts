@@ -68,7 +68,6 @@ const messageReceivedHandler = async ({
   onComplete,
 }: MessagePayload): Promise<void> => {
   // Set up timeout monitoring
-  const useMultiStep = true;
   const timeoutDuration = 60 * 60 * 1000; // 1 hour
   let timeoutId: NodeJS.Timeout | undefined = undefined;
 
@@ -248,9 +247,7 @@ const messageReceivedHandler = async ({
         let responseMessages: Memory[] = [];
 
        
-        const result = useMultiStep
-          ? await runMultiStepCore({ runtime, message, state, callback })
-          : await runSingleShotCore({ runtime, message, state });
+        const result = await runMultiStepCore({ runtime, message, state, callback });
 
         responseContent = result.responseContent;
         responseMessages = result.responseMessages;
@@ -433,121 +430,6 @@ type StrategyResult = {
   state: any;
   mode: StrategyMode;
 };
-
-async function runSingleShotCore({ runtime, message, state }: { runtime: IAgentRuntime, message: Memory, state: State }): Promise<StrategyResult> {
-  state = await runtime.composeState(message, ['ACTIONS']);
-
-  if (!state.values?.actionNames) {
-    runtime.logger.warn('actionNames data missing from state, even though it was requested');
-  }
-
-  const prompt = composePromptFromState({
-    state,
-    template: runtime.character.templates?.messageHandlerTemplate || messageHandlerTemplate,
-  });
-
-  let responseContent: Content | null = null;
-
-  // Retry if missing required fields
-  let retries = 0;
-  const maxRetries = 3;
-
-  while (retries < maxRetries && (!responseContent?.thought || !responseContent?.actions)) {
-    const response = await runtime.useModel(ModelType.TEXT_LARGE, { prompt });
-
-    runtime.logger.debug({ response }, '[Bootstrap] *** Raw LLM Response ***');
-
-    // Attempt to parse the XML response
-    const parsedXml = parseKeyValueXml(response);
-    runtime.logger.debug({ parsedXml }, '[Bootstrap] *** Parsed XML Content ***');
-
-    // Map parsed XML to Content type, handling potential missing fields
-    if (parsedXml) {
-      responseContent = {
-        ...parsedXml,
-        thought: parsedXml.thought || '',
-        actions: parsedXml.actions || ['IGNORE'],
-        providers: parsedXml.providers || [],
-        text: parsedXml.text || '',
-        simple: parsedXml.simple || false,
-      };
-    } else {
-      responseContent = null;
-    }
-
-    retries++;
-    if (!responseContent?.thought || !responseContent?.actions) {
-      runtime.logger.warn(
-        { response, parsedXml, responseContent },
-        '[Bootstrap] *** Missing required fields (thought or actions), retrying... ***'
-      );
-    }
-  }
-
-  if (!responseContent) {
-    return { responseContent: null, responseMessages: [], state, mode: 'none' };
-  }
-
-  // --- LLM IGNORE/REPLY ambiguity handling ---
-  // Sometimes the LLM outputs actions like ["REPLY", "IGNORE"], which breaks isSimple detection
-  // and triggers unnecessary large LLM calls. We clarify intent here:
-  // - If IGNORE is present with other actions:
-  //    - If text is empty, we assume the LLM intended to IGNORE and drop all other actions.
-  //    - If text is present, we assume the LLM intended to REPLY and remove IGNORE from actions.
-  // This ensures consistent, clear behavior and preserves reply speed optimizations.
-  if (responseContent.actions && responseContent.actions.length > 1) {
-    // filter out all NONE actions, there's nothing to be done with them
-    // oh but there is a none action in bootstrap
-    //responseContent.actions = responseContent.actions.filter(a => a !== 'NONE')
-
-    // Helper function to safely check if an action is IGNORE
-    const isIgnore = (a: unknown) => typeof a === 'string' && a.toUpperCase() === 'IGNORE';
-
-    // Check if any action is IGNORE
-    const hasIgnore = responseContent.actions.some(isIgnore);
-
-    if (hasIgnore) {
-      if (!responseContent.text || responseContent.text.trim() === '') {
-        // No text, truly meant to IGNORE
-        responseContent.actions = ['IGNORE'];
-      } else {
-        // Text present, LLM intended to reply, remove IGNORE
-        const filtered = responseContent.actions.filter((a) => !isIgnore(a));
-        // Ensure we don't end up with an empty actions array when text is present
-        // If all actions were IGNORE, default to REPLY
-        responseContent.actions = filtered.length ? filtered : ['REPLY'];
-      }
-    }
-  }
-
-  // Automatically determine if response is simple based on providers and actions
-  // Simple = REPLY action with no providers used
-  const isSimple =
-    responseContent.actions?.length === 1 &&
-    typeof responseContent.actions[0] === 'string' &&
-    responseContent.actions[0].toUpperCase() === 'REPLY' &&
-    (!responseContent.providers || responseContent.providers.length === 0);
-
-  responseContent.simple = isSimple;
-
-  const responseMessages: Memory[] = [
-    {
-      id: asUUID(v4()),
-      entityId: runtime.agentId,
-      agentId: runtime.agentId,
-      content: responseContent,
-      roomId: message.roomId,
-      createdAt: Date.now(),
-    },
-  ];
-
-  return {
-    responseContent,
-    responseMessages,
-    state,
-    mode: isSimple && responseContent.text ? 'simple' : 'actions',
-  };
-}
 
 async function runMultiStepCore({ runtime, message, state, callback }: { runtime: IAgentRuntime, message: Memory, state: State, callback?: HandlerCallback }): Promise<StrategyResult> {
   const traceActionResult: MultiStepActionResult[] = [];
