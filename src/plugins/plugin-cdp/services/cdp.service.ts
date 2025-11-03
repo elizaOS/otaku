@@ -42,7 +42,6 @@ export class CdpService extends Service {
   constructor(runtime: IAgentRuntime) {
     super(runtime);
     this.transactionManager = CdpTransactionManager.getInstance();
-    console.log('222222222222222222222222222 CdpService', !!this.transactionManager);
   }
 
   static async start(runtime: IAgentRuntime): Promise<CdpService> {

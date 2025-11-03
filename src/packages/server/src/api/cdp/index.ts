@@ -11,9 +11,7 @@ export function cdpRouter(_serverInstance: AgentServer): express.Router {
 
   // Get the singleton instance of CdpTransactionManager
   const cdpTransactionManager = CdpTransactionManager.getInstance();
-
-  console.log('11111111 111111111111111111111111111 cdpRouter', !!cdpTransactionManager);
-
+  
   // SECURITY: Require authentication for all CDP wallet operations
   router.use(requireAuth);
 
