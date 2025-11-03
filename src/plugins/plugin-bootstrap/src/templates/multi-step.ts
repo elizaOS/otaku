@@ -153,20 +153,23 @@ THEN: Explain your decision:
   - If continuing: "Next action: [action name] because [how it complements prior actions or provides new perspective]."
 
 "action" Name of the action to execute (empty string "" if setting isFinish: true or if no action needed)
-
-"parameters" Parameters for the action (empty object if setting isFinish: true or if no action needed)
-
-"isFinish" Boolean - set to true if the user's request has been adequately fulfilled or if you're about to repeat an action
+"parameters" JSON object with exact parameter names. Empty object \\{\\} if action has no parameters.
+"isFinish" Set to true when the user's request is adequately satisfied (see Decision Rules)
 </keys>
 
 Do NOT include any thinking, reasoning, or <think> sections in your response. 
 Go directly to the XML response format without any preamble or explanation.
 
 <response>
-  <thought>Your detailed reasoning here following the format above</thought>
-  <action>ACTION_NAME or empty string</action>
-  <parameters>JSON object or empty object</parameters>
-  <isFinish>true or false</isFinish>
+  <thought>Step \\{\\{iterationCount\\}\\}/\\{\\{maxIterations\\}\\}. Actions taken this round: \\{\\{traceActionResult.length\\}\\}. [Your reasoning]</thought>
+  <action>ACTION_NAME or ""</action>
+  <parameters>
+    \\{
+      "param1": "value1",
+      "param2": value2
+    \\}
+  </parameters>
+  <isFinish>true | false</isFinish>
 </response>
 
 IMPORTANT: Your response must ONLY contain the <response></response> XML block above. Do not include any text, thinking, or reasoning before or after this XML block. Start your response immediately with <response> and end with </response>.`;
