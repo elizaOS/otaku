@@ -200,6 +200,7 @@ export class CdpService extends Service {
     }) as PublicClient;
     
     const walletClient = createWalletClient({
+      // @ts-ignore - CDP SDK account type does not match viem's expected account shape
       account: toAccount(account),
       chain,
       transport: http(rpcUrl),

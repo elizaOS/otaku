@@ -1,7 +1,7 @@
 {
-  "name": "my-eliza-app",
+  "name": "@elizaos/otaku",
   "version": "1.0.0",
-  "description": "Custom Eliza App with React UI",
+  "description": "Otaku is a DeFi-focused ElizaOS agent powered by custom bootstrap plugin and custom build of the ElizaOS server",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -28,9 +28,10 @@
     "@elizaos/api-client": "workspace:*",
     "@elizaos/cli": "latest",
     "@elizaos/core": "alpha",
+    "@elizaos/plugin-analytics": "^1.0.1",
     "@elizaos/plugin-anthropic": "^1.0.6",
     "@elizaos/plugin-bootstrap": "workspace:*",
-    "@elizaos/plugin-mcp": "^1.0.8",
+    "@elizaos/plugin-mcp": "^1.2.0",
     "@elizaos/plugin-openai": "^1.5.15",
     "@elizaos/plugin-openrouter": "^1.5.14",
     "@elizaos/plugin-sql": "latest",

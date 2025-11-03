@@ -54,7 +54,7 @@ export const getYieldRatesAction: Action = {
     runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
-    _options?: any,
+    _options?: Record<string, never>,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {

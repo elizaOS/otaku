@@ -4,355 +4,320 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Otaku is a DeFi-focused AI agent built on ElizaOS, featuring a modern React frontend, Coinbase Developer Platform (CDP) wallet integration, and comprehensive DeFi capabilities. The project uses Bun as the runtime and package manager, with a monorepo workspace structure.
+Otaku is a DeFi-focused AI agent built on ElizaOS with a custom React frontend. It's a monorepo workspace project using Bun, featuring real-time chat via Socket.IO, CDP wallet integration, and comprehensive DeFi capabilities.
 
-**Tech Stack:**
-- Runtime: Bun 1.2.21+
-- Frontend: React 18 + TypeScript + Vite
-- Backend: ElizaOS Server (@elizaos/server)
-- Build System: Turbo (monorepo orchestration)
-- Styling: Tailwind CSS 4.x
-- UI: Radix UI components
-- WebSocket: Socket.IO for real-time messaging
+**Runtime**: Bun 1.2.21 (required)
+**Build System**: Turbo (monorepo task runner)
+**Package Manager**: Bun workspaces
 
-## Common Commands
+## Development Commands
 
-### Development
+### Building and Running
 
 ```bash
-# Development - Build all packages and start server
+# Development: Build all packages and start server
 bun run dev
 
-# Watch mode - Rebuilds on changes
+# Watch mode: Auto-rebuild on changes
 bun run dev:watch
 
-# Start server only (requires prior build)
-bun run start
-```
-
-### Building
-
-```bash
-# Build everything (all packages + frontend + backend)
+# Production build: Build everything
 bun run build
 
-# Build all workspace packages only
-bun run build:all
+# Start production server
+bun run start
 
-# Build backend only
-bun run build:backend
-
-# Build frontend only (React app)
-bun run build:frontend
+# Build specific parts
+bun run build:all        # All workspace packages via Turbo
+bun run build:backend    # Backend only (build.ts)
+bun run build:frontend   # Frontend only (Vite)
 
 # Type checking
 bun run type-check
 ```
 
-### Testing Individual Components
+### Testing
+
+Tests exist in workspace packages (`api-client` and `server`), not the root:
 
 ```bash
-# Build a specific workspace package
-cd src/packages/api-client && bun run build
-cd src/plugins/plugin-cdp && bun run build
+# Run tests in api-client package
+cd src/packages/api-client && bun test
+cd src/packages/api-client && bun test --watch
 
-# Run frontend dev server independently (if needed)
-cd src/frontend && vite dev
+# Run tests in server package
+cd src/packages/server && bun test
+cd src/packages/server && bun test:unit              # Unit tests only
+cd src/packages/server && bun test:integration       # Integration tests only
+cd src/packages/server && bun test:watch             # Watch mode
+cd src/packages/server && bun test:coverage          # With coverage
 ```
+
+**Note**: Root project does not have its own test suite. All tests live in workspace packages.
 
 ## Architecture
 
 ### Monorepo Structure
 
-The project uses Bun workspaces with Turbo for build orchestration:
+The project uses Bun workspaces with three key areas:
 
-- **Workspace packages** (`src/packages/*`):
-  - `@elizaos/api-client` - Type-safe API client for ElizaOS server
-  - `@elizaos/server` - ElizaOS server runtime documentation
-
-- **Plugins** (`src/plugins/*`):
-  - `plugin-bootstrap` - Core ElizaOS behaviors and providers
-  - `plugin-cdp` - Coinbase Developer Platform integration
-  - `plugin-coingecko` - Token pricing and market data
-  - `plugin-web-search` - Web search and crypto news (Tavily, CoinDesk)
-  - `plugin-defillama` - DeFi protocol TVL analytics
-  - `plugin-relay` - Cross-chain bridging via Relay Protocol
-  - `plugin-etherscan` - Transaction verification
+1. **Root** (`src/index.ts`, `src/character.ts`) - Agent configuration and character definition
+2. **Workspace Packages** (`src/packages/*`) - Shared libraries
+   - `@elizaos/api-client` - Type-safe REST API client
+   - `@elizaos/server` - ElizaOS server runtime
+3. **Plugins** (`src/plugins/*`) - Feature plugins as workspace packages
 
 ### Build Pipeline
 
-1. **Turbo** orchestrates workspace package builds (`bun run build:all`)
-2. **Backend build** (`build.ts`):
-   - Bundles `src/index.ts` to `dist/` using Bun.build
-   - Generates TypeScript declarations with `tsc --emitDeclarationOnly`
-   - Externalizes ElizaOS core packages to avoid bundling issues
-3. **Frontend build** (`vite build`):
-   - Builds React app from `src/frontend/` to `dist/frontend/`
-   - Vite config loads all env vars (not just VITE_ prefixed) and exposes them to `import.meta.env`
-4. **Server startup** (`start-server.ts`):
-   - Loads built project from `dist/index.js`
-   - Serves frontend from `dist/frontend/`
-   - Starts ElizaOS server with all plugins and agents
+1. **Turbo** orchestrates workspace package builds based on dependency graph
+2. **Backend** (`build.ts`) - Bun.build bundles `src/index.ts` to `dist/` with external core packages
+3. **Frontend** (`vite.config.ts`) - Vite builds React app to `dist/frontend/`
+4. **Server** (`start-server.ts`) - Loads built agent from `dist/index.js` and serves frontend from `dist/frontend/`
 
-### Agent Configuration
+### Critical Build Details
 
-**Entry point:** `src/index.ts`
-- Imports character definition from `src/character.ts`
-- Registers plugins in `projectAgent.plugins` array
-- Exports `Project` object consumed by ElizaOS server
+- Backend build externalizes `@elizaos/*` packages to avoid bundling ElizaOS core
+- Server imports the built project module (`dist/index.js`) to extract agents and plugins
+- Frontend must be built to `dist/frontend/` for server to serve it
+- All workspace packages must build before backend/frontend
 
-**Character:** `src/character.ts` (Otaku)
-- DeFi analyst personality with evidence-based guidance
-- System prompt emphasizes balance verification before on-chain actions
-- Style guide: concise, data-driven, no procedural language
+### Entry Points
 
-### Plugin Architecture
+- **Agent Entry**: `src/index.ts` exports `Project` with agents array
+- **Server Entry**: `start-server.ts` imports built project and starts `AgentServer`
+- **Frontend Entry**: `src/frontend/main.tsx` (Vite entry)
 
-Each plugin in `src/plugins/plugin-*/` follows ElizaOS plugin structure:
+### Agent Architecture
 
-```typescript
-export const myPlugin: Plugin = {
-  name: "plugin-name",
-  description: "...",
-  actions: [],      // AI-invocable actions
-  providers: [],    // Context providers (e.g., wallet state)
-  services: [],     // Runtime services
-  evaluators: [],   // Message evaluators
-};
-```
+The Otaku agent (`src/character.ts`) is configured with:
+- **System prompt** with strict transaction safety protocols
+- **Nansen MCP integration** for blockchain analytics via `settings.mcp.servers`
+- **Plugin array** registered via `projectAgent.plugins` in `src/index.ts`
 
-**Key Plugin Details:**
+**Plugin Registration**: Plugins are NOT in `character.plugins` (empty array). They're added to `projectAgent.plugins` as imported modules, then flattened and passed to `server.startAgents()` in `start-server.ts`.
 
-- **CDP Plugin**: Provides wallet management, token/NFT transfers, swaps, and x402 paid API requests. Uses `CdpService` to manage CDP SDK client. Actions always verify wallet balance before executing on-chain transactions.
+### Frontend-Backend Communication
 
-- **Bootstrap Plugin**: Core ElizaOS functionality - action execution, message evaluation, state management, memory providers. Required for agent operation.
+**REST API** (`lib/elizaClient.ts`):
+- Uses `@elizaos/api-client` for type-safe requests
+- Base URL: `window.location.origin` (same-origin)
+- API key stored in localStorage
 
-### Frontend Architecture
+**WebSocket** (`lib/socketManager.ts`):
+- Socket.IO client for real-time messaging
+- Message types: `ROOM_JOINING`, `SEND_MESSAGE`, `MESSAGE`, `ACK`, `THINKING`, `CONTROL`
+- Connects to same origin, emits `message` events with typed payloads
+- Listens on `messageBroadcast` for agent responses
 
-**Location:** `src/frontend/`
+**User Isolation**: Both REST and WebSocket use `userId` as `serverId` to create isolated worlds per user.
 
-**Key Libraries:**
-- `@elizaos/api-client` - Type-safe API client (see `lib/elizaClient.ts`)
-- `@tanstack/react-query` - Server state management
-- `zustand` - Client state management
-- `@coinbase/cdp-react`, `@coinbase/cdp-hooks` - CDP wallet integration
-- `socket.io-client` - Real-time messaging (see `lib/socketManager.ts`)
-- `recharts` - Chart visualization
-- `framer-motion` - Animations
+## Plugin System
 
-**Component Structure:**
-- `components/chat/` - Chat interface with message history and input
-- `components/dashboard/` - Sidebar, wallet card, widgets
-- `components/agents/` - Agent selection and management
-- `components/auth/` - CDP sign-in modal
-- `components/ui/` - Reusable Radix UI primitives
+### Active Plugins (src/index.ts)
 
-**State Management:**
-- React Query for API data fetching and caching
-- CDP hooks (`useCdp`, `useUser`, `useWalletClient`) for wallet state
-- React Context for modals and loading panels
+Order matters for initialization:
+1. `sqlPlugin` - Database/memory (required first)
+2. `bootstrapPlugin` - Core ElizaOS capabilities
+3. `openrouterPlugin` / `openaiPlugin` - LLM providers
+4. `cdpPlugin` - Coinbase wallet integration
+5. `coingeckoPlugin` - Token prices/market data
+6. `webSearchPlugin` - Web search (Tavily) + crypto news (CoinDesk)
+7. `defiLlamaPlugin` - DeFi protocol TVL analytics
+8. `relayPlugin` - Cross-chain bridging
+9. `etherscanPlugin` - Transaction verification
+10. `mcpPlugin` - MCP server support (Nansen)
 
-### API Communication
+### Plugin Development Pattern
 
-**REST API:** Use `elizaClient` from `lib/elizaClient.ts`
-```typescript
-import { elizaClient } from './lib/elizaClient';
-
-// List agents
-const { agents } = await elizaClient.agents.listAgents();
-
-// Send message
-const message = await elizaClient.messaging.postMessage(channelId, 'Hello!');
-
-// Create session
-const session = await elizaClient.sessions.createSession({ agentId, userId });
-```
-
-**WebSocket:** Use `socketManager` from `lib/socketManager.ts`
-```typescript
-import { socketManager } from './lib/socketManager';
-
-// Connect and join channel
-socketManager.connect(userId);
-socketManager.joinChannel(channelId, serverId);
-
-// Send and receive messages
-socketManager.sendMessage(channelId, 'Hello!', serverId);
-socketManager.onMessage((data) => console.log('New message:', data));
-```
+Plugins are workspace packages in `src/plugins/plugin-*/`:
+- Each has `package.json`, `tsconfig.json`, `build.ts`
+- Export actions, services, providers from `src/index.ts`
+- Build to `dist/` as ESM modules
+- Imported as modules in root `src/index.ts`, not by string name
 
 ## Environment Configuration
 
-**Required Variables:**
-- `JWT_SECRET` - JWT signing secret for user auth
-- `OPENAI_API_KEY` or `OPENROUTER_API_KEY` - AI provider
+`.env.sample` is the canonical reference for all environment variables. Required keys:
+- `JWT_SECRET` - User authentication
+- `OPENAI_API_KEY` or `OPENROUTER_API_KEY` - LLM provider
+- `VITE_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET` - Coinbase wallet
+- `ALCHEMY_API_KEY` - Blockchain data for CDP plugin
 
-**CDP Features (required for wallet functionality):**
-- `VITE_CDP_PROJECT_ID` - Frontend CDP sign-in
-- `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` - Backend CDP SDK
-- `CDP_WALLET_SECRET` - Random 32-byte hex for wallet encryption
-- `ALCHEMY_API_KEY` - Fetches balances, tokens, NFTs
+Optional keys in `.env.sample` control plugin features, RPC overrides, x402 payments, and database.
 
-**Optional:**
-- `SERVER_PORT` - Default: 3000
-- `PGLITE_DATA_DIR` - SQLite data dir (default: `./data`)
-- `POSTGRES_URL` - PostgreSQL connection (overrides SQLite)
-- `TAVILY_API_KEY` - Required if web-search plugin enabled
-- `COINGECKO_API_KEY` - Better token pricing
-- `X402_PUBLIC_URL` or `PUBLIC_URL` - Public URL for x402 payment resource (required in production if behind proxy/CDN)
+## Agent Character (src/character.ts)
 
-## Development Workflow
+### Transaction Safety Protocol
+
+Otaku has strict rules to prevent unintended transactions:
+
+**Question Detection** (NEVER execute):
+- Phrases: "how do I", "can you", "should I", "what if", "how about", "could you"
+- Response: Provide guidance, ask "Want me to execute?"
+
+**Direct Commands** (may execute after verification):
+- Phrases: "swap X to Y", "bridge Z", "send A to B"
+- Flow: Verify balance → show plan → execute (confirm if unusual amounts)
+
+**Transfers/NFTs** (extra caution):
+1. Verify recipient, amount, token, network
+2. Show clear summary with USD value
+3. Ask "Is this exactly what you want me to execute?"
+4. Wait for explicit "yes"/"confirm"/"go ahead"
+
+### Pre-flight Checks
+
+Before ANY on-chain action:
+- Check `USER_WALLET_INFO` for balances
+- Never stage failing transactions
+- For gas token swaps, keep buffer for 2+ transactions
+- State shortfall + alternatives if insufficient funds
+
+### Tool Usage Discipline
+
+- **Macro/market data** (CME gaps, news): ALWAYS use `WEB_SEARCH` with `time_range="day"/"week"`, `topic="finance"` - never hallucinate
+- **Nansen MCP tools**: Primary for market diagnostics (token screeners, flows, PnL, trades, portfolio, counterparties)
+- Map 2-3 tool combos for complex queries, pick optimal path
+- Cross-verify conflicting data
+- Acknowledge gaps honestly vs fabricating
+
+### Cannot Do
+
+- LP staking, liquidity provision, pool deposits - decline immediately and suggest swaps/bridges/analysis
+
+### Style
+
+- Concise, evidence-based, lead with answer
+- Natural conversational tone (not procedural/status jargon)
+- **ALWAYS** display full 66-character transaction hashes (never truncate)
+- Sound like knowledgeable colleague, not status console
+
+## Common Patterns
 
 ### Adding a New Plugin
 
-1. Create plugin directory: `src/plugins/plugin-name/`
-2. Implement plugin structure:
-   ```typescript
-   // src/plugins/plugin-name/index.ts
-   import type { Plugin } from "@elizaos/core";
+1. Create `src/plugins/plugin-name/` with workspace package structure
+2. Add `package.json` with `"name": "plugin-name"`, build scripts
+3. Implement actions/services in `src/index.ts`
+4. Build plugin: `cd src/plugins/plugin-name && bun run build`
+5. Import in root `src/index.ts`: `import myPlugin from './plugins/plugin-name/src/index.ts'`
+6. Add to `projectAgent.plugins` array
+7. Rebuild backend: `bun run build:backend`
 
-   export const myPlugin: Plugin = {
-     name: "my-plugin",
-     description: "...",
-     actions: [],
-     providers: [],
-     services: [],
-   };
+### Modifying Character
 
-   export default myPlugin;
-   ```
-3. Add to workspace: Ensure `package.json` includes `"workspaces": ["src/plugins/*"]`
-4. Register in `src/index.ts`:
-   ```typescript
-   import myPlugin from './plugins/plugin-name/index.ts';
+Edit `src/character.ts`:
+- `system` - Core behavior prompt
+- `bio` - Agent description
+- `topics` - Areas of expertise
+- `messageExamples` - Few-shot examples (critical for behavior)
+- `style.all` / `style.chat` - Communication style rules
 
-   export const projectAgent: ProjectAgent = {
-     plugins: [
-       // ... existing plugins,
-       myPlugin,
-     ],
-   };
-   ```
-5. Rebuild: `bun run build`
-
-### Modifying the Agent Character
-
-Edit `src/character.ts` to customize:
-- `system` - System prompt and behavior guidelines
-- `bio` - Agent capabilities and expertise
-- `topics` - Conversation topics
-- `messageExamples` - Example interactions
-- `style.all` and `style.chat` - Communication style rules
-
-**Critical Style Rule:** Agent must verify wallet balance before any on-chain action (swaps, transfers, bridges).
+Rebuild backend after changes: `bun run build:backend`
 
 ### Frontend Changes
 
-1. Make changes in `src/frontend/`
-2. Rebuild frontend: `bun run build:frontend`
-3. Restart server: `bun run start` (server serves built frontend from `dist/frontend/`)
+1. Edit files in `src/frontend/`
+2. Rebuild: `bun run build:frontend`
+3. Restart server: `bun run start` (server serves from `dist/frontend/`)
 
-For rapid frontend iteration, you can run Vite dev server independently:
-```bash
-cd src/frontend && vite dev
+**Note**: Server does NOT hot-reload frontend. Must rebuild to see changes.
+
+### WebSocket Debugging
+
+Check `src/frontend/lib/socketManager.ts` for message flow:
+- `ROOM_JOINING` (type: 1) - Join channel
+- `SEND_MESSAGE` (type: 2) - Send user message
+- `MESSAGE` (type: 3) - Receive agent message
+- Listen on `messageBroadcast` event, emit on `message` event
+
+## Important Constraints
+
+### Polygon Network Specifics
+
+- Polygon does NOT support native ETH balances
+- ETH on Polygon is WETH (wrapped ETH)
+- WETH on Polygon CANNOT be unwrapped to native ETH
+- Gas token is POL (formerly MATIC)
+- If user references ETH on Polygon, clarify it's WETH and adjust plan
+
+### Native Token Swap Protection
+
+- When swapping native gas token (ETH, POL), keep buffer for 2+ transactions
+- Flag shortfall if user wants to swap everything
+- WETH is NOT a gas token anywhere
+
+### Server Architecture
+
+The server (`@elizaos/server` package) provides:
+- REST API with JWT authentication
+- Socket.IO WebSocket server
+- Database integration (PGlite or PostgreSQL)
+- Multi-agent runtime management
+- Static file serving for frontend
+
+Custom server start (`start-server.ts`):
+1. Creates `AgentServer` instance
+2. Initializes with `clientPath: 'dist/frontend'` (custom UI)
+3. Imports built project from `dist/index.js`
+4. Extracts `agents` and `plugins` arrays
+5. Calls `server.startAgents(characters, plugins)`
+
+### API Client Usage
+
+```typescript
+import { elizaClient } from './lib/elizaClient';
+
+// Type-safe methods
+const { agents } = await elizaClient.agents.listAgents();
+const agent = await elizaClient.agents.getAgent(agentId);
+const message = await elizaClient.messaging.postMessage(channelId, text);
+const messages = await elizaClient.messaging.getMessagesForChannel(channelId);
 ```
 
-### Debugging
+## Troubleshooting
 
-**Check server health:**
+### Build Failures
+
+- Ensure Bun 1.2.21+ installed: `bun --version`
+- Clean and rebuild: `rm -rf dist node_modules && bun install && bun run build`
+- Check workspace packages built: `cd src/packages/api-client && bun run build`
+
+### Server Won't Start
+
+- Verify `.env` has required keys (JWT_SECRET, OPENAI_API_KEY/OPENROUTER_API_KEY, CDP keys, ALCHEMY_API_KEY)
+- Check built project exists: `ls dist/index.js`
+- Verify frontend built: `ls dist/frontend/index.html`
+
+### Agent Not Responding
+
+- Check LLM API keys are valid
+- Verify agent loaded: `GET http://localhost:3000/api/agents`
+- Check WebSocket connection in browser dev tools
+- Review server logs for errors (LOG_LEVEL=debug)
+
+### Frontend Not Loading
+
+- Rebuild frontend: `bun run build:frontend`
+- Check `dist/frontend/` contains built files
+- Verify server serves static files (browser network tab)
+
+### Port Conflicts
+
+Change port in `.env`:
 ```bash
-curl http://localhost:3000/api/server/health
+SERVER_PORT=3001
 ```
 
-**List agents:**
-```bash
-curl http://localhost:3000/api/agents
-```
+## Key Files Reference
 
-**View logs:**
-- Server logs print to console when running `bun run dev` or `bun run start`
-- Frontend logs appear in browser console
-
-## Key Technical Details
-
-### TypeScript Configuration
-
-- **Path alias:** `@/*` maps to `src/frontend/*`
-- **Module resolution:** `bundler` (Bun-compatible)
-- **Target:** ES2022
-- **Declaration generation:** Enabled for workspace packages
-
-### Build Externals
-
-The backend build (`build.ts`) externalizes these packages to prevent bundling issues:
-- `@elizaos/core`, `@elizaos/plugin-*`, `@elizaos/server`, `@elizaos/cli`
-- Node.js built-ins (`node:*`, `fs`, `path`, etc.)
-- Core dependencies (`dotenv`, `zod`)
-
-If adding new ElizaOS dependencies, add them to the `external` array in `build.ts`.
-
-### Vite Environment Variables
-
-Unlike standard Vite, this project exposes **all** env vars (not just `VITE_` prefixed) to `import.meta.env`. This is configured in `vite.config.ts` via the `define` option.
-
-### x402 Payment Protocol
-
-Otaku supports paid API access via x402 protocol on Base network:
-- Endpoint: `POST /api/messaging/jobs`
-- Price: $0.015 USDC per request
-- Payment: Automatic via `x402-fetch` library
-- See `x402-otaku-readme.md` for full integration guide
-
-**Configuration:**
-- `X402_RECEIVING_WALLET` - Wallet address to receive payments (required)
-- `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` - Required for mainnet (automatically used by Coinbase facilitator)
-- `X402_FACILITATOR_URL` - Custom facilitator URL (optional, defaults to Coinbase facilitator for mainnet. Set to `https://x402.org/facilitator` for testnet)
-- `X402_PUBLIC_URL` or `PUBLIC_URL` - Public URL for payment resource (highly recommended in production)
-  - **If not set:** Falls back to checking `NODE_ENV`:
-    - `NODE_ENV=production` → `https://otaku.so/api/messaging/jobs`
-    - Otherwise → `http://localhost:${SERVER_PORT}/api/messaging/jobs`
-  - **Important:** Must match the actual URL clients use to access the API
-  - If your server is behind a proxy/CDN, **you must set this explicitly** or payments will fail validation
-
-The CDP plugin includes `FETCH_WITH_PAYMENT` action for making x402 requests from within the agent.
-
-## Common Issues
-
-**"Dependencies not found":**
-- Ensure you're in project root
-- Run `bun install`
-
-**"Frontend not loading":**
-- Check that `dist/frontend/` exists
-- Run `bun run build:frontend`
-- Check browser console for errors
-
-**"Agent not responding":**
-- Verify API keys (OpenAI or OpenRouter)
-- Ensure `JWT_SECRET` is set
-- Check server logs for errors
-
-**"CDP wallet features not working":**
-- Verify `VITE_CDP_PROJECT_ID` (frontend sign-in)
-- Set backend keys: `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`
-- Set `ALCHEMY_API_KEY` for balance/NFT fetching
-- Check browser allows popups for CDP sign-in
-
-**"Port already in use":**
-- Change `SERVER_PORT` in `.env`
-
-**"x402 payment not working":**
-- Ensure `X402_RECEIVING_WALLET` is set to your wallet address
-- In production, set `X402_PUBLIC_URL` to match your actual domain (e.g., `https://otaku.so`)
-- The resource URL in 402 responses must match the URL clients use to make requests
-- Verify `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` are set for mainnet facilitator
-- Check server logs for x402 middleware initialization messages
-
-## API Endpoints
-
-- **UI:** `http://localhost:3000`
-- **Health:** `GET /api/server/health`
-- **Agents:** `GET /api/agents`
-- **Ping:** `GET /api/server/ping`
-- **Messages:** `POST /api/messaging/:channelId/messages`
-- **Sessions:** `POST /api/sessions`, `POST /api/sessions/:sessionId/messages`
+- `src/index.ts` - Agent and plugin registration
+- `src/character.ts` - Otaku character definition
+- `src/frontend/App.tsx` - Main React app with CDP integration
+- `src/frontend/lib/elizaClient.ts` - API client singleton
+- `src/frontend/lib/socketManager.ts` - WebSocket manager
+- `build.ts` - Backend build script (Bun.build)
+- `start-server.ts` - Server startup with custom UI path
+- `vite.config.ts` - Frontend build config
+- `turbo.json` - Monorepo task orchestration
+- `.env.sample` - Canonical environment variable reference

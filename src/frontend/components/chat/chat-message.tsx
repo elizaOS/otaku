@@ -16,7 +16,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       </div>
       <div
         className={cn(
-          "max-w-xs rounded-lg px-3 py-2 text-sm",
+          "max-w-xs rounded-lg px-3 py-2 text-base",
           message.isFromCurrentUser
             ? "bg-blue-600 text-white ml-auto"
             : "bg-gray-700 text-white"

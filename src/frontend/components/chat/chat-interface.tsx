@@ -744,7 +744,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
                   >
                     <div
                       className={cn(
-                        "max-w-[70%] rounded-lg px-3 py-2 text-sm font-medium",
+                        "max-w-[70%] rounded-lg px-3 py-2 text-base font-medium",
                         isErrorMessage 
                           ? "bg-destructive/10 border border-destructive/20 text-destructive"
                           : message.isAgent 
@@ -911,12 +911,15 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
         </div>
 
         {/* ElizaOS Attribution Badge */}
-        <div className="px-3 pb-4 pt-3 flex justify-start">
-          <img 
-            src="/assets/elizaos_badge.svg" 
-            alt="Powered by ElizaOS" 
+        <div className="px-3 pb-4 pt-3 flex items-center gap-3">
+          <img
+            src="/assets/elizaos_badge.svg"
+            alt="Powered by ElizaOS"
             className="h-10"
           />
+          <div className="ml-auto text-[10px] text-muted-foreground text-right max-w-xs">
+            Otaku is in beta. We recommend starting with smaller amounts for testing.
+          </div>
         </div>
       </div>
     </div>

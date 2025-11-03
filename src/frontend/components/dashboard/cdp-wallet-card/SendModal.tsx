@@ -124,7 +124,7 @@ export function SendModalContent({ tokens, userId, onSuccess }: SendModalContent
         const nativeTokenMap: Record<string, string> = {
           'base': 'eth',
           'ethereum': 'eth',
-          'polygon': 'matic',
+          'polygon': 'pol',
         };
         tokenParam = nativeTokenMap[selectedToken.chain.toLowerCase()] || 'eth';
       } else {

@@ -9,9 +9,18 @@ import {
   WRAPPED_NATIVE_TOKEN,
   UNISWAP_POOL_FEES,
   isCdpSwapSupported,
+  getNativeTokenInfo,
 } from "../constants/chains";
 import { TX_CONFIRMATION_TIMEOUT, waitForTxConfirmation } from "../constants/timeouts";
 import type { CdpNetwork } from "../types";
+
+/**
+ * Get native token symbol for a network (for error messages)
+ */
+function getNativeTokenSymbol(network: string): string {
+  const nativeTokenInfo = getNativeTokenInfo(network);
+  return nativeTokenInfo?.symbol || "ETH";
+}
 
 /**
  * Check if a token needs approval and approve if necessary
@@ -572,7 +581,8 @@ export async function executeCdpSwap(
     
     // Check for insufficient gas/balance
     if (errorMessage.includes("gas required exceeds allowance") || errorMessage.includes("insufficient funds")) {
-      throw new Error(`Insufficient ETH balance to pay for transaction gas fees. Please fund your wallet with ETH first.`);
+      const nativeToken = getNativeTokenSymbol(network);
+      throw new Error(`Insufficient ${nativeToken} balance to pay for transaction gas fees. Please fund your wallet with ${nativeToken} first.`);
     }
     
     // Handle Permit2 approval
@@ -684,8 +694,8 @@ export async function executeSwap(params: {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      // Re-throw insufficient balance errors immediately
-      if (errorMessage.includes("Insufficient ETH balance")) {
+      // Re-throw insufficient balance errors immediately (they already have correct native token name)
+      if (errorMessage.includes("balance to pay for transaction gas fees")) {
         throw error;
       }
       
@@ -726,7 +736,8 @@ export async function executeSwap(params: {
     // Check for insufficient gas/balance
     const zeroXErrorMsg = zeroXError instanceof Error ? zeroXError.message : String(zeroXError);
     if (zeroXErrorMsg.includes("gas required exceeds allowance") || zeroXErrorMsg.includes("insufficient funds")) {
-      throw new Error(`Insufficient ETH balance to pay for transaction gas fees. Please fund your wallet with ETH first.`);
+      const nativeToken = getNativeTokenSymbol(network);
+      throw new Error(`Insufficient ${nativeToken} balance to pay for transaction gas fees. Please fund your wallet with ${nativeToken} first.`);
     }
   }
 
@@ -752,7 +763,8 @@ export async function executeSwap(params: {
     // Check for insufficient gas/balance
     const uniswapErrorMsg = uniswapError instanceof Error ? uniswapError.message : String(uniswapError);
     if (uniswapErrorMsg.includes("gas required exceeds allowance") || uniswapErrorMsg.includes("insufficient funds")) {
-      throw new Error(`Insufficient ETH balance to pay for transaction gas fees. Please fund your wallet with ETH first.`);
+      const nativeToken = getNativeTokenSymbol(network);
+      throw new Error(`Insufficient ${nativeToken} balance to pay for transaction gas fees. Please fund your wallet with ${nativeToken} first.`);
     }
     
     logger.error(

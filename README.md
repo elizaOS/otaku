@@ -20,7 +20,7 @@ This is a monorepo workspace project built with:
 
 - **Runtime**: Bun 1.2.21
 - **Frontend**: React 18 + TypeScript + Vite
-- **Backend**: ElizaOS Server (@elizaos/server)
+- **Backend**: Custom ElizaOS Server build (based on @elizaos/server)
 - **Build System**: Turbo
 - **Styling**: Tailwind CSS 4.x
 - **UI Components**: Radix UI
@@ -74,95 +74,54 @@ This is a monorepo workspace project built with:
 - Node.js 18+ (for compatibility)
 - Coinbase Developer Platform project ID (for CDP wallet features)
 
-## Setup
+## Running Locally
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
-This project uses workspace dependencies. Install from the root:
+Run the install step from the repository root:
 
 ```bash
 bun install
 ```
 
-### 2. Configure Environment
-
-Create a `.env` file in the root directory:
+### 2. Configure environment variables
 
 ```bash
-# Server Configuration
-SERVER_PORT=3000
-NODE_ENV=development
-
-# Auth (required for login)
-JWT_SECRET=your-long-random-jwt-secret
-
-# Database
-PGLITE_DATA_DIR=./data
-# OR use PostgreSQL:
-# POSTGRES_URL=postgresql://user:password@localhost:5432/eliza
-
-# Frontend – CDP (required to enable CDP sign-in UI)
-VITE_CDP_PROJECT_ID=your-cdp-project-id
-
-# Backend – CDP SDK (required for wallet features)
-# You can also use CDP_API_KEY_ID/CDP_API_KEY_SECRET as aliases
-CDP_API_KEY_ID=your-cdp-api-key-id
-CDP_API_KEY_SECRET=your-cdp-api-key-secret
-CDP_WALLET_SECRET=$(openssl rand -hex 32)
-
-# Onchain data (required for balances/NFT fetch)
-ALCHEMY_API_KEY=your-alchemy-key
-
-# AI Provider API Keys (at least one required)
-OPENAI_API_KEY=your-openai-key
-# OR
-OPENROUTER_API_KEY=your-openrouter-key
-
-# Plugins
-# Required if web-search plugin is enabled (default)
-TAVILY_API_KEY=your-tavily-key
-# Optional but recommended for pricing
-COINGECKO_API_KEY=your-coingecko-key
-
-# Optional: Admins and server-to-server auth
-# ADMIN_EMAILS=admin1@example.com,admin2@example.com
-# ELIZA_SERVER_AUTH_TOKEN=some-shared-server-token
-
-# Optional: RPC overrides (defaults are provided)
-# BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
-# ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}
-# OPTIMISM_RPC_URL=...
-# ARBITRUM_RPC_URL=...
-# POLYGON_RPC_URL=...
+cp .env.sample .env
 ```
 
-### 3. Build and Run
+Open `.env` and fill in the secrets marked as **required** in the sample file. You will need at least:
 
-#### Development Mode
+- `JWT_SECRET`
+- An AI provider key (`OPENAI_API_KEY` or `OPENROUTER_API_KEY`)
+- Coinbase credentials (`VITE_CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET`)
+- `ALCHEMY_API_KEY`
+
+By default the server stores data in an embedded PGlite database at `./.eliza/.elizadb`. Set `POSTGRES_URL` (for example to a Railway Postgres connection string) if you want to use PostgreSQL instead.
+
+### 3. Start the development server
 
 ```bash
-# Build all packages and start server
 bun run dev
-
-# OR watch mode (rebuilds on changes)
-bun run dev:watch
 ```
 
-This will:
-1. Build all workspace packages (`api-client`, `server`, plugins)
-2. Build the React frontend into `dist/frontend`
-3. Start the ElizaOS server with the Otaku agent
-4. Serve everything on **http://localhost:3000**
+The `dev` script performs an initial Turbo build of every workspace package and then launches `start-server.ts`, which serves both the backend and the built React UI on http://localhost:3000. Keep this process running while you work.
 
-#### Production Build
+Use `bun run dev:watch` if you prefer Turbo to rebuild workspaces on every file change. For fast UI iteration you can also run the Vite dev server in a second terminal:
 
 ```bash
-# Build everything
-bun run build
-
-# Start production server
-bun run start
+cd src/frontend
+bunx vite dev
 ```
+
+### 4. Build a production bundle locally
+
+```bash
+bun run build
+SERVER_PORT=3000 NODE_ENV=production bun run start
+```
+
+The `build` script compiles the backend to `dist/index.js`, emits type declarations for workspaces, and outputs the static frontend to `dist/frontend/`. The `start` script reuses the compiled assets, so you can run it anywhere Bun is available.
 
 ### Available Scripts
 
@@ -202,6 +161,8 @@ Coinbase Developer Platform integration providing wallet and payment functionali
 - "Transfer 0.01 ETH to 0x..."
 - "Swap 100 USDC for ETH"
 - "Transfer NFT #123 from collection 0x..."
+
+**Further Reading:** See the x402 payments integration guide in [`docs/x402-payments.md`](./docs/x402-payments.md) for details on running paid jobs against `otaku.so` using automatic USDC payments.
 
 ### CoinGecko Plugin (plugin-coingecko)
 
@@ -273,7 +234,7 @@ Transaction verification and confirmation checking.
 
 ### Bootstrap Plugin (plugin-bootstrap)
 
-Core ElizaOS plugin providing essential agent capabilities:
+Otaku ships with a custom build of the ElizaOS bootstrap plugin providing essential agent capabilities plus advanced multi-step planning and reasoning frameworks:
 - Action execution
 - Message evaluation
 - State management
@@ -430,6 +391,65 @@ bun run build:all
 cd src/packages/api-client && bun run build
 ```
 
+## Deploying to Railway
+
+The production deployment at `otaku.so` runs on [Railway](https://railway.app) using two services: a Postgres database with the pgvector extension and the Otaku web service. The screenshots above show the `pgvector` service (with a persistent volume) and the `otaku-fe` service connected to the `master` branch.
+
+### Prerequisites
+
+- Railway account with permission to link the GitHub repository
+- Bun-compatible Nixpacks deployment (automatic when a `bun.lock` is present)
+- All production secrets available (see `.env.sample`)
+
+### 1. Provision the database
+
+1. Create a new Railway project (or open an existing one).
+2. Add a **PostgreSQL** service and choose the **pgvector** template so embeddings are supported.
+3. Railway will expose a `DATABASE_URL`. Copy it—you will map this to the `POSTGRES_URL` environment variable for the app service.
+4. (Recommended) Attach a volume to the database service so the data survives restarts, matching the `pgvector-volume` in the screenshot.
+
+### 2. Add the Otaku service
+
+1. Click **New Service → Deploy from GitHub** and select the Otaku repository/branch (e.g. `master`).
+2. In the **Deployments → Build & Deploy** panel set:
+   - **Build Command:** `bun run build`
+   - **Start Command:** `SERVER_PORT=$PORT bun run start`
+   This ensures the server listens on the dynamic port that Railway provides via the `PORT` variable.
+3. Enable "Wait for CI" if you link the service to GitHub Actions, otherwise Railway will build directly from the commit.
+
+### 3. Configure environment variables
+
+Open the **Variables** tab for the web service and mirror the values from your local `.env`. The critical production keys are:
+
+| Variable | Purpose |
+| --- | --- |
+| `JWT_SECRET` | Auth token signing secret |
+| `OPENAI_API_KEY` or `OPENROUTER_API_KEY` | AI provider |
+| `VITE_CDP_PROJECT_ID` | CDP project for frontend login |
+| `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET` | Backend wallet operations |
+| `ALCHEMY_API_KEY` | Chain data and balances |
+| `POSTGRES_URL` | Paste the `DATABASE_URL` from the pgvector service |
+| `X402_RECEIVING_WALLET`, `X402_PUBLIC_URL`, `X402_FACILITATOR_URL` | x402 payment configuration |
+| `NODE_ENV` | Set to `production` |
+| `LOG_LEVEL` | Optional logging verbosity |
+
+Railway's UI supports bulk edits—`railway variables set KEY=value` in the CLI is another quick way to sync secrets. Keep `.env.sample` updated so every teammate knows which keys need to be added.
+
+### 4. Trigger the first deploy
+
+Deployments kick off automatically after configuration changes, or you can trigger one manually. During the build Railway will run `bun install`, execute `bun run build`, and finally start the server using the command above. Watch the logs to confirm the server prints the `Server with custom UI running...` message.
+
+### 5. Finalize networking
+
+- Under **Networking**, attach the default Railway URL generated for the service (for example, `your-service-name.up.railway.app`) or connect your own domain.
+- If you use a custom domain, point the DNS `CNAME` record to the Railway edge URL and wait for the certificate status to show "Setup complete".
+
+### 6. Post-deploy checklist
+
+- Hit the `/api/server/health` endpoint to verify the service responds.
+- Ensure paid endpoints (`/api/messaging/jobs`) work after seeding the required env vars.
+- Set up alerts and log drains if you need production monitoring.
+
 ## Troubleshooting
 
 ### Port Already in Use
@@ -478,33 +498,18 @@ Once running:
 
 ## Environment Variables Reference
 
-### Required
-
-- `JWT_SECRET` - Secret used to sign JWTs for user auth
-- `OPENAI_API_KEY` or `OPENROUTER_API_KEY` - AI provider API key
-
-### Required for CDP features
-
-- `VITE_CDP_PROJECT_ID` - Coinbase Developer Platform project ID (frontend sign-in)
-- `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET` - CDP API credentials (backend)
-- `CDP_WALLET_SECRET` - Random 32-byte hex string for CDP wallet encryption
-- `ALCHEMY_API_KEY` - Used to fetch balances, tokens, and NFTs
-
-### Optional
-
-- `SERVER_PORT` - Server port (default: 3000)
-- `PGLITE_DATA_DIR` - SQLite data directory (default: `./data`)
-- `POSTGRES_URL` - PostgreSQL connection string (overrides SQLite)
-- `TAVILY_API_KEY` - Tavily API key (required if web-search plugin is enabled)
-- `COINGECKO_API_KEY` - CoinGecko API key (better pricing for portfolio)
-- `ADMIN_EMAILS` - Comma-separated admin emails for elevated access
-- `ELIZA_SERVER_AUTH_TOKEN` - Server-to-server X-API-KEY
-- `NODE_ENV` - Environment (development/production)
+The canonical list of environment variables — including required, optional, and feature-specific keys — lives in `.env.sample`. Each entry includes inline documentation, default guidance, and links to obtain API credentials. Keep `.env.sample` in sync with any new configuration you introduce so the setup flow stays accurate for every contributor.
 
 ## License
 
 MIT
 
+## Acknowledgements
+
+- Design inspiration from [joyco-studio](https://github.com/joyco-studio)
+
 ---
 
 Built with [ElizaOS](https://github.com/elizaos/eliza) and [Coinbase Developer Platform](https://docs.cdp.coinbase.com/)
+
+© 2025 Shaw Walters and elizaOS Contributors. Released under the MIT License. See `LICENSE`.

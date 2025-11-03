@@ -18,7 +18,7 @@ export function MobileHeader({ onHomeClick }: MobileHeaderProps) {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
 
   return (
-    <div className="lg:hidden h-header-mobile sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
+    <div className="lg:hidden h-header-mobile sticky top-0 z-40 bg-background/95  border-b border-border">
       <div className="flex items-center justify-between px-4 py-3">
         {/* Left: Sidebar Menu */}
         <SidebarTrigger />

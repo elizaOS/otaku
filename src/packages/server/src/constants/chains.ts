@@ -70,7 +70,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
     rpcUrl: (alchemyKey: string) => `https://polygon-mainnet.g.alchemy.com/v2/${alchemyKey}`,
     explorerUrl: 'https://polygonscan.com',
     nativeToken: {
-      symbol: 'MATIC',
+      symbol: 'POL',
       name: 'Polygon',
       coingeckoId: 'polygon-ecosystem-token',
       decimals: 18,

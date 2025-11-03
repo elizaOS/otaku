@@ -44,7 +44,7 @@ export function FundModalContent({ walletAddress, shortAddress }: FundModalConte
               className="flex items-center justify-between gap-3 p-3 rounded-lg bg-accent hover:bg-accent/80 transition-colors border border-border/30"
             >
               {/* First Group: Icon & Name */}
-              <div className="flex items-center gap-2.5 flex-shrink-0">
+              <div className="flex items-center gap-2.5 shrink-0">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden bg-white">
                   {chainWalletIcon ? (
                     <img 
@@ -70,7 +70,7 @@ export function FundModalContent({ walletAddress, shortAddress }: FundModalConte
                   onClick={() => handleCopyChainAddress(chain)}
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 p-0 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                  className="h-8 w-8 p-0 shrink-0 text-muted-foreground hover:text-foreground"
                   title="Copy address"
                 >
                   {copiedChain === chain ? (

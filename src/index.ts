@@ -9,7 +9,8 @@ import webSearchPlugin from './plugins/plugin-web-search/src/index.ts';
 import defiLlamaPlugin from './plugins/plugin-defillama/src/index.ts';
 import relayPlugin from './plugins/plugin-relay/src/index.ts';
 import etherscanPlugin from './plugins/plugin-etherscan/src/index.ts';
-// import x402DiscoveryPlugin from './plugins/plugin-x402-discovery/src/index.ts';
+
+import analyticsPlugin from '@elizaos/plugin-analytics';
 import openrouterPlugin from '@elizaos/plugin-openrouter';
 import mcpPlugin from '@elizaos/plugin-mcp';
 
@@ -34,6 +35,7 @@ export const projectAgent: ProjectAgent = {
     relayPlugin,
     etherscanPlugin,
     mcpPlugin,
+    analyticsPlugin,
     // x402DiscoveryPlugin,
   ],
 };

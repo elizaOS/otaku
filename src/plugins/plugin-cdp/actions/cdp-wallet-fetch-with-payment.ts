@@ -428,12 +428,12 @@ export const cdpWalletFetchWithPayment: Action = {
     [
       { name: "{{user}}", content: { text: "fetch https://x402.example.com/premium-data with payment" } },
       { name: "{{agent}}", content: { text: " Making request to https://x402.example.com/premium-data...", action: "FETCH_WITH_PAYMENT", url: "https://x402.example.com/premium-data" } },
-      { name: "{{agent}}", content: { text: " **Paid Request Completed**\n\n **URL:** https://x402.example.com/premium-data\n **Method:** GET\n **Status:** 200 OK\n\n$ **Payment Made:**\n  • Transaction: `0xabc123...`\n  • Network: base\n  • Payer: `0x742d35...`" } },
+      { name: "{{agent}}", content: { text: " **Paid Request Completed**\n\n **URL:** https://x402.example.com/premium-data\n **Method:** GET\n **Status:** 200 OK\n\n$ **Payment Made:**\n  • Transaction: `0x1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890`\n  • Network: base\n  • Payer: `0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb`" } },
     ],
     [
       { name: "{{user}}", content: { text: "POST to https://x402.example.com/submit with payment using body {\"key\": \"value\"}" } },
       { name: "{{agent}}", content: { text: " Making request to https://x402.example.com/submit...", action: "FETCH_WITH_PAYMENT", url: "https://x402.example.com/submit", method: "POST", body: "{\"key\": \"value\"}" } },
-      { name: "{{agent}}", content: { text: " **Paid Request Completed**\n\n **URL:** https://x402.example.com/submit\n **Method:** POST\n **Status:** 200 OK\n\n$ **Payment Made:**\n  • Transaction: `0xghi789...`" } },
+      { name: "{{agent}}", content: { text: " **Paid Request Completed**\n\n **URL:** https://x402.example.com/submit\n **Method:** POST\n **Status:** 200 OK\n\n$ **Payment Made:**\n  • Transaction: `0x9f8e7d6c5b4a3210fedcba0987654321fedcba0987654321fedcba0987654321`" } },
     ],
     [
       { name: "{{user}}", content: { text: "try to fetch https://regular-api.com/free-endpoint with payment support" } },

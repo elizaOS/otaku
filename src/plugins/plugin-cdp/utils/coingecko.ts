@@ -325,7 +325,8 @@ export async function resolveTokenToAddress(
   const trimmedToken = token.trim();
 
   // For native tokens
-  if (trimmedToken.toLowerCase() === "eth" || trimmedToken.toLowerCase() === "matic") {
+  const lowerToken = trimmedToken.toLowerCase();
+  if (lowerToken === "eth" || lowerToken === "matic" || lowerToken === "pol") {
     logger.debug(`Token ${token} is a native token, using zero address`);
     return "0x0000000000000000000000000000000000000000";
   }

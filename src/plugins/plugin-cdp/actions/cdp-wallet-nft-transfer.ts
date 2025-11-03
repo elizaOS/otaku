@@ -26,7 +26,7 @@ export const cdpWalletNftTransfer: Action = {
     "SEND_NFT_CDP",
     "TRANSFER_NFT_CDP",
   ],
-  description: "Use this action when you need to transfer NFTs (ERC721 or ERC1155) from user's wallet. For tokens, use USER_WALLET_TOKEN_TRANSFER instead.",
+  description: "Use this action when you need to transfer NFTs (ERC721 or ERC1155) from user's wallet. For tokens, use USER_WALLET_TOKEN_TRANSFER instead. IMPORTANT: Before executing, you MUST present a clear summary (NFT details, recipient address, network) and get explicit user confirmation ('yes', 'confirm', 'go ahead'). Never execute transfers without confirmed intent - they are irreversible.",
   
   // Parameter schema for tool calling
   parameters: {

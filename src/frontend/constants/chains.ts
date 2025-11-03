@@ -66,7 +66,7 @@ export const CHAIN_UI_CONFIGS: Record<SupportedChain, ChainUIConfig> = {
     icon: '/assets/polygon.svg',
     walletIcon: '/assets/walletIcon/polygon.svg',
     nativeToken: {
-      symbol: 'MATIC',
+      symbol: 'POL',
       name: 'Polygon',
       icon: '/assets/polygon.svg',
     },

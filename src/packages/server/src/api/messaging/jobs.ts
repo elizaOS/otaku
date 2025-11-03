@@ -349,7 +349,7 @@ export function createJobsRouter(
         
         // Extract payer wallet address from x-payment-response header
         // Format: base64-encoded JSON with { payer, transaction, network, success }
-        // Example: { "payer": "0x123...", "transaction": "0xabc...", "network": "base", "success": true }
+        // Example: { "payer": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb", "transaction": "0x1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890", "network": "base", "success": true }
         const paymentResponseHeader = req.headers['x-payment-response'] as string | undefined;
         
         if (paymentResponseHeader) {

@@ -426,6 +426,24 @@ export const cdpWalletSwap: Action = {
       const toToken = toTokenResolved;
       logger.debug(`[USER_WALLET_SWAP] Token addresses resolved: ${fromToken} -> ${toToken}`);
 
+      // Prevent 100% swaps of native tokens (need to keep some for gas)
+      const isNativeToken = fromToken.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase();
+      if (isNativeToken && swapParams.percentage !== undefined && swapParams.percentage >= 99) {
+        const errorMsg = `Cannot swap 100% of native token (${swapParams.fromToken.toUpperCase()}) - you need to keep some for gas fees. Try swapping 90-95% instead.`;
+        logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
+        const errorResult: ActionResult = {
+          text: ` ${errorMsg}`,
+          success: false,
+          error: "invalid_amount",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+        callback?.({ 
+          text: errorResult.text,
+          content: { error: "invalid_amount", details: errorMsg }
+        });
+        return errorResult;
+      }
+
       // Get decimals for the source token from CoinGecko
       logger.debug(`[USER_WALLET_SWAP] Fetching decimals for source token: ${fromToken}`);
       const decimals = await getTokenDecimals(fromToken, swapParams.network);
@@ -636,12 +654,25 @@ export const cdpWalletSwap: Action = {
     [
       {
         name: "{{user}}",
+        content: { text: "swap all my ETH to USDC" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: "I'll swap 95% of your ETH to USDC (keeping some for gas).",
+          action: "USER_WALLET_SWAP",
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
         content: { text: "swap all my MATIC for USDC on polygon" },
       },
       {
         name: "{{agent}}",
         content: {
-          text: "I'll swap 100% of your MATIC to USDC on Polygon.",
+          text: "I'll swap 95% of your MATIC to USDC on Polygon (keeping some for gas).",
           action: "USER_WALLET_SWAP",
         },
       },
