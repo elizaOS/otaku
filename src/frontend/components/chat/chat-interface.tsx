@@ -178,7 +178,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     const container = messagesContainerRef.current
     if (!container) return true
     
-    const threshold = 150 // pixels from bottom to consider "near bottom"
+    const threshold = 200 // pixels from bottom to consider "near bottom"
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
     return distanceFromBottom < threshold
   }
