@@ -13,6 +13,7 @@ import CollapsibleNotifications from './components/dashboard/notifications/colla
 import AccountPage from './components/dashboard/account/page';
 import { SignInModal } from './components/auth/SignInModal';
 import { MobileHeader } from './components/dashboard/mobile-header';
+import { useIsMobile } from './hooks/use-mobile';
 import { LoadingPanelProvider, useLoadingPanel } from './contexts/LoadingPanelContext';
 import { ModalProvider, useModal } from './contexts/ModalContext';
 import { MessageSquare, Info } from 'lucide-react';
@@ -616,6 +617,38 @@ function AppContent({
   const { setOpenMobile } = useSidebar();
   const { showModal, hideModal } = useModal();
 
+  // Measure MobileHeader height to offset the sticky chat header on mobile
+  const mobileHeaderRef = useRef<HTMLDivElement>(null);
+  const [chatHeaderTop, setChatHeaderTop] = useState(0);
+  const isMobile = useIsMobile();
+
+  useEffect(() => {
+    const smallOffsetPx = 2; // small spacing below MobileHeader
+
+    const updateTop = () => {
+      if (!isMobile) {
+        setChatHeaderTop(0);
+        return;
+      }
+      const height = mobileHeaderRef.current?.offsetHeight || 0;
+      setChatHeaderTop(height + smallOffsetPx);
+    };
+
+    updateTop();
+
+    let ro: ResizeObserver | null = null;
+    if (mobileHeaderRef.current && 'ResizeObserver' in window) {
+      ro = new ResizeObserver(() => updateTop());
+      ro.observe(mobileHeaderRef.current);
+    }
+    window.addEventListener('resize', updateTop);
+
+    return () => {
+      window.removeEventListener('resize', updateTop);
+      if (ro) ro.disconnect();
+    };
+  }, [isMobile]);
+
   const handleOpenAbout = () => {
     showModal(
       <AboutModalContent onClose={() => hideModal(ABOUT_MODAL_ID)} />,
@@ -651,7 +684,7 @@ function AppContent({
       )}
       
       {/* Mobile Header */}
-      <MobileHeader onHomeClick={() => setCurrentView('chat')} />
+      <MobileHeader ref={mobileHeaderRef} onHomeClick={() => setCurrentView('chat')} />
 
       {/* Desktop Layout - 3 columns */}
       <div className="w-full min-h-screen h-screen grid grid-cols-1 lg:grid-cols-12 gap-gap lg:px-sides">
@@ -682,7 +715,7 @@ function AppContent({
           ) : (
             <div className="flex flex-col relative w-full gap-1 min-h-0 h-full">
               {/* Header */}
-              <div className="flex items-center lg:items-baseline gap-2.5 md:gap-4 px-4 md:px-6 py-3 md:pb-4 lg:pt-7 ring-2 ring-pop sticky top-[calc(var(--spacing-header-mobile)+env(safe-area-inset-top))] lg:top-0 bg-background z-10">
+              <div className="flex items-center lg:items-baseline gap-2.5 md:gap-4 px-4 md:px-6 py-3 md:pb-4 lg:pt-7 ring-2 ring-pop sticky bg-background z-10" style={{ top: chatHeaderTop }}>
                <h1 className="text-xl lg:text-4xl font-display leading-none mb-1">
                   CHAT
                 </h1>
