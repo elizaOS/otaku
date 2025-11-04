@@ -1,6 +1,7 @@
 import { logger } from '@elizaos/core';
 import { CdpClient } from '@coinbase/cdp-sdk';
 import { createWalletClient, createPublicClient, http } from 'viem';
+import type { WalletClient, PublicClient } from 'viem';
 import { toAccount } from 'viem/accounts';
 import {
   MAINNET_NETWORKS,
@@ -247,6 +248,49 @@ export class CdpTransactionManager {
       address: account.address,
       accountName: userId,
     };
+  }
+
+  /**
+   * Construct viem walletClient and publicClient for a given CDP account and network
+   */
+  async getViemClientsForAccount(options: {
+    accountName: string;
+    network?: string;
+  }): Promise<{
+    address: `0x${string}`;
+    walletClient: WalletClient;
+    publicClient: PublicClient;
+  }> {
+    const client = this.getCdpClient();
+
+    const network = options.network ?? 'base';
+    const chainConfig = getChainConfig(network);
+    if (!chainConfig) {
+      throw new Error(`Unsupported network: ${network}`);
+    }
+    const chain = chainConfig.chain;
+
+    const account = await client.evm.getOrCreateAccount({ name: options.accountName });
+    const address = account.address as `0x${string}`;
+
+    const alchemyKey = process.env.ALCHEMY_API_KEY;
+    if (!alchemyKey) {
+      throw new Error('Alchemy API key not configured');
+    }
+    const resolvedRpcUrl = chainConfig.rpcUrl(alchemyKey);
+
+    const publicClient = createPublicClient({
+      chain,
+      transport: http(resolvedRpcUrl),
+    }) as PublicClient;
+
+    const walletClient = createWalletClient({
+      account: toAccount(account),
+      chain,
+      transport: http(resolvedRpcUrl),
+    }) as WalletClient;
+
+    return { address, walletClient, publicClient };
   }
 
   // ============================================================================

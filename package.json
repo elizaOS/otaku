@@ -81,7 +81,8 @@
     "x402-express": "^0.7.1",
     "x402-fetch": "^0.7.0",
     "zod": "^4.1.12",
-    "zustand": "^5.0.8"
+    "zustand": "^5.0.8",
+    "clanker-sdk": "^4.1.14"
   },
   "devDependencies": {
     "@biomejs/biome": "1.5.3",
