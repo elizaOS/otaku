@@ -63,6 +63,21 @@ export class CdpService extends Service {
   }
 
   /**
+   * Get Viem wallet and public clients for a CDP account on a specific network
+   * Delegates to transaction manager
+   */
+  async getViemClientsForAccount(options: {
+    accountName: string;
+    network?: string;
+  }): Promise<{
+    address: `0x${string}`;
+    walletClient: any;
+    publicClient: any;
+  }> {
+    return this.transactionManager.getViemClientsForAccount(options);
+  }
+
+  /**
    * Get comprehensive wallet information from cache if available and not expired
    * Falls back to fetching fresh data if cache miss or expired
    * Delegates to transaction manager (uses manager's 5-minute cache)
