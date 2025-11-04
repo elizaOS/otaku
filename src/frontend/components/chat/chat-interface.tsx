@@ -81,9 +81,6 @@ const PLUGIN_ACTIONS = {
   }
 }
 
-// Number of prompts to show on mobile before "+X more" button
-const MOBILE_VISIBLE_PROMPTS = 2
-
 // Helper function to extract chart data from a message
 const extractChartData = (message: Message): any => {
   if (message.rawMessage?.actionResult?.values?.data_points) {
@@ -181,7 +178,7 @@ export function ChatInterface({ agent, userId, serverId, channelId, isNewChatMod
     const container = messagesContainerRef.current
     if (!container) return true
     
-    const threshold = 50 // pixels from bottom to consider "near bottom"
+    const threshold = 150 // pixels from bottom to consider "near bottom"
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
     return distanceFromBottom < threshold
   }

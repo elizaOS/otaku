@@ -2,6 +2,7 @@ import {
   Action,
   ActionResult,
   HandlerCallback,
+  HandlerOptions,
   IAgentRuntime,
   Memory,
   State,
@@ -44,7 +45,7 @@ export const getProtocolTvlAction: Action = {
     runtime: IAgentRuntime,
     message: Memory,
     _state?: State,
-    _options?: Record<string, never>,
+    _options?: HandlerOptions,
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
