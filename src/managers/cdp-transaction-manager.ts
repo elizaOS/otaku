@@ -1252,6 +1252,7 @@ export class CdpTransactionManager {
       try {
         logger.info(`[CdpTransactionManager] Attempting swap with CDP SDK...`);
         
+        // Use networkAccount for CDP swap
         const networkAccount = await account.useNetwork(network);
         
         const swapResult = await (networkAccount as any).swap({
@@ -1267,141 +1268,134 @@ export class CdpTransactionManager {
         
         logger.info(`[CdpTransactionManager] CDP SDK swap successful: ${transactionHash}`);
       } catch (cdpError) {
-        logger.warn(
-          `[CdpTransactionManager] CDP SDK swap failed, trying viem fallback:`,
-          cdpError instanceof Error ? cdpError.message : String(cdpError)
-        );
+        const errorMessage = cdpError instanceof Error ? cdpError.message : String(cdpError);
+        logger.warn(`[CdpTransactionManager] CDP SDK swap failed:`, errorMessage);
 
-        logger.info(`[CdpTransactionManager] Using viem fallback for swap...`);
+        // Check if error is about token approval for Permit2
+        if (errorMessage.includes("allowance") && errorMessage.includes("Permit2")) {
+          logger.info(`[CdpTransactionManager] Token approval needed for Permit2, handling approval...`);
+          
+          const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as `0x${string}`;
+          
+          // Get viem clients for approval transaction
+          const { walletClient, publicClient } = await this.getViemClientsForAccount({
+            accountName: userId,
+            network,
+          });
+          
+          // ERC20 approve ABI
+          const approveAbi = [{
+            name: "approve",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "spender", type: "address" },
+              { name: "amount", type: "uint256" }
+            ],
+            outputs: [{ type: "bool" }]
+          }] as const;
+          
+          // Approve max uint256 for Permit2
+          logger.info(`[CdpTransactionManager] Sending Permit2 approval transaction for ${normalizedFromToken}...`);
+          const approvalHash = await walletClient.writeContract({
+            address: normalizedFromToken as `0x${string}`,
+            abi: approveAbi,
+            functionName: "approve",
+            args: [
+              PERMIT2_ADDRESS,
+              BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+            ],
+            chain: walletClient.chain,
+          } as any);
+          
+          logger.info(`[CdpTransactionManager] Permit2 approval sent: ${approvalHash}`);
+          
+          // Wait for approval confirmation
+          logger.info(`[CdpTransactionManager] Waiting for approval confirmation...`);
+          const receipt = await publicClient.waitForTransactionReceipt({ 
+            hash: approvalHash,
+            timeout: 60_000,
+          });
+          logger.info(`[CdpTransactionManager] Approval confirmed in block ${receipt.blockNumber}`);
+          
+          // Wait for CDP SDK's nonce cache to sync with on-chain state
+          logger.info(`[CdpTransactionManager] Waiting 8 seconds for CDP SDK nonce cache to sync...`);
+          await new Promise(resolve => setTimeout(resolve, 8000));
+          
+          // Retry swap after approval using networkAccount
+          try {
+            logger.info(`[CdpTransactionManager] Retrying swap after Permit2 approval...`);
+            const networkAccount = await account.useNetwork(network);
+            
+            const swapResult = await (networkAccount as any).swap({
+              fromToken: normalizedFromToken as `0x${string}`,
+              toToken: normalizedToToken as `0x${string}`,
+              fromAmount: BigInt(fromAmount),
+              slippageBps: slippageBps,
+            });
 
-        const chain = getViemChain(network);
-        if (!chain) {
-          throw new Error(`Unsupported network: ${network}`);
+            transactionHash = swapResult.transactionHash;
+            toAmount = swapResult.toAmount?.toString() || '0';
+            method = 'cdp-sdk-with-permit2';
+            
+            logger.info(`[CdpTransactionManager] CDP SDK swap successful after Permit2 approval: ${transactionHash}`);
+          } catch (retryError) {
+            // If retry still fails after Permit2 approval, fallback to 0x API
+            logger.warn(
+              `[CdpTransactionManager] CDP SDK swap failed even after Permit2 approval, falling back to 0x API:`,
+              retryError instanceof Error ? retryError.message : String(retryError)
+            );
+            
+            const result = await this.executeSwapWith0x(
+              account,
+              network,
+              fromToken,
+              toToken,
+              BigInt(fromAmount),
+              slippageBps
+            );
+
+            transactionHash = result.transactionHash;
+            toAmount = result.toAmount;
+            method = `${result.method}-after-permit2-fallback`;
+            logger.info(`[CdpTransactionManager] Fallback swap successful after Permit2 approval failure`);
+          }
+        } else {
+          // Fallback to 0x API for CDP-supported networks if not an approval issue
+          logger.info(`[CdpTransactionManager] Falling back to 0x API for ${network}...`);
+          
+          const result = await this.executeSwapWith0x(
+            account,
+            network,
+            fromToken,
+            toToken,
+            BigInt(fromAmount),
+            slippageBps
+          );
+
+          transactionHash = result.transactionHash;
+          toAmount = result.toAmount;
+          method = `${result.method}-fallback`;
+          logger.info(`[CdpTransactionManager] Fallback swap successful with method: ${result.method}`);
         }
-
-        const alchemyKey = process.env.ALCHEMY_API_KEY;
-        if (!alchemyKey) {
-          throw new Error('Alchemy API key not configured');
-        }
-
-        const rpcUrl = getRpcUrl(network, alchemyKey);
-        if (!rpcUrl) {
-          throw new Error(`Could not get RPC URL for network: ${network}`);
-        }
-
-        const networkAccount = await account.useNetwork(network);
-        const swapQuote = await (networkAccount as any).quoteSwap({
-          fromToken: normalizedFromToken as `0x${string}`,
-          toToken: normalizedToToken as `0x${string}`,
-          fromAmount: BigInt(fromAmount),
-          slippageBps: slippageBps,
-          network: network,
-        });
-
-        if (!swapQuote.liquidityAvailable) {
-          throw new Error('Insufficient liquidity for swap');
-        }
-
-        toAmount = swapQuote.toAmount?.toString() || '0';
-
-        const walletClient = createWalletClient({
-          account: toAccount(account),
-          chain,
-          transport: http(rpcUrl),
-        });
-
-        const publicClient = createPublicClient({
-          chain,
-          transport: http(rpcUrl),
-        });
-
-        const txData = swapQuote.transaction;
-        
-        if (!txData || !txData.to || !txData.data) {
-          throw new Error('Invalid transaction data from swap quote');
-        }
-
-        const hash = await walletClient.sendTransaction({
-          to: txData.to as `0x${string}`,
-          data: txData.data as `0x${string}`,
-          value: txData.value ? BigInt(txData.value) : 0n,
-          chain,
-        });
-
-        await publicClient.waitForTransactionReceipt({ hash });
-
-        transactionHash = hash;
-        method = 'viem-cdp-fallback';
-        logger.info(`[CdpTransactionManager] Viem swap successful: ${transactionHash}`);
       }
     } else {
-      logger.info(`[CdpTransactionManager] Using 0x API / Uniswap V3 for swap on ${network}`);
+      // Non-CDP-supported networks: use 0x API
+      logger.info(`[CdpTransactionManager] Using 0x API for swap on ${network}`);
 
-      const chain = getViemChain(network);
-      if (!chain) {
-        throw new Error(`Unsupported network: ${network}`);
-      }
+      const result = await this.executeSwapWith0x(
+        account,
+        network,
+        fromToken,
+        toToken,
+        BigInt(fromAmount),
+        slippageBps
+      );
 
-      const alchemyKey = process.env.ALCHEMY_API_KEY;
-      if (!alchemyKey) {
-        throw new Error('Alchemy API key not configured');
-      }
-
-      const rpcUrl = getRpcUrl(network, alchemyKey);
-      if (!rpcUrl) {
-        throw new Error(`Could not get RPC URL for network: ${network}`);
-      }
-
-      const walletClient = createWalletClient({
-        account: toAccount(account),
-        chain,
-        transport: http(rpcUrl),
-      });
-
-      const publicClient = createPublicClient({
-        chain,
-        transport: http(rpcUrl),
-      });
-
-      try {
-        logger.info(`[CdpTransactionManager] Attempting swap with 0x API...`);
-        const result = await this.execute0xSwap(
-          walletClient,
-          publicClient,
-          account,
-          network,
-          fromToken,
-          toToken,
-          BigInt(fromAmount),
-          slippageBps
-        );
-
-        transactionHash = result.transactionHash;
-        toAmount = result.toAmount;
-        method = '0x-api';
-        logger.info(`[CdpTransactionManager] 0x API swap successful`);
-      } catch (zeroXError) {
-        logger.warn(
-          `[CdpTransactionManager] 0x API swap failed, falling back to Uniswap V3:`,
-          zeroXError instanceof Error ? zeroXError.message : String(zeroXError)
-        );
-
-        logger.info(`[CdpTransactionManager] Using Uniswap V3 fallback for swap`);
-        const result = await this.executeUniswapSwap(
-          walletClient,
-          publicClient,
-          account,
-          network,
-          fromToken,
-          toToken,
-          BigInt(fromAmount),
-          slippageBps
-        );
-
-        transactionHash = result.transactionHash;
-        toAmount = result.toAmount;
-        method = 'uniswap-v3-viem';
-      }
+      transactionHash = result.transactionHash;
+      toAmount = result.toAmount;
+      method = result.method;
+      logger.info(`[CdpTransactionManager] Swap successful with method: ${result.method}`);
     }
 
     if (!transactionHash) {
@@ -1417,6 +1411,66 @@ export class CdpTransactionManager {
       toAmount,
       network,
       method,
+    };
+  }
+
+  // ============================================================================
+  // Private Helper Methods - Swap Fallback
+  // ============================================================================
+
+  /**
+   * Execute swap using 0x API
+   */
+  private async executeSwapWith0x(
+    account: any,
+    network: string,
+    fromToken: string,
+    toToken: string,
+    fromAmount: bigint,
+    slippageBps: number
+  ): Promise<{ transactionHash: string; toAmount: string; method: string }> {
+    const chain = getViemChain(network);
+    if (!chain) {
+      throw new Error(`Unsupported network: ${network}`);
+    }
+
+    const alchemyKey = process.env.ALCHEMY_API_KEY;
+    if (!alchemyKey) {
+      throw new Error('Alchemy API key not configured');
+    }
+
+    const rpcUrl = getRpcUrl(network, alchemyKey);
+    if (!rpcUrl) {
+      throw new Error(`Could not get RPC URL for network: ${network}`);
+    }
+
+    const walletClient = createWalletClient({
+      account: toAccount(account),
+      chain,
+      transport: http(rpcUrl),
+    });
+
+    const publicClient = createPublicClient({
+      chain,
+      transport: http(rpcUrl),
+    });
+
+    logger.info(`[CdpTransactionManager] Attempting swap with 0x API...`);
+    const result = await this.execute0xSwap(
+      walletClient,
+      publicClient,
+      account,
+      network,
+      fromToken,
+      toToken,
+      fromAmount,
+      slippageBps
+    );
+
+    return {
+      transactionHash: result.transactionHash,
+      toAmount: result.toAmount,
+      method: '0x-api',
     };
   }
 
