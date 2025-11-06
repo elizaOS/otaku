@@ -37,7 +37,7 @@ export const getTokenPriceChartAction: Action = {
     },
     timeframe: {
       type: "string",
-      description: "Time period for the chart. Options: '1h', '24h', '7d', '30d', '1y'. Defaults to '24h'.",
+      description: "Time period for the chart. Options: '1h', '24h', '7d', '30d', '90d', '1y'. Defaults to '24h'.",
       required: false,
     },
     chain: {
@@ -114,7 +114,7 @@ export const getTokenPriceChartAction: Action = {
 
       // Extract optional timeframe parameter
       const timeframe = (params?.timeframe?.trim() || '24h').toLowerCase();
-      const validTimeframes = ['1h', '24h', '7d', '30d', '1y'];
+      const validTimeframes = ['1h', '24h', '7d', '30d', '90d', '1y'];
       if (!validTimeframes.includes(timeframe)) {
         const errorMsg = `Invalid timeframe '${timeframe}'. Valid options: ${validTimeframes.join(', ')}`;
         logger.error(`[GET_TOKEN_PRICE_CHART] ${errorMsg}`);
@@ -227,7 +227,7 @@ Please check the following:
    | **arbitrum** | arbitrum    |
    | **optimism** | optimism    |
    
-3. **Timeframe**: Optional - '1h', '24h', '7d', '30d', or '1y' (default: '24h')
+3. **Timeframe**: Optional - '1h', '24h', '7d', '30d', '90d', or '1y' (default: '24h')
 
  **Tip**: Use GET_TOKEN_METADATA action first to retrieve the correct chain and contract address for non-native tokens.
 

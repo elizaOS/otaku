@@ -30,9 +30,9 @@ export const timeProvider: Provider = {
         time: currentDate,
       },
       values: {
-        time: `The current date and time is ${humanReadable}. Please use this as your reference for any time-based operations or responses.`,
+        time: `🚨 CRITICAL: The current date and time is ${humanReadable}. You MUST use this exact time as your absolute reference for ALL time-based operations, calculations, and responses. DO NOT use any other time reference. This is the ONLY source of truth for current time.`,
       },
-      text: `The current date and time is ${humanReadable}. Please use this as your reference for any time-based operations or responses.`,
+      text: `🚨 CRITICAL: The current date and time is ${humanReadable}. You MUST use this exact time as your absolute reference for ALL time-based operations, calculations, and responses. DO NOT use any other time reference. This is the ONLY source of truth for current time.`,
     };
   },
 };

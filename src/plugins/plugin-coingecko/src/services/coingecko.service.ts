@@ -876,6 +876,7 @@ export class CoinGeckoService extends Service {
       '24h': '1',
       '7d': '7',
       '30d': '30',
+      '90d': '90',
       '1y': '365',
     };
     const days = daysMap[timeframe] || '1';
@@ -1026,6 +1027,7 @@ export class CoinGeckoService extends Service {
         return `${hours}:${minutes}`;
       case '7d':
       case '30d':
+      case '90d':
         return `${month}/${day}`;
       case '1y':
         const year = String(date.getFullYear()).slice(-2);
