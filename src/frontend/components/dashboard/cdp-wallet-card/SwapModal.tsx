@@ -137,9 +137,9 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
     }
   }, [isToDropdownOpen]);
 
-  // Debounced CoinGecko search for "To" token (all supported chains)
+  // Debounced CoinGecko search for "To" token (filtered by fromToken's chain)
   useEffect(() => {
-    if (!toSearchQuery || toSearchQuery.length < 2) {
+    if (!toSearchQuery || toSearchQuery.length < 2 || !fromToken) {
       setToCoinGeckoResults([]);
       return;
     }
@@ -149,12 +149,12 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
       try {
         const response = await (elizaClient.cdp as any).searchTokens({
           query: toSearchQuery,
-          // Don't filter by chain - allow any supported chain
+          chain: fromToken.chain, // Filter by fromToken's chain
         });
 
         // Convert CoinGecko tokens to our Token interface
         const externalTokens: Token[] = response.tokens
-          .filter((t: any) => t.contractAddress && t.chain && SWAP_SUPPORTED_NETWORKS.includes(t.chain))
+          .filter((t: any) => t.contractAddress && t.chain && t.chain === fromToken.chain)
           .map((t: any) => ({
             symbol: t.symbol,
             name: t.name,
@@ -180,7 +180,7 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
 
     const timeoutId = setTimeout(searchCoinGecko, 500);
     return () => clearTimeout(timeoutId);
-  }, [toSearchQuery]);
+  }, [toSearchQuery, fromToken]);
 
   // Debounced price estimation
   useEffect(() => {
@@ -318,9 +318,14 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
   };
 
   const handleSwitchTokens = () => {
-    // Don't switch if toToken is an external token (user doesn't own it)
-    if (toToken?.isExternal) {
-      showError('Cannot Switch', 'You do not own the destination token', modalId);
+    // Don't switch if toToken is not in wallet (is external or user doesn't own it)
+    const isToTokenInWallet = toToken && !toToken.isExternal && swapSupportedTokens.some(
+      t => t.chain === toToken.chain && 
+      (t.contractAddress || t.symbol) === (toToken.contractAddress || toToken.symbol)
+    );
+    
+    if (!isToTokenInWallet) {
+      showError('Cannot Switch', 'You do not own the destination token in your wallet', modalId);
       return;
     }
     
@@ -515,8 +520,25 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
           variant="ghost"
           size="sm"
           className="h-8 w-8 p-0 rounded-full"
-          disabled={!fromToken && !toToken || toToken?.isExternal}
-          title={toToken?.isExternal ? 'Cannot switch: You do not own the destination token' : 'Switch tokens'}
+          disabled={
+            !fromToken || 
+            !toToken || 
+            toToken.isExternal || 
+            !swapSupportedTokens.some(
+              t => t.chain === toToken.chain && 
+              (t.contractAddress || t.symbol) === (toToken.contractAddress || toToken.symbol)
+            )
+          }
+          title={
+            !fromToken || !toToken 
+              ? 'Select both tokens to switch' 
+              : toToken.isExternal || !swapSupportedTokens.some(
+                  t => t.chain === toToken.chain && 
+                  (t.contractAddress || t.symbol) === (toToken.contractAddress || toToken.symbol)
+                )
+              ? 'Cannot switch: You do not own the destination token in your wallet'
+              : 'Switch tokens'
+          }
         >
           <ArrowDownUp className="h-4 w-4" />
         </Button>
@@ -531,7 +553,10 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
             <button
               type="button"
               onClick={() => setIsToDropdownOpen(!isToDropdownOpen)}
-              className="w-full p-3 border border-border rounded-lg flex items-center justify-between transition-colors hover:bg-accent/50"
+              disabled={!fromToken}
+              className={`w-full p-3 border border-border rounded-lg flex items-center justify-between transition-colors ${
+                !fromToken ? 'opacity-50 cursor-not-allowed' : 'hover:bg-accent/50'
+              }`}
             >
               {toToken ? (
                 <>
@@ -565,12 +590,14 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
                   </div>
                 </>
               ) : (
-                <span className="text-muted-foreground">Select a token...</span>
+                <span className="text-muted-foreground">
+                  {!fromToken ? 'Select source token first...' : 'Select a token...'}
+                </span>
               )}
             </button>
 
             {/* Dropdown Menu */}
-            {isToDropdownOpen && (
+            {isToDropdownOpen && fromToken && (
               <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg overflow-hidden">
                 {/* Search Input */}
                 <div className="p-2 border-b border-border sticky top-0 bg-popover">
@@ -579,7 +606,7 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
                     type="text"
                     value={toSearchQuery}
                     onChange={(e) => setToSearchQuery(e.target.value)}
-                    placeholder="Search any token (name, symbol, address)..."
+                    placeholder={`Search tokens on ${fromToken?.chain.toUpperCase() || ''}...`}
                     className="w-full bg-muted border border-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -600,9 +627,10 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
                     toCoinGeckoResults
                   )
                     .filter(t => {
-                      // Hide the exact same token as fromToken (same chain and same address/symbol)
-                      if (!fromToken) return true;
-                      return !(t.chain === fromToken.chain && (t.contractAddress || t.symbol) === (fromToken.contractAddress || fromToken.symbol));
+                      // Only show tokens from the same chain as fromToken
+                      if (!fromToken || t.chain !== fromToken.chain) return false;
+                      // Hide the exact same token as fromToken (same address/symbol)
+                      return !((t.contractAddress || t.symbol) === (fromToken.contractAddress || fromToken.symbol));
                     })
                     .map((token, index) => {
                     return (
@@ -681,12 +709,14 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
                   {/* No results message */}
                   {!isSearchingTo && mergeTokens(filterTokens(swapSupportedTokens, toSearchQuery), toCoinGeckoResults)
                     .filter(t => {
-                      if (!fromToken) return true;
-                      return !(t.chain === fromToken.chain && (t.contractAddress || t.symbol) === (fromToken.contractAddress || fromToken.symbol));
+                      if (!fromToken || t.chain !== fromToken.chain) return false;
+                      return !((t.contractAddress || t.symbol) === (fromToken.contractAddress || fromToken.symbol));
                     })
                     .length === 0 && (
                     <div className="p-4 text-center text-sm text-muted-foreground">
-                      No tokens found
+                      {toSearchQuery.length >= 2 
+                        ? `No tokens found on ${fromToken.chain.toUpperCase()}` 
+                        : 'Type to search for tokens...'}
                     </div>
                   )}
                 </div>
