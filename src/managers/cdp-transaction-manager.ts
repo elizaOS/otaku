@@ -2144,6 +2144,38 @@ export class CdpTransactionManager {
           logger.debug(`[CdpTransactionManager] Contract search failed on ${platformId}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
+
+      // Fallback to DexScreener if CoinGecko didn't find the token
+      if (tokens.length === 0) {
+        logger.info(`[CdpTransactionManager] Token not found on CoinGecko, trying DexScreener...`);
+        
+        const networksToTry = chain 
+          ? [chain.toLowerCase()] 
+          : ['ethereum', 'base', 'polygon', 'arbitrum', 'optimism'];
+
+        for (const networkName of networksToTry) {
+          try {
+            const dexInfo = await this.getTokenInfoFromDexScreener(query, networkName);
+            if (dexInfo && dexInfo.price) {
+              tokens.push({
+                id: `dex-${query}-${networkName}`,
+                symbol: dexInfo.symbol?.toUpperCase() || 'UNKNOWN',
+                name: dexInfo.name || 'Unknown Token',
+                contractAddress: query,
+                chain: networkName,
+                icon: null,
+                price: dexInfo.price,
+                platforms: { [networkName]: query },
+                decimals: 18, // DexScreener doesn't provide decimals, assume 18
+              });
+              logger.info(`[CdpTransactionManager] Found token on DexScreener for ${networkName}`);
+              break; // Found it on DexScreener, stop searching
+            }
+          } catch (error) {
+            logger.debug(`[CdpTransactionManager] DexScreener search failed on ${networkName}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
     } else {
       // Search by symbol or name using search endpoint
       const searchUrl = `${baseUrl}/search?query=${encodeURIComponent(query)}`;
