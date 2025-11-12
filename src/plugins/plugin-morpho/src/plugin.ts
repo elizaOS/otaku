@@ -14,9 +14,6 @@ import {
   vaultTransferAction,
 } from "./actions";
 
-// Import providers
-// import { marketDataProvider, positionProvider } from './providers';
-
 export const morphoPlugin: Plugin = {
   name: "plugin-morpho",
   description:
@@ -40,10 +37,7 @@ export const morphoPlugin: Plugin = {
   ],
 
   // Providers that supply read-only context
-  providers: [
-    // marketDataProvider,
-    // positionProvider
-  ],
+  providers: [],
 
   // Evaluators for post-interaction analysis
   evaluators: [],

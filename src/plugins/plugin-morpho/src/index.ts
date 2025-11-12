@@ -12,12 +12,6 @@ export { MorphoService } from "./services";
 // Export actions
 export { marketInfoAction } from "./actions";
 
-// Export providers
-// export {
-//     PositionContextProvider,
-//     MatchingRateProvider
-// } from './providers';
-
 // Export types
 export * from "./types";
 
