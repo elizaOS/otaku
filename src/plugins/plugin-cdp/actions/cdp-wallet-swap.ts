@@ -451,6 +451,7 @@ export const cdpWalletSwap: Action = {
 
       // Determine the amount to swap (either specific amount or percentage of balance)
       let amountToSwap: string;
+      let volumeUsd = 0;
       
       if (swapParams.percentage !== undefined) {
         // Percentage-based swap - fetch wallet info to get token balance
@@ -484,9 +485,14 @@ export const cdpWalletSwap: Action = {
         const calculatedAmount = (tokenBalance * swapParams.percentage) / 100;
         amountToSwap = calculatedAmount.toString();
         
+        // Calculate USD value from already-fetched wallet token data (no extra fetch)
+        if (walletToken.usdValue && tokenBalance > 0) {
+          volumeUsd = (calculatedAmount / tokenBalance) * walletToken.usdValue;
+        }
+        
         logger.info(`Calculated amount from ${swapParams.percentage}%: ${amountToSwap} ${swapParams.fromToken} (from balance: ${tokenBalance})`);
       } else {
-        // Specific amount provided
+        // Specific amount provided - skip USD calculation to avoid blocking
         amountToSwap = swapParams.amount!;
         logger.info(`Using specific amount: ${amountToSwap} ${swapParams.fromToken}`);
       }
@@ -551,6 +557,7 @@ export const cdpWalletSwap: Action = {
         values: {
           swapSuccess: true,
           transactionHash: result.transactionHash,
+          volumeUsd: volumeUsd > 0 ? volumeUsd : undefined,
         },
         input: inputParams,
       } as ActionResult & { input: typeof inputParams };

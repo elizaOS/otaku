@@ -358,6 +358,37 @@ export const relayBridgeAction: Action = {
           return errorResult;
         }
 
+        // Calculate USD volume for gamification
+        let volumeUsd = 0;
+        try {
+          // Get user's wallet info to calculate USD value
+          const walletInfo = await cdp.getWalletInfoCached(accountName);
+          
+          // Find the token in wallet to get price/value
+          const walletToken = walletInfo.tokens.find(t => {
+            if (t.chain !== bridgeParams.originChain) return false;
+            
+            // Match by address if provided
+            if (t.contractAddress && bridgeParams.currency.startsWith("0x")) {
+              return t.contractAddress.toLowerCase() === bridgeParams.currency.toLowerCase();
+            }
+            
+            // Match by symbol
+            return t.symbol.toLowerCase() === bridgeParams.currency.toLowerCase();
+          });
+
+          if (walletToken && walletToken.usdValue && parseFloat(walletToken.balanceFormatted) > 0) {
+            const tokenBalance = parseFloat(walletToken.balanceFormatted);
+            const amountNum = parseFloat(bridgeParams.amount);
+            // Calculate proportion of total value
+            volumeUsd = (amountNum / tokenBalance) * walletToken.usdValue;
+            logger.info(`[EXECUTE_RELAY_BRIDGE] Calculated volume USD: $${volumeUsd.toFixed(2)}`);
+          }
+        } catch (error) {
+          logger.warn(`[EXECUTE_RELAY_BRIDGE] Failed to calculate USD volume: ${error}`);
+          // Continue without volumeUsd - shouldn't block the bridge
+        }
+
         const cdpNetwork = resolveCdpNetwork(bridgeParams.originChain);
 
         const viemClient = await cdp.getViemClientsForAccount({
@@ -593,6 +624,11 @@ export const relayBridgeAction: Action = {
             amountInWei: amountInWei.toString(),
           },
         }),
+        values: {
+          destinationChain: bridgeParams.destinationChain,
+          toChain: bridgeParams.destinationChain,
+          volumeUsd: volumeUsd > 0 ? volumeUsd : undefined,
+        },
         input: inputParams,
       } as ActionResult & { input: typeof inputParams };
 

@@ -1,0 +1,413 @@
+import {
+  Service,
+  type IAgentRuntime,
+  type UUID,
+  logger,
+} from '@elizaos/core';
+import { eq, and, gte, desc, sql } from 'drizzle-orm';
+import {
+  gamificationEventsTable,
+  pointBalancesTable,
+  userChainHistoryTable,
+  gamificationCampaignsTable,
+} from '../schema';
+import {
+  GamificationEventType,
+  BASE_POINTS,
+  DAILY_CAPS,
+  VOLUME_MULTIPLIERS,
+  LEVEL_THRESHOLDS,
+  STREAK_BONUS_PER_DAY,
+  MAX_STREAK_BONUS,
+} from '../constants';
+import type {
+  GamificationEventInput,
+  PointBalance,
+  UserSummary,
+  LeaderboardEntry,
+} from '../types';
+
+export class GamificationService extends Service {
+  static serviceType = 'gamification';
+  capabilityDescription = 'Records points for user actions and provides gamification state';
+
+  private getDb() {
+    return (this.runtime as any).db;
+  }
+
+  static async start(runtime: IAgentRuntime): Promise<GamificationService> {
+    const service = new GamificationService(runtime);
+    logger.info('[GamificationService] Initialized');
+    return service;
+  }
+
+  async recordEvent(event: GamificationEventInput): Promise<PointBalance | null> {
+    const db = this.getDb();
+    if (!db) {
+      logger.error('[GamificationService] Database not available');
+      return null;
+    }
+
+    try {
+      if (!(await this.enforceRateLimits(event.userId, event.actionType))) {
+        return null;
+      }
+
+      const points = await this.calculatePoints(event);
+      if (points <= 0) return null;
+
+      const finalPoints = await this.applyActiveCampaigns(event.actionType, points);
+
+      await db.insert(gamificationEventsTable).values({
+        userId: event.userId,
+        actionType: event.actionType,
+        points: finalPoints,
+        metadata: event.metadata || {},
+        sourceEventId: event.sourceEventId,
+      });
+
+      const balance = await this.updateBalance(event.userId, finalPoints, event.actionType);
+
+      if (event.chain && event.actionType === GamificationEventType.BRIDGE_COMPLETED) {
+        await this.checkFirstChainBonus(event.userId, event.chain);
+      }
+
+      await this.emitPointsAwarded(event.userId, {
+        actionType: event.actionType,
+        points: finalPoints,
+        total: balance.allTimePoints,
+        streak: balance.streakDays,
+        level: balance.level,
+      });
+
+      return balance;
+    } catch (error) {
+      logger.error({ error }, '[GamificationService] Error recording event');
+      return null;
+    }
+  }
+
+  async getUserSummary(userId: UUID): Promise<UserSummary> {
+    const db = this.getDb();
+    if (!db) throw new Error('Database not available');
+
+    const [balance] = await db
+      .select()
+      .from(pointBalancesTable)
+      .where(eq(pointBalancesTable.userId, userId))
+      .limit(1);
+
+    if (!balance) {
+      return {
+        userId,
+        allTimePoints: 0,
+        weeklyPoints: 0,
+        streakDays: 0,
+        level: 0,
+        levelName: 'Explorer',
+        lastLoginDate: null,
+      };
+    }
+
+    const levelInfo = this.getLevelInfo(balance.allTimePoints);
+    return {
+      userId,
+      allTimePoints: balance.allTimePoints,
+      weeklyPoints: balance.weeklyPoints,
+      streakDays: balance.streakDays,
+      level: levelInfo.level,
+      levelName: levelInfo.name,
+      nextMilestone: this.getNextMilestone(balance.allTimePoints),
+      lastLoginDate: balance.lastLoginDate,
+    };
+  }
+
+  async getLeaderboard(scope: 'weekly' | 'all_time', limit = 50): Promise<LeaderboardEntry[]> {
+    const db = this.getDb();
+    if (!db) throw new Error('Database not available');
+
+    const pointsColumn = scope === 'weekly'
+      ? pointBalancesTable.weeklyPoints
+      : pointBalancesTable.allTimePoints;
+
+    const balances = await db
+      .select({
+        userId: pointBalancesTable.userId,
+        points: pointsColumn,
+        level: pointBalancesTable.level,
+      })
+      .from(pointBalancesTable)
+      .where(gte(pointsColumn, 0))
+      .orderBy(desc(pointsColumn))
+      .limit(limit);
+
+    return balances.map((balance: { userId: UUID; points: number; level: number }, index: number) => {
+      const levelInfo = this.getLevelInfo(balance.points);
+      return {
+        rank: index + 1,
+        userId: balance.userId,
+        points: balance.points,
+        level: levelInfo.level,
+        levelName: levelInfo.name,
+      };
+    });
+  }
+
+  async getUserRank(userId: UUID, scope: 'weekly' | 'all_time'): Promise<number> {
+    const db = this.getDb();
+    if (!db) throw new Error('Database not available');
+
+    const pointsColumn = scope === 'weekly'
+      ? pointBalancesTable.weeklyPoints
+      : pointBalancesTable.allTimePoints;
+
+    const [userBalance] = await db
+      .select({ points: pointsColumn })
+      .from(pointBalancesTable)
+      .where(eq(pointBalancesTable.userId, userId))
+      .limit(1);
+
+    if (!userBalance || userBalance.points === 0) return 0;
+
+    const rank = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(pointBalancesTable)
+      .where(gte(pointsColumn, userBalance.points));
+
+    return rank[0]?.count || 0;
+  }
+
+  private async enforceRateLimits(userId: UUID, actionType: GamificationEventType): Promise<boolean> {
+    const db = this.getDb();
+    if (!db) return false;
+
+    const cap = DAILY_CAPS[actionType];
+    if (!cap || cap === Infinity) return true;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const todayEvents = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(gamificationEventsTable)
+      .where(
+        and(
+          eq(gamificationEventsTable.userId, userId),
+          eq(gamificationEventsTable.actionType, actionType),
+          gte(gamificationEventsTable.createdAt, today)
+        )
+      );
+
+    return (todayEvents[0]?.count || 0) < cap;
+  }
+
+  private async calculatePoints(event: GamificationEventInput): Promise<number> {
+    const basePoints = BASE_POINTS[event.actionType];
+    if (!basePoints) return 0;
+
+    if (event.volumeUsd && event.volumeUsd > 0) {
+      if (event.actionType === GamificationEventType.SWAP_COMPLETED) {
+        const bonus = Math.min(
+          Math.floor(event.volumeUsd * VOLUME_MULTIPLIERS.SWAP.perDollar),
+          VOLUME_MULTIPLIERS.SWAP.cap
+        );
+        return basePoints + bonus;
+      }
+      if (event.actionType === GamificationEventType.BRIDGE_COMPLETED) {
+        const bonus = Math.min(
+          Math.floor(event.volumeUsd * VOLUME_MULTIPLIERS.BRIDGE.perDollar),
+          VOLUME_MULTIPLIERS.BRIDGE.cap
+        );
+        return basePoints + bonus;
+      }
+    }
+
+    if (event.actionType === GamificationEventType.DAILY_LOGIN_STREAK) {
+      const balance = await this.getBalance(event.userId);
+      const streakBonus = Math.min(
+        balance.streakDays * STREAK_BONUS_PER_DAY,
+        MAX_STREAK_BONUS
+      );
+      return basePoints + streakBonus;
+    }
+
+    return basePoints;
+  }
+
+  private async applyActiveCampaigns(actionType: GamificationEventType, basePoints: number): Promise<number> {
+    const db = this.getDb();
+    if (!db) return basePoints;
+
+    const now = new Date();
+    const [campaign] = await db
+      .select()
+      .from(gamificationCampaignsTable)
+      .where(
+        and(
+          eq(gamificationCampaignsTable.active, true),
+          sql`${gamificationCampaignsTable.startAt} <= ${now}`,
+          sql`${gamificationCampaignsTable.endAt} >= ${now}`,
+          sql`(${gamificationCampaignsTable.actionType} IS NULL OR ${gamificationCampaignsTable.actionType} = ${actionType})`
+        )
+      )
+      .limit(1);
+
+    if (campaign) {
+      return Math.floor(basePoints * (campaign.multiplier / 100));
+    }
+
+    return basePoints;
+  }
+
+  private async updateBalance(userId: UUID, points: number, actionType: GamificationEventType): Promise<PointBalance> {
+    const db = this.getDb();
+    if (!db) throw new Error('Database not available');
+
+    const balance = await this.getBalance(userId);
+    const isWeeklyReset = actionType === GamificationEventType.DAILY_LOGIN_STREAK;
+
+    let newStreakDays = balance.streakDays;
+    if (actionType === GamificationEventType.DAILY_LOGIN_STREAK) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const lastLogin = balance.lastLoginDate ? new Date(balance.lastLoginDate) : null;
+
+      if (!lastLogin || lastLogin < today) {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        if (lastLogin && lastLogin.getTime() === yesterday.getTime()) {
+          newStreakDays = balance.streakDays + 1;
+        } else {
+          newStreakDays = 1;
+        }
+      }
+    }
+
+    const allTimePoints = balance.allTimePoints + points;
+    const weeklyPoints = isWeeklyReset ? points : balance.weeklyPoints + points;
+    const levelInfo = this.getLevelInfo(allTimePoints);
+
+    const [updated] = await db
+      .insert(pointBalancesTable)
+      .values({
+        userId,
+        allTimePoints,
+        weeklyPoints,
+        streakDays: newStreakDays,
+        lastLoginDate: actionType === GamificationEventType.DAILY_LOGIN_STREAK ? new Date() : balance.lastLoginDate,
+        level: levelInfo.level,
+      })
+      .onConflictDoUpdate({
+        target: pointBalancesTable.userId,
+        set: {
+          allTimePoints,
+          weeklyPoints,
+          streakDays: newStreakDays,
+          lastLoginDate: actionType === GamificationEventType.DAILY_LOGIN_STREAK ? new Date() : balance.lastLoginDate,
+          level: levelInfo.level,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return {
+      userId: updated.userId,
+      allTimePoints: updated.allTimePoints,
+      weeklyPoints: updated.weeklyPoints,
+      streakDays: updated.streakDays,
+      lastLoginDate: updated.lastLoginDate,
+      level: updated.level,
+      levelName: levelInfo.name,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  private async getBalance(userId: UUID): Promise<PointBalance> {
+    const db = this.getDb();
+    if (!db) throw new Error('Database not available');
+
+    const [balance] = await db
+      .select()
+      .from(pointBalancesTable)
+      .where(eq(pointBalancesTable.userId, userId))
+      .limit(1);
+
+    if (!balance) {
+      return {
+        userId,
+        allTimePoints: 0,
+        weeklyPoints: 0,
+        streakDays: 0,
+        lastLoginDate: null,
+        level: 0,
+        levelName: 'Explorer',
+        updatedAt: new Date(),
+      };
+    }
+
+    const levelInfo = this.getLevelInfo(balance.allTimePoints);
+    return { ...balance, levelName: levelInfo.name };
+  }
+
+  private async checkFirstChainBonus(userId: UUID, chain: string): Promise<void> {
+    const db = this.getDb();
+    if (!db) return;
+
+    const [existing] = await db
+      .select()
+      .from(userChainHistoryTable)
+      .where(and(eq(userChainHistoryTable.userId, userId), eq(userChainHistoryTable.chain, chain)))
+      .limit(1);
+
+    if (!existing) {
+      await db.insert(userChainHistoryTable).values({ userId, chain });
+      await this.recordEvent({
+        userId,
+        actionType: GamificationEventType.FIRST_CHAIN_BONUS,
+        metadata: { chain },
+      });
+    }
+  }
+
+  private getLevelInfo(points: number): { level: number; name: string } {
+    for (const threshold of LEVEL_THRESHOLDS) {
+      if (points >= threshold.minPoints && points <= threshold.maxPoints) {
+        return { level: threshold.level, name: threshold.name };
+      }
+    }
+    return { level: 0, name: 'Explorer' };
+  }
+
+  private getNextMilestone(points: number): { level: number; levelName: string; pointsNeeded: number } | undefined {
+    for (const threshold of LEVEL_THRESHOLDS) {
+      if (points < threshold.minPoints) {
+        return {
+          level: threshold.level,
+          levelName: threshold.name,
+          pointsNeeded: threshold.minPoints - points,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  private async emitPointsAwarded(
+    userId: UUID,
+    payload: { actionType: GamificationEventType; points: number; total: number; streak: number; level: number }
+  ): Promise<void> {
+    try {
+      const messageBusService = this.runtime.getService('message-bus-service') as any;
+      if (messageBusService?.io) {
+        messageBusService.io.to(userId).emit('points.awarded', payload);
+      }
+    } catch (error) {
+      logger.error({ error }, '[GamificationService] Error emitting points.awarded event');
+    }
+  }
+
+  async stop(): Promise<void> {
+    logger.info('[GamificationService] Stopped');
+  }
+}
+

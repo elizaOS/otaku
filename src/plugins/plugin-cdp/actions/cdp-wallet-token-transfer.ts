@@ -479,6 +479,8 @@ export const cdpWalletTokenTransfer: Action = {
       
       // Calculate amount based on percentage or use provided amount
       let amountToTransfer: string;
+      let valueUsd = 0;
+      
       if (transferParams.percentage !== undefined) {
         // Calculate amount from percentage
         const balanceRaw = parseUnits(resolvedWalletToken.balanceFormatted, decimals);
@@ -497,8 +499,21 @@ export const cdpWalletTokenTransfer: Action = {
         // Convert back to formatted string for display
         const formattedAmount = Number(percentageAmount) / Math.pow(10, decimals);
         amountToTransfer = formattedAmount.toString();
+        
+        // Calculate USD value from already-available wallet token data (no extra fetch)
+        if (resolvedWalletToken.usdValue && parseFloat(resolvedWalletToken.balanceFormatted) > 0) {
+          const tokenBalance = parseFloat(resolvedWalletToken.balanceFormatted);
+          valueUsd = (formattedAmount / tokenBalance) * resolvedWalletToken.usdValue;
+        }
       } else {
         amountToTransfer = transferParams.amount!;
+        
+        // Calculate USD value from already-available wallet token data (no extra fetch)
+        if (resolvedWalletToken.usdValue && parseFloat(resolvedWalletToken.balanceFormatted) > 0) {
+          const tokenBalance = parseFloat(resolvedWalletToken.balanceFormatted);
+          const amountNum = parseFloat(amountToTransfer);
+          valueUsd = (amountNum / tokenBalance) * resolvedWalletToken.usdValue;
+        }
       }
       
       // Parse amount to proper units
@@ -549,6 +564,9 @@ export const cdpWalletTokenTransfer: Action = {
           token: transferParams.token,
           amount: amountToTransfer,
           percentage: transferParams.percentage,
+        },
+        values: {
+          valueUsd: valueUsd > 0 ? valueUsd : undefined,
         },
         input: inputParams,
       } as ActionResult & { input: typeof inputParams };
