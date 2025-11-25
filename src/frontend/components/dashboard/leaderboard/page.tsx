@@ -54,12 +54,12 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
   const rebels: RebelRanking[] = (leaderboardData?.entries || []).map((entry: LeaderboardEntry, index: number) => ({
     id: entry.rank,
     name: entry.username || `User ${entry.userId.substring(0, 8)}`, // Use username from entity, fallback to userId
-    handle: entry.levelName,
+    handle: '', // Removed redundant level name
     streak: '', // Could add streak info if available
     points: entry.points,
     avatar: entry.avatar || `/avatars/user_krimson.png`, // Use avatar from entity, fallback to default
     featured: index < 3, // Top 3 are featured
-    subtitle: index < 3 ? `#${entry.rank} • ${entry.levelName}` : undefined,
+    subtitle: undefined, // Removed redundant rank and level name subtitle
   }));
 
   const handleRefresh = () => {

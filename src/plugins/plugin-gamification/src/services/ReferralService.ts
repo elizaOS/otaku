@@ -174,17 +174,37 @@ export class ReferralService extends Service {
       return; // No referrer
     }
 
-    // Check if already activated
+    // Check if this specific user has already been activated for this referrer
     const [existingActivation] = await db
       .select()
       .from(gamificationEventsTable)
       .where(
-        eq(gamificationEventsTable.actionType, GamificationEventType.REFERRAL_ACTIVATION)
+        and(
+          eq(gamificationEventsTable.userId, userCode.referrerId),
+          eq(gamificationEventsTable.actionType, GamificationEventType.REFERRAL_ACTIVATION)
+        )
       )
       .limit(1);
 
+    // Check if this specific userId is already in any activation event metadata
     if (existingActivation) {
-      return; // Already activated
+      const allActivations = await db
+        .select()
+        .from(gamificationEventsTable)
+        .where(
+          and(
+            eq(gamificationEventsTable.userId, userCode.referrerId),
+            eq(gamificationEventsTable.actionType, GamificationEventType.REFERRAL_ACTIVATION)
+          )
+        );
+      
+      const alreadyActivated = allActivations.some((event: any) => 
+        event.metadata?.activatedUserId === userId
+      );
+      
+      if (alreadyActivated) {
+        return; // This user already activated for this referrer
+      }
     }
 
     // Award activation bonus to referrer

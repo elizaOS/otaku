@@ -49,7 +49,7 @@ export class GamificationService extends Service {
     }
 
     try {
-      if (!(await this.enforceRateLimits(event.userId, event.actionType))) {
+      if (!(await this.enforceRateLimits(event.userId, event.actionType, event.metadata))) {
         return null;
       }
 
@@ -200,9 +200,81 @@ export class GamificationService extends Service {
     return rank[0]?.count || 0;
   }
 
-  private async enforceRateLimits(userId: UUID, actionType: GamificationEventType): Promise<boolean> {
+  private async enforceRateLimits(userId: UUID, actionType: GamificationEventType, metadata?: Record<string, any>): Promise<boolean> {
     const db = this.getDb();
     if (!db) return false;
+
+    // One-time only events (awarded once ever per user)
+    const oneTimeEvents = [
+      GamificationEventType.ACCOUNT_CREATION,
+      GamificationEventType.REFERRED_WELCOME,
+    ];
+    
+    if (oneTimeEvents.includes(actionType)) {
+      const existingEvents = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(gamificationEventsTable)
+        .where(
+          and(
+            eq(gamificationEventsTable.userId, userId),
+            eq(gamificationEventsTable.actionType, actionType)
+          )
+        );
+      return (existingEvents[0]?.count || 0) === 0;
+    }
+
+    // REFERRAL_SIGNUP should be once per referral relationship (check metadata.referredUserId)
+    if (actionType === GamificationEventType.REFERRAL_SIGNUP && metadata?.referredUserId) {
+      const existingEvents = await db
+        .select()
+        .from(gamificationEventsTable)
+        .where(
+          and(
+            eq(gamificationEventsTable.userId, userId),
+            eq(gamificationEventsTable.actionType, actionType)
+          )
+        );
+      // Check if this referredUserId already exists in metadata
+      const alreadyAwarded = existingEvents.some((event: any) => 
+        event.metadata?.referredUserId === metadata.referredUserId
+      );
+      return !alreadyAwarded;
+    }
+
+    // REFERRAL_ACTIVATION should be once per referral relationship (check metadata.activatedUserId)
+    if (actionType === GamificationEventType.REFERRAL_ACTIVATION && metadata?.activatedUserId) {
+      const existingEvents = await db
+        .select()
+        .from(gamificationEventsTable)
+        .where(
+          and(
+            eq(gamificationEventsTable.userId, userId),
+            eq(gamificationEventsTable.actionType, actionType)
+          )
+        );
+      // Check if this activatedUserId already exists in metadata
+      const alreadyAwarded = existingEvents.some((event: any) => 
+        event.metadata?.activatedUserId === metadata.activatedUserId
+      );
+      return !alreadyAwarded;
+    }
+
+    // DAILY_QUEST should be once per day
+    if (actionType === GamificationEventType.DAILY_QUEST) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayEvents = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(gamificationEventsTable)
+        .where(
+          and(
+            eq(gamificationEventsTable.userId, userId),
+            eq(gamificationEventsTable.actionType, actionType),
+            gte(gamificationEventsTable.createdAt, today)
+          )
+        );
+      return (todayEvents[0]?.count || 0) === 0;
+    }
 
     const cap = DAILY_CAPS[actionType];
     if (!cap || cap === Infinity) return true;
