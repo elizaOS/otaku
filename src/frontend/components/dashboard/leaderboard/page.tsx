@@ -53,11 +53,11 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
   // Transform leaderboard entries to RebelRanking format
   const rebels: RebelRanking[] = (leaderboardData?.entries || []).map((entry: LeaderboardEntry, index: number) => ({
     id: entry.rank,
-    name: `User ${entry.userId.substring(0, 8)}`, // Truncate userId for display
+    name: entry.username || `User ${entry.userId.substring(0, 8)}`, // Use username from entity, fallback to userId
     handle: entry.levelName,
     streak: '', // Could add streak info if available
     points: entry.points,
-    avatar: `/avatars/user_krimson.png`, // Default avatar, could fetch from entity metadata
+    avatar: entry.avatar || `/avatars/user_krimson.png`, // Use avatar from entity, fallback to default
     featured: index < 3, // Top 3 are featured
     subtitle: index < 3 ? `#${entry.rank} • ${entry.levelName}` : undefined,
   }));

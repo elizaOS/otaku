@@ -39,7 +39,8 @@ export const getLeaderboardAction: Action = {
 
       let text = `**${scope === 'weekly' ? 'Weekly' : 'All-Time'} Leaderboard (Top ${limit}):**\n\n`;
       entries.forEach((entry) => {
-        text += `${entry.rank}. ${entry.levelName} - ${entry.points.toLocaleString()} pts\n`;
+        const displayName = entry.username || entry.levelName || `User ${entry.userId.substring(0, 8)}`;
+        text += `${entry.rank}. ${displayName} - ${entry.points.toLocaleString()} pts\n`;
       });
 
       if (userRank > 0) {

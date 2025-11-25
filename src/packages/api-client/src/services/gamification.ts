@@ -7,6 +7,8 @@ export interface LeaderboardEntry {
   points: number;
   level: number;
   levelName: string;
+  username?: string;
+  avatar?: string;
 }
 
 export interface LeaderboardResponse {

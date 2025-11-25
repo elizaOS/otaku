@@ -141,16 +141,39 @@ export class GamificationService extends Service {
       .orderBy(desc(pointsColumn))
       .limit(limit);
 
-    return balances.map((balance: { userId: UUID; points: number; level: number }, index: number) => {
-      const levelInfo = this.getLevelInfo(balance.points);
-      return {
-        rank: index + 1,
-        userId: balance.userId,
-        points: balance.points,
-        level: levelInfo.level,
-        levelName: levelInfo.name,
-      };
-    });
+    // Fetch entity data for display names and avatars
+    const entries = await Promise.all(
+      balances.map(async (balance: { userId: UUID; points: number; level: number }, index: number) => {
+        const levelInfo = this.getLevelInfo(balance.points);
+        
+        // Try to get entity for display name and avatar
+        let displayName: string | undefined;
+        let avatarUrl: string | undefined;
+        
+        try {
+          const entity = await this.runtime.getEntityById(balance.userId);
+          if (entity) {
+            displayName = (entity.metadata?.displayName as string) || (entity.names?.[0] as string);
+            avatarUrl = entity.metadata?.avatarUrl as string | undefined;
+          }
+        } catch (error) {
+          // Entity not found or error fetching - use fallback
+          logger.debug({ userId: balance.userId, error }, '[GamificationService] Could not fetch entity for leaderboard entry');
+        }
+
+        return {
+          rank: index + 1,
+          userId: balance.userId,
+          points: balance.points,
+          level: levelInfo.level,
+          levelName: levelInfo.name,
+          username: displayName,
+          avatar: avatarUrl,
+        };
+      })
+    );
+
+    return entries;
   }
 
   async getUserRank(userId: UUID, scope: 'weekly' | 'all_time'): Promise<number> {

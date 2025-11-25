@@ -7,6 +7,9 @@ export const character: Character = {
   settings: {
     secrets: {},
     avatar: '/avatars/otaku.png',
+    models: {
+      TEXT_EMBEDDING: 'openai', // Use OpenAI for embeddings (OpenRouter doesn't support embeddings)
+    },
     mcp: {
       servers: {
         "nansen-ai": {

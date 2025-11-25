@@ -113,6 +113,21 @@ export const cdpWalletInfo: Action = {
       }
 
       const accountName = wallet.metadata?.accountName as string;
+      
+      // Get entity information for context
+      let entityId = message.entityId;
+      let entityName = "";
+      try {
+        const entity = await runtime.getEntityById(entityId);
+        if (entity) {
+          // Use metadata.displayName first (as shown on dashboard), then fallback to names[0]
+          entityName = (entity.metadata?.displayName as string) || 
+                       (entity.names && entity.names.length > 0 ? entity.names[0] : entityId);
+        }
+      } catch (error) {
+        logger.warn("[USER_WALLET_INFO] Could not fetch entity name:", error instanceof Error ? error.message : String(error));
+        entityName = entityId; // Fallback to entityId if fetch fails
+      }
 
       if (!accountName) {
         const errorMsg = "Could not find account name for wallet";
@@ -160,6 +175,9 @@ export const cdpWalletInfo: Action = {
 
       // Format the response
       let text = ` **Wallet Information${chain ? ` (${chain.charAt(0).toUpperCase() + chain.slice(1)})` : ''}**\n\n`;
+      if (entityName) {
+        text += ` **Display Name:** ${entityName} (Entity ID: ${entityId})\n`;
+      }
       text += ` **Address:** \`${walletInfo.address}\`\n`;
       text += `$ **Total Value:** $${walletInfo.totalUsdValue.toFixed(2)}\n\n`;
 
@@ -229,6 +247,8 @@ export const cdpWalletInfo: Action = {
         tokens: walletInfo.tokens,
         nfts: walletInfo.nfts,
         totalUsdValue: walletInfo.totalUsdValue,
+        entityId,
+        entityName,
         ...(chain && { chain }),
       };
 
