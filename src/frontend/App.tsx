@@ -11,6 +11,7 @@ import Widget from './components/dashboard/widget';
 import { CDPWalletCard, type CDPWalletCardRef } from './components/dashboard/cdp-wallet-card';
 import CollapsibleNotifications from './components/dashboard/notifications/collapsible-notifications';
 import AccountPage from './components/dashboard/account/page';
+import LeaderboardPage from './components/dashboard/leaderboard/page';
 import { SignInModal } from './components/auth/SignInModal';
 import { MobileHeader } from './components/dashboard/mobile-header';
 import { LoadingPanelProvider, useLoadingPanel } from './contexts/LoadingPanelContext';
@@ -80,7 +81,7 @@ function App() {
   const [isLoadingChannels, setIsLoadingChannels] = useState(true);
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'chat' | 'account'>('chat');
+  const [currentView, setCurrentView] = useState<'chat' | 'account' | 'leaderboard'>('chat');
   const [totalBalance, setTotalBalance] = useState(0);
   const [isLoadingUserProfile, setIsLoadingUserProfile] = useState(true);
   const [isNewChatMode, setIsNewChatMode] = useState(false); // Track if we're in "new chat" mode (no channel yet)
@@ -600,6 +601,7 @@ function App() {
         updateUserProfile={updateUserProfile}
         signOut={signOut}
         isSignedIn={isSignedIn}
+        agentId={agentId}
       />
     </SidebarProvider>
   );
@@ -629,6 +631,7 @@ function AppContent({
   updateUserProfile,
   signOut,
   isSignedIn,
+  agentId,
 }: any) {
   const { setOpenMobile } = useSidebar();
   const { showModal, hideModal } = useModal();
@@ -686,11 +689,12 @@ function AppContent({
             onSignOut={signOut}
             onChatClick={() => setCurrentView('chat')}
             onAccountClick={() => setCurrentView('account')}
+            onLeaderboardClick={() => setCurrentView('leaderboard')}
             onHomeClick={() => setCurrentView('chat')}
           />
         </div>
 
-        {/* Center - Chat Interface / Account */}
+        {/* Center - Chat Interface / Account / Leaderboard */}
         <div className="col-span-1 lg:col-span-7 h-full overflow-auto lg:overflow-hidden">
           {currentView === 'account' ? (
             <AccountPage 
@@ -698,6 +702,17 @@ function AppContent({
               userProfile={userProfile}
               onUpdateProfile={updateUserProfile}
             />
+          ) : currentView === 'leaderboard' ? (
+            agentId ? (
+              <LeaderboardPage 
+                agentId={agentId as UUID}
+                userId={userId as UUID | undefined}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-muted-foreground">Loading agent...</p>
+              </div>
+            )
           ) : (
             <div className="flex flex-col relative w-full gap-1 min-h-0 h-full">
               {/* Header */}

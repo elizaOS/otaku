@@ -1,11 +1,10 @@
 import {
+  logger,
   Service,
   type IAgentRuntime,
-  logger,
 } from '@elizaos/core';
-import { eq, desc, sql } from 'drizzle-orm';
-import { pointBalancesTable, leaderboardSnapshotsTable } from '../schema';
-import { GamificationService } from './GamificationService';
+import { desc, eq, sql } from 'drizzle-orm';
+import { leaderboardSnapshotsTable, pointBalancesTable } from '../schema';
 
 export class LeaderboardService extends Service {
   static serviceType = 'leaderboard-sync';

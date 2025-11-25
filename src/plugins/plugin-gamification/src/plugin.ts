@@ -1,5 +1,7 @@
 import type { Plugin } from '@elizaos/core';
 import { logger } from '@elizaos/core';
+import type { IAgentRuntime } from '@elizaos/core';
+import type { Request, Response } from 'express';
 import { gamificationSchema } from './schema';
 import { GamificationService } from './services/GamificationService';
 import { ReferralService } from './services/ReferralService';
@@ -10,6 +12,37 @@ import { getPointsSummaryAction } from './actions/getPointsSummary';
 import { getReferralCodeAction } from './actions/getReferralCode';
 import { getLeaderboardAction } from './actions/getLeaderboard';
 import { gamificationEvents } from './events/eventHandlers';
+
+// Leaderboard route handlers
+async function handleGetLeaderboard(req: Request, res: Response, runtime: IAgentRuntime) {
+  try {
+    const scope = (req.query.scope as 'weekly' | 'all_time') || 'weekly';
+    const limit = parseInt(req.query.limit as string) || 50;
+    const userId = req.query.userId as string | undefined;
+
+    const gamificationService = runtime.getService('gamification') as GamificationService;
+    if (!gamificationService) {
+      return res.status(503).json({ error: 'Gamification service not available' });
+    }
+
+    const entries = await gamificationService.getLeaderboard(scope, limit);
+    
+    let userRank = 0;
+    if (userId) {
+      userRank = await gamificationService.getUserRank(userId as any, scope);
+    }
+
+    res.json({
+      scope,
+      entries,
+      userRank,
+      limit,
+    });
+  } catch (error) {
+    logger.error({ error }, '[GamificationPlugin] Error fetching leaderboard');
+    res.status(500).json({ error: 'Error fetching leaderboard' });
+  }
+}
 
 export const gamificationPlugin: Plugin = {
   name: 'gamification',
@@ -28,6 +61,14 @@ export const gamificationPlugin: Plugin = {
   providers: [pointsProvider, leaderboardProvider],
 
   events: gamificationEvents,
+
+  routes: [
+    {
+      path: '/leaderboard',
+      type: 'GET',
+      handler: handleGetLeaderboard,
+    },
+  ],
 };
 
 export default gamificationPlugin;

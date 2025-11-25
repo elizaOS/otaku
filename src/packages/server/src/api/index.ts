@@ -130,11 +130,15 @@ export function createPluginRouteHandler(elizaOS: ElizaOS): express.RequestHandl
 
     // Skip client-side routes that should be handled by the SPA
     // These include /chat, /settings, /agents, etc.
-    const clientRoutePattern =
-      /^\/(chat|settings|agents|profile|dashboard|login|register|admin|home|about)\b/i;
-    if (clientRoutePattern.test(req.path)) {
-      logger.debug(`Skipping client-side route in plugin handler: ${req.path}`);
-      return next();
+    // BUT don't skip /api/agents/{id}/plugins/* routes (those are plugin API routes)
+    const isPluginRoute = /^\/api\/agents\/[^\/]+\/plugins\//i.test(req.path) || /^\/agents\/[^\/]+\/plugins\//i.test(req.path);
+    if (!isPluginRoute) {
+      const clientRoutePattern =
+        /^\/(chat|settings|agents|profile|dashboard|login|register|admin|home|about)\b/i;
+      if (clientRoutePattern.test(req.path)) {
+        logger.debug(`Skipping client-side route in plugin handler: ${req.path}`);
+        return next();
+      }
     }
 
     // Debug output for JavaScript requests
