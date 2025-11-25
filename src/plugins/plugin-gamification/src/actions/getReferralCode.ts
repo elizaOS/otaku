@@ -34,7 +34,7 @@ export const getReferralCodeAction: Action = {
 
       const text = `**Your Referral Code:** \`${code}\`
 
-Share this link: https://otaku.studio/?ref=${code}
+Share this link: https://otaku.so/?ref=${code}
 
 **Stats:**
 - Signups: ${stats.totalReferrals}
