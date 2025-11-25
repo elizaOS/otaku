@@ -20,6 +20,8 @@ export const gamificationEventsTable = pgTable('gamification_events', {
   userIdIdx: index('gamification_events_user_id_idx').on(table.userId),
   createdAtIdx: index('gamification_events_created_at_idx').on(table.createdAt),
   actionTypeIdx: index('gamification_events_action_type_idx').on(table.actionType),
+  // Composite index for common query pattern: userId + actionType + createdAt
+  userActionDateIdx: index('gam_events_user_action_date_idx').on(table.userId, table.actionType, table.createdAt),
 }));
 
 /**

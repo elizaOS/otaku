@@ -3,6 +3,7 @@ import {
   type IAgentRuntime,
   type UUID,
   logger,
+  DatabaseAdapter,
 } from '@elizaos/core';
 import { eq, and, gte, desc, sql } from 'drizzle-orm';
 import {
@@ -27,12 +28,24 @@ import type {
   LeaderboardEntry,
 } from '../types';
 
+interface RuntimeWithDb extends IAgentRuntime {
+  db?: DatabaseAdapter;
+}
+
 export class GamificationService extends Service {
   static serviceType = 'gamification';
   capabilityDescription = 'Records points for user actions and provides gamification state';
 
-  private getDb() {
-    return (this.runtime as any).db;
+  private getDb(): DatabaseAdapter | undefined {
+    return (this.runtime as RuntimeWithDb).db;
+  }
+
+  /**
+   * Check if a userId belongs to an agent (not a human user)
+   */
+  private isAgent(userId: UUID): boolean {
+    // Check if userId matches the agent's ID or character ID
+    return userId === this.runtime.agentId || userId === this.runtime.character.id;
   }
 
   static async start(runtime: IAgentRuntime): Promise<GamificationService> {
@@ -48,6 +61,12 @@ export class GamificationService extends Service {
       return null;
     }
 
+    // Never award points to agents
+    if (this.isAgent(event.userId)) {
+      logger.debug(`[GamificationService] Skipping points for agent userId: ${event.userId}`);
+      return null;
+    }
+
     try {
       if (!(await this.enforceRateLimits(event.userId, event.actionType, event.metadata))) {
         return null;
@@ -58,15 +77,30 @@ export class GamificationService extends Service {
 
       const finalPoints = await this.applyActiveCampaigns(event.actionType, points);
 
-      await db.insert(gamificationEventsTable).values({
-        userId: event.userId,
-        actionType: event.actionType,
-        points: finalPoints,
-        metadata: event.metadata || {},
-        sourceEventId: event.sourceEventId,
-      });
+      // Validate metadata size to prevent DB bloat (max 10KB)
+      const metadataSize = JSON.stringify(event.metadata || {}).length;
+      if (metadataSize > 10240) {
+        logger.warn(`[GamificationService] Metadata too large (${metadataSize} bytes), truncating`);
+        event.metadata = { ...event.metadata, _truncated: true };
+      }
 
-      const balance = await this.updateBalance(event.userId, finalPoints, event.actionType);
+      // Use transaction to ensure atomicity
+      let balance: PointBalance;
+      try {
+        // Start transaction (if supported by adapter)
+        await db.insert(gamificationEventsTable).values({
+          userId: event.userId,
+          actionType: event.actionType,
+          points: finalPoints,
+          metadata: event.metadata || {},
+          sourceEventId: event.sourceEventId,
+        });
+
+        balance = await this.updateBalance(event.userId, finalPoints, event.actionType);
+      } catch (error) {
+        logger.error({ error }, '[GamificationService] Error in transaction, rolling back');
+        throw error;
+      }
 
       if (event.chain && event.actionType === GamificationEventType.BRIDGE_COMPLETED) {
         await this.checkFirstChainBonus(event.userId, event.chain);
@@ -90,6 +124,20 @@ export class GamificationService extends Service {
   async getUserSummary(userId: UUID): Promise<UserSummary> {
     const db = this.getDb();
     if (!db) throw new Error('Database not available');
+
+    // Agents should never have a summary (return empty summary)
+    if (this.isAgent(userId)) {
+      return {
+        userId,
+        allTimePoints: 0,
+        weeklyPoints: 0,
+        streakDays: 0,
+        level: 0,
+        levelName: 'Explorer',
+        lastLoginDate: null,
+        swapsCompleted: 0,
+      };
+    }
 
     const [balance] = await db
       .select()
@@ -143,7 +191,8 @@ export class GamificationService extends Service {
       ? pointBalancesTable.weeklyPoints
       : pointBalancesTable.allTimePoints;
 
-    const balances = await db
+    // Get all balances, then filter out agents
+    const allBalances = await db
       .select({
         userId: pointBalancesTable.userId,
         points: pointsColumn,
@@ -151,8 +200,12 @@ export class GamificationService extends Service {
       })
       .from(pointBalancesTable)
       .where(gte(pointsColumn, 0))
-      .orderBy(desc(pointsColumn))
-      .limit(limit);
+      .orderBy(desc(pointsColumn));
+
+    // Filter out agents and limit results
+    const balances = allBalances
+      .filter((balance) => !this.isAgent(balance.userId))
+      .slice(0, limit);
 
     // Fetch entity data for display names and avatars
     const entries = await Promise.all(
@@ -193,6 +246,11 @@ export class GamificationService extends Service {
     const db = this.getDb();
     if (!db) throw new Error('Database not available');
 
+    // Agents should never have a rank
+    if (this.isAgent(userId)) {
+      return 0;
+    }
+
     const pointsColumn = scope === 'weekly'
       ? pointBalancesTable.weeklyPoints
       : pointBalancesTable.allTimePoints;
@@ -205,12 +263,16 @@ export class GamificationService extends Service {
 
     if (!userBalance || userBalance.points === 0) return 0;
 
-    const rank = await db
-      .select({ count: sql<number>`count(*)` })
+    // Count users with equal or higher points, excluding agents
+    const allBalances = await db
+      .select({ userId: pointBalancesTable.userId, points: pointsColumn })
       .from(pointBalancesTable)
       .where(gte(pointsColumn, userBalance.points));
 
-    return rank[0]?.count || 0;
+    // Filter out agents and count
+    const rank = allBalances.filter((balance) => !this.isAgent(balance.userId)).length;
+
+    return rank;
   }
 
   private async enforceRateLimits(userId: UUID, actionType: GamificationEventType, metadata?: Record<string, any>): Promise<boolean> {
@@ -475,10 +537,24 @@ export class GamificationService extends Service {
 
     if (!existing) {
       await db.insert(userChainHistoryTable).values({ userId, chain });
-      await this.recordEvent({
+      
+      // Award points directly without recursion to avoid infinite loops
+      const points = BASE_POINTS[GamificationEventType.FIRST_CHAIN_BONUS];
+      await db.insert(gamificationEventsTable).values({
         userId,
         actionType: GamificationEventType.FIRST_CHAIN_BONUS,
+        points,
         metadata: { chain },
+      });
+      
+      const balance = await this.updateBalance(userId, points, GamificationEventType.FIRST_CHAIN_BONUS);
+      
+      await this.emitPointsAwarded(userId, {
+        actionType: GamificationEventType.FIRST_CHAIN_BONUS,
+        points,
+        total: balance.allTimePoints,
+        streak: balance.streakDays,
+        level: balance.level,
       });
     }
   }

@@ -1,6 +1,6 @@
 import type { PluginEvents, ActionEventPayload, RunEventPayload, EntityPayload, ActionResult, UUID, Memory } from '@elizaos/core';
 import { EventType, logger } from '@elizaos/core';
-import { GamificationEventType, MESSAGE_LENGTH_TIERS, MIN_CHAT_LENGTH } from '../constants';
+import { GamificationEventType, MESSAGE_LENGTH_TIERS, MIN_CHAT_LENGTH, MIN_TRANSFER_VALUE_USD } from '../constants';
 import { GamificationService } from '../services/GamificationService';
 import { ReferralService } from '../services/ReferralService';
 
@@ -14,26 +14,58 @@ interface ActionResultWithValues extends ActionResult {
   };
 }
 
-async function getUserIdFromMessage(runtime: ActionEventPayload['runtime'], messageId?: UUID, roomId?: UUID): Promise<UUID | null> {
+async function getUserIdFromMessage(runtime: ActionEventPayload['runtime'], messageId?: UUID, roomId?: UUID, entityId?: UUID): Promise<UUID | null> {
+  // Helper to resolve the actual user ID from an entity (handles agent-scoped entities)
+  const resolveActualUserId = async (id: UUID): Promise<UUID | null> => {
+    try {
+      const entity = await runtime.getEntityById(id);
+      if (!entity) return null;
+      
+      // If entity has author_id in metadata, it's an agent-scoped entity - use the actual user ID
+      if (entity.metadata?.author_id && typeof entity.metadata.author_id === 'string') {
+        const actualUserId = entity.metadata.author_id as string;
+        // Verify the actual user entity exists
+        const userEntity = await runtime.getEntityById(actualUserId);
+        if (userEntity) {
+          return actualUserId;
+        }
+      }
+      
+      // Otherwise, use the entity ID directly (it's already the user entity)
+      return id;
+    } catch {
+      return null;
+    }
+  };
+
+  // Check entityId first (most efficient)
+  if (entityId) {
+    return await resolveActualUserId(entityId);
+  }
+  
   if (!messageId || !roomId) return null;
   
   try {
+    // Try to get message directly if possible (more efficient than fetching 100)
+    // For now, fallback to fetching memories, but limit to smaller count
     const memories = await runtime.getMemories({
       tableName: 'messages',
       roomId,
-      count: 100,
+      count: 50, // Reduced from 100
     });
     const message = memories.find((m: Memory) => m.id === messageId);
-    return message?.entityId || null;
+    if (!message?.entityId) return null;
+    
+    return await resolveActualUserId(message.entityId);
   } catch {
     return null;
   }
 }
 
-async function recordSwapPoints(payload: ActionEventPayload): Promise<void> {
+async function recordSwapPoints(payload: ActionEventPayload): Promise<boolean> {
   try {
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
-    if (!gamificationService) return;
+    if (!gamificationService) return false;
 
     // Handle both actionResults (array) and actionResult (single) formats
     const actionResults = payload.content?.actionResults;
@@ -48,19 +80,19 @@ async function recordSwapPoints(payload: ActionEventPayload): Promise<void> {
     // Only award points for successful swaps
     if (!actionResult || actionResult.success !== true) {
       logger.debug('[Gamification] Skipping points for unsuccessful swap');
-      return;
+      return false;
     }
 
     // Also check swapSuccess flag if present (for extra safety)
     if (actionResult.values?.swapSuccess === false) {
       logger.debug('[Gamification] Skipping points for swap marked as unsuccessful');
-      return;
+      return false;
     }
     
     const volumeUsd = actionResult?.values?.volumeUsd || actionResult?.values?.valueUsd || 0;
 
-    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId);
-    if (!userId) return;
+    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId, payload.entityId);
+    if (!userId) return false;
 
     await gamificationService.recordEvent({
       userId,
@@ -70,16 +102,17 @@ async function recordSwapPoints(payload: ActionEventPayload): Promise<void> {
       sourceEventId: payload.messageId,
     });
     
-    return; // Return to prevent duplicate agent action points
+    return true; // Return true to indicate we handled this action
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording swap points');
+    return false;
   }
 }
 
-async function recordBridgePoints(payload: ActionEventPayload): Promise<void> {
+async function recordBridgePoints(payload: ActionEventPayload): Promise<boolean> {
   try {
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
-    if (!gamificationService) return;
+    if (!gamificationService) return false;
 
     // Handle both actionResults (array) and actionResult (single) formats
     const actionResults = payload.content?.actionResults;
@@ -94,14 +127,14 @@ async function recordBridgePoints(payload: ActionEventPayload): Promise<void> {
     // Only award points for successful bridges
     if (!actionResult || actionResult.success !== true) {
       logger.debug('[Gamification] Skipping points for unsuccessful bridge');
-      return;
+      return false;
     }
     
     const volumeUsd = actionResult?.values?.volumeUsd || actionResult?.values?.valueUsd || 0;
     const chain = actionResult?.values?.destinationChain || actionResult?.values?.toChain;
 
-    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId);
-    if (!userId) return;
+    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId, payload.entityId);
+    if (!userId) return false;
 
     await gamificationService.recordEvent({
       userId,
@@ -112,16 +145,17 @@ async function recordBridgePoints(payload: ActionEventPayload): Promise<void> {
       sourceEventId: payload.messageId,
     });
     
-    return; // Return to prevent duplicate agent action points
+    return true; // Return true to indicate we handled this action
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording bridge points');
+    return false;
   }
 }
 
-async function recordTransferPoints(payload: ActionEventPayload): Promise<void> {
+async function recordTransferPoints(payload: ActionEventPayload): Promise<boolean> {
   try {
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
-    if (!gamificationService) return;
+    if (!gamificationService) return false;
 
     // Handle both actionResults (array) and actionResult (single) formats
     const actionResults = payload.content?.actionResults;
@@ -136,15 +170,16 @@ async function recordTransferPoints(payload: ActionEventPayload): Promise<void> 
     // Only award points for successful transfers
     if (!actionResult || actionResult.success !== true) {
       logger.debug('[Gamification] Skipping points for unsuccessful transfer');
-      return;
+      return false;
     }
     
     const valueUsd = actionResult?.values?.valueUsd || 0;
 
-    if (valueUsd < 25) return;
+    // Use constant instead of magic number
+    if (valueUsd < MIN_TRANSFER_VALUE_USD) return false;
 
-    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId);
-    if (!userId) return;
+    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId, payload.entityId);
+    if (!userId) return false;
 
     await gamificationService.recordEvent({
       userId,
@@ -154,9 +189,10 @@ async function recordTransferPoints(payload: ActionEventPayload): Promise<void> 
       sourceEventId: payload.messageId,
     });
     
-    return; // Return to prevent duplicate agent action points
+    return true; // Return true to indicate we handled this action
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording transfer points');
+    return false;
   }
 }
 
@@ -164,6 +200,11 @@ async function recordTransferPoints(payload: ActionEventPayload): Promise<void> 
  * Calculate points based on message length tiers
  */
 function calculateChatPoints(messageLength: number): number {
+  // Validate input
+  if (!Number.isFinite(messageLength) || messageLength < 0) {
+    return 0;
+  }
+  
   if (messageLength < MIN_CHAT_LENGTH) return 0;
   
   for (const tier of MESSAGE_LENGTH_TIERS) {
@@ -183,16 +224,19 @@ async function recordChatPoints(payload: RunEventPayload): Promise<void> {
     let input = '';
     try {
       if (payload.messageId) {
+        // Try to get message directly if possible (more efficient)
+        // For now, use smaller count to reduce overhead
         const memories = await payload.runtime.getMemories({
           tableName: 'messages',
           roomId: payload.roomId,
-          count: 100,
+          count: 50, // Reduced from 100
         });
         const message = memories.find((m) => m.id === payload.messageId);
         input = message?.content?.text || '';
       }
     } catch (error) {
       // If we can't get the message, skip
+      logger.debug({ error }, '[Gamification] Could not fetch message for chat points');
       return;
     }
 
@@ -205,9 +249,13 @@ async function recordChatPoints(payload: RunEventPayload): Promise<void> {
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
     if (!gamificationService) return;
 
+    // Resolve actual user ID (handles agent-scoped entities)
+    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId, payload.entityId);
+    if (!userId) return;
+
     // Store the calculated points in metadata to override BASE_POINTS
     await gamificationService.recordEvent({
-      userId: payload.entityId,
+      userId,
       actionType: GamificationEventType.MEANINGFUL_CHAT,
       metadata: { 
         inputLength: messageLength,
@@ -240,7 +288,7 @@ async function recordAgentActionPoints(payload: ActionEventPayload): Promise<voi
       return;
     }
 
-    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId);
+    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId, payload.entityId);
     if (!userId) return;
 
     const actionName = payload.content?.actions?.[0] || 'unknown';
@@ -261,10 +309,14 @@ async function recordAgentActionPoints(payload: ActionEventPayload): Promise<voi
 
 async function recordAccountCreationPoints(payload: EntityPayload): Promise<void> {
   try {
+    // Resolve actual user ID (handles agent-scoped entities)
+    const userId = await getUserIdFromMessage(payload.runtime, undefined, undefined, payload.entityId);
+    if (!userId) return;
+
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
     if (gamificationService) {
       await gamificationService.recordEvent({
-        userId: payload.entityId,
+        userId,
         actionType: GamificationEventType.ACCOUNT_CREATION,
         metadata: { source: payload.source },
       });
@@ -274,12 +326,13 @@ async function recordAccountCreationPoints(payload: EntityPayload): Promise<void
     const referralService = payload.runtime.getService('referral') as ReferralService;
     if (referralService) {
       try {
-        const entity = await payload.runtime.getEntityById(payload.entityId);
+        // Use the actual user entity for referral processing
+        const entity = await payload.runtime.getEntityById(userId);
         const referredBy = entity?.metadata?.referredBy;
         
         if (referredBy && typeof referredBy === 'string') {
-          logger.info(`[Gamification] Processing referral code ${referredBy} for user ${payload.entityId}`);
-          await referralService.processReferralSignup(payload.entityId, referredBy);
+          logger.info(`[Gamification] Processing referral code ${referredBy} for user ${userId}`);
+          await referralService.processReferralSignup(userId, referredBy);
         }
       } catch (err) {
         logger.error({ error: err }, '[Gamification] Error processing referral in account creation');
@@ -296,19 +349,19 @@ export const gamificationEvents: PluginEvents = {
       const actionName = payload.content?.actions?.[0];
 
       // Award specific action points
+      let handled = false;
       if (actionName === 'USER_WALLET_SWAP') {
-        await recordSwapPoints(payload);
-        return; // Prevent double-counting
+        handled = await recordSwapPoints(payload);
       } else if (actionName === 'EXECUTE_RELAY_BRIDGE' || actionName === 'RELAY_BRIDGE') {
-        await recordBridgePoints(payload);
-        return; // Prevent double-counting
+        handled = await recordBridgePoints(payload);
       } else if (actionName === 'USER_WALLET_TOKEN_TRANSFER' || actionName === 'USER_WALLET_NFT_TRANSFER') {
-        await recordTransferPoints(payload);
-        return; // Prevent double-counting
+        handled = await recordTransferPoints(payload);
       }
 
-      // Award generic 10 points for any other successful action
-      await recordAgentActionPoints(payload);
+      // Only award generic 10 points if no specific handler processed this action
+      if (!handled) {
+        await recordAgentActionPoints(payload);
+      }
     },
   ],
 

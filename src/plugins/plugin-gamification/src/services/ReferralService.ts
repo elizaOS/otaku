@@ -3,19 +3,24 @@ import {
   type IAgentRuntime,
   type UUID,
   logger,
+  DatabaseAdapter,
 } from '@elizaos/core';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { referralCodesTable, gamificationEventsTable } from '../schema';
 import { GamificationEventType } from '../constants';
 import type { ReferralCode, ReferralStats } from '../types';
 import { GamificationService } from './GamificationService';
 
+interface RuntimeWithDb extends IAgentRuntime {
+  db?: DatabaseAdapter;
+}
+
 export class ReferralService extends Service {
   static serviceType = 'referral';
   capabilityDescription = 'Manages referral codes and attribution';
 
-  private getDb() {
-    return (this.runtime as any).db;
+  private getDb(): DatabaseAdapter | undefined {
+    return (this.runtime as RuntimeWithDb).db;
   }
 
   static async start(runtime: IAgentRuntime): Promise<ReferralService> {
@@ -68,19 +73,27 @@ export class ReferralService extends Service {
       .where(eq(referralCodesTable.referrerId, userId));
 
     // Count activated referrals (users who completed first on-chain action)
+    // Filter by userId to only count this user's referral activations
     const activatedReferrals = await db
       .select()
       .from(gamificationEventsTable)
       .where(
-        eq(gamificationEventsTable.actionType, GamificationEventType.REFERRAL_ACTIVATION)
+        and(
+          eq(gamificationEventsTable.userId, userId),
+          eq(gamificationEventsTable.actionType, GamificationEventType.REFERRAL_ACTIVATION)
+        )
       );
 
     // Calculate total points earned from referrals
+    // Filter by userId to only count this user's referral signup points
     const referralEvents = await db
       .select()
       .from(gamificationEventsTable)
       .where(
-        eq(gamificationEventsTable.actionType, GamificationEventType.REFERRAL_SIGNUP)
+        and(
+          eq(gamificationEventsTable.userId, userId),
+          eq(gamificationEventsTable.actionType, GamificationEventType.REFERRAL_SIGNUP)
+        )
       );
 
     const totalPointsEarned = referralEvents.reduce((sum: number, event: { points: number }) => sum + event.points, 0);
@@ -219,12 +232,17 @@ export class ReferralService extends Service {
   }
 
   /**
-   * Generate unique referral code from user ID
+   * Generate unique referral code from user ID using cryptographically secure randomness
    */
   private generateReferralCode(userId: UUID): string {
-    // Use first 8 characters of UUID + random suffix
+    // Use first 8 characters of UUID + cryptographically secure random suffix
     const uuidPart = userId.replace(/-/g, '').substring(0, 8).toUpperCase();
-    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    
+    // Use crypto.randomBytes for secure randomness instead of Math.random()
+    const crypto = require('crypto');
+    const randomBytes = crypto.randomBytes(3); // 3 bytes = 6 hex chars
+    const randomSuffix = randomBytes.toString('hex').toUpperCase();
+    
     return `${uuidPart}${randomSuffix}`;
   }
 }

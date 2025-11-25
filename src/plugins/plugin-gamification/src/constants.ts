@@ -23,7 +23,7 @@ export enum GamificationEventType {
 export const BASE_POINTS: Record<GamificationEventType, number> = {
   [GamificationEventType.ACCOUNT_CREATION]: 100,
   [GamificationEventType.DAILY_LOGIN_STREAK]: 25, // +10 per consecutive day (max +70)
-  [GamificationEventType.MEANINGFUL_CHAT]: 2, // Tiered: 2-5 pts based on length, up to 6/day
+  [GamificationEventType.MEANINGFUL_CHAT]: 2, // Tiered: 2-5 pts based on length (25-74: 2pts, 75-99: 3pts, 100-199: 4pts, 200+: 5pts), up to 6/day
   [GamificationEventType.SWAP_COMPLETED]: 80, // +1 per $10 routed (cap +420)
   [GamificationEventType.BRIDGE_COMPLETED]: 120, // +1.5 per $10 bridged (cap +600)
   [GamificationEventType.TRANSFER_COMPLETED]: 40, // Only >$25 outward transfers

@@ -17,8 +17,17 @@ import { gamificationEvents } from './events/eventHandlers';
 async function handleGetLeaderboard(req: Request, res: Response, runtime: IAgentRuntime) {
   try {
     const scope = (req.query.scope as 'weekly' | 'all_time') || 'weekly';
-    const limit = parseInt(req.query.limit as string) || 50;
+    
+    // Validate and limit input
+    const rawLimit = parseInt(req.query.limit as string) || 50;
+    const limit = Math.min(Math.max(1, rawLimit), 100); // Clamp between 1 and 100
+    
     const userId = req.query.userId as string | undefined;
+
+    // Validate scope
+    if (scope !== 'weekly' && scope !== 'all_time') {
+      return res.status(400).json({ error: 'Invalid scope. Must be "weekly" or "all_time"' });
+    }
 
     const gamificationService = runtime.getService('gamification') as GamificationService;
     if (!gamificationService) {
@@ -84,6 +93,9 @@ export const gamificationPlugin: Plugin = {
 
   events: gamificationEvents,
 
+  // Note: Plugin routes are automatically protected by the general API rate limit middleware
+  // (1000 requests per 15 minutes per IP) applied in createApiRouter.
+  // Additional input validation is performed in the handlers themselves.
   routes: [
     {
       path: '/leaderboard',

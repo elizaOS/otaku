@@ -2,9 +2,15 @@ import {
   logger,
   Service,
   type IAgentRuntime,
+  DatabaseAdapter,
+  type UUID,
 } from '@elizaos/core';
 import { desc, eq, sql } from 'drizzle-orm';
 import { leaderboardSnapshotsTable, pointBalancesTable } from '../schema';
+
+interface RuntimeWithDb extends IAgentRuntime {
+  db?: DatabaseAdapter;
+}
 
 export class LeaderboardService extends Service {
   static serviceType = 'leaderboard-sync';
@@ -14,8 +20,16 @@ export class LeaderboardService extends Service {
   private weeklyResetInterval: NodeJS.Timeout | null = null;
   private readonly SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-  private getDb() {
-    return (this.runtime as any).db;
+  private getDb(): DatabaseAdapter | undefined {
+    return (this.runtime as RuntimeWithDb).db;
+  }
+
+  /**
+   * Check if a userId belongs to an agent (not a human user)
+   */
+  private isAgent(userId: UUID): boolean {
+    // Check if userId matches the agent's ID or character ID
+    return userId === this.runtime.agentId || userId === this.runtime.character.id;
   }
 
   static async start(runtime: IAgentRuntime): Promise<LeaderboardService> {
@@ -49,15 +63,19 @@ export class LeaderboardService extends Service {
       return;
     }
 
-    // Aggregate all-time leaderboard
-    const allTimeBalances = await db
+    // Aggregate all-time leaderboard (excluding agents)
+    const allTimeBalancesRaw = await db
       .select({
         userId: pointBalancesTable.userId,
         points: pointBalancesTable.allTimePoints,
       })
       .from(pointBalancesTable)
-      .orderBy(desc(pointBalancesTable.allTimePoints))
-      .limit(100);
+      .orderBy(desc(pointBalancesTable.allTimePoints));
+
+    // Filter out agents and limit to top 100
+    const allTimeBalances = allTimeBalancesRaw
+      .filter((balance) => !this.isAgent(balance.userId))
+      .slice(0, 100);
 
     // Clear old snapshots
     await db.delete(leaderboardSnapshotsTable).where(eq(leaderboardSnapshotsTable.scope, 'all_time'));
@@ -72,15 +90,19 @@ export class LeaderboardService extends Service {
       });
     }
 
-    // Aggregate weekly leaderboard
-    const weeklyBalances = await db
+    // Aggregate weekly leaderboard (excluding agents)
+    const weeklyBalancesRaw = await db
       .select({
         userId: pointBalancesTable.userId,
         points: pointBalancesTable.weeklyPoints,
       })
       .from(pointBalancesTable)
-      .orderBy(desc(pointBalancesTable.weeklyPoints))
-      .limit(100);
+      .orderBy(desc(pointBalancesTable.weeklyPoints));
+
+    // Filter out agents and limit to top 100
+    const weeklyBalances = weeklyBalancesRaw
+      .filter((balance) => !this.isAgent(balance.userId))
+      .slice(0, 100);
 
     // Clear old snapshots
     await db.delete(leaderboardSnapshotsTable).where(eq(leaderboardSnapshotsTable.scope, 'weekly'));
