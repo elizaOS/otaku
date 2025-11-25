@@ -3,6 +3,7 @@ import { EventType, logger } from '@elizaos/core';
 import { GamificationEventType, MESSAGE_LENGTH_TIERS, MIN_CHAT_LENGTH, MIN_TRANSFER_VALUE_USD } from '../constants';
 import { GamificationService } from '../services/GamificationService';
 import { ReferralService } from '../services/ReferralService';
+import { checkContentQuality } from '../utils/contentQuality';
 
 interface ActionResultWithValues extends ActionResult {
   values?: {
@@ -260,6 +261,20 @@ async function recordChatPoints(payload: RunEventPayload): Promise<void> {
     // Skip if message is too short or no points
     if (points === 0) return;
 
+    // Check content quality to prevent spam/copy-pasta from earning points
+    const qualityResult = checkContentQuality(input);
+    if (!qualityResult.isValid) {
+      logger.debug(
+        { 
+          reason: qualityResult.reason, 
+          score: qualityResult.score,
+          messagePreview: input.substring(0, 50),
+        },
+        '[Gamification] Message failed content quality check, no points awarded'
+      );
+      return;
+    }
+
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
     if (!gamificationService) return;
 
@@ -274,6 +289,7 @@ async function recordChatPoints(payload: RunEventPayload): Promise<void> {
       metadata: { 
         inputLength: messageLength,
         tier: points,
+        contentQualityScore: qualityResult.score,
       },
       sourceEventId: payload.messageId,
     });
