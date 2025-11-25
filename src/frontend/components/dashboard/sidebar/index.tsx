@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 import DotsVerticalIcon from "@/components/icons/dots-vertical"
 import { Bullet } from "@/components/ui/bullet"
 import PlusIcon from "@/components/icons/plus"
-import { LogOut, Trophy } from "lucide-react"
+import { LogOut, Trophy, User } from "lucide-react"
 
 interface Channel {
   id: string
@@ -317,16 +317,13 @@ export function DashboardSidebar({
             </div>
           </SidebarGroupContent>
         </SidebarGroup>
+      </SidebarContent>
 
-        {/* Navigation Section */}
-        <SidebarGroup>
-          <SidebarGroupLabel>
-            <Bullet className="mr-2" />
-            Navigation
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {onLeaderboardClick && (
+      <SidebarFooter className="p-0">
+        {onLeaderboardClick && (
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     onClick={onLeaderboardClick}
@@ -336,13 +333,10 @@ export function DashboardSidebar({
                     <span className="font-medium text-sm">Leaderboard</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-
-      <SidebarFooter className="p-0">
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         <SidebarGroup>
           <SidebarGroupLabel>
             <Bullet className="mr-2" />
@@ -380,6 +374,7 @@ export function DashboardSidebar({
                           }}
                           className="flex items-center px-4 py-2 text-sm hover:bg-accent text-left w-full"
                         >
+                          <User className="mr-2 h-4 w-4" />
                           Account
                         </button>
                       )}

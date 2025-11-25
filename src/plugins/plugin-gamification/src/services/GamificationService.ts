@@ -97,6 +97,17 @@ export class GamificationService extends Service {
       .where(eq(pointBalancesTable.userId, userId))
       .limit(1);
 
+    // Count swaps completed
+    const [swapCount] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(gamificationEventsTable)
+      .where(
+        and(
+          eq(gamificationEventsTable.userId, userId),
+          eq(gamificationEventsTable.actionType, GamificationEventType.SWAP_COMPLETED)
+        )
+      );
+
     if (!balance) {
       return {
         userId,
@@ -106,6 +117,7 @@ export class GamificationService extends Service {
         level: 0,
         levelName: 'Explorer',
         lastLoginDate: null,
+        swapsCompleted: Number(swapCount?.count || 0),
       };
     }
 
@@ -119,6 +131,7 @@ export class GamificationService extends Service {
       levelName: levelInfo.name,
       nextMilestone: this.getNextMilestone(balance.allTimePoints),
       lastLoginDate: balance.lastLoginDate,
+      swapsCompleted: Number(swapCount?.count || 0),
     };
   }
 

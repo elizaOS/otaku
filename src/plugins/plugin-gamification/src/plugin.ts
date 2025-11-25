@@ -44,6 +44,28 @@ async function handleGetLeaderboard(req: Request, res: Response, runtime: IAgent
   }
 }
 
+// User summary route handler
+async function handleGetUserSummary(req: Request, res: Response, runtime: IAgentRuntime) {
+  try {
+    const userId = req.query.userId as string | undefined;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const gamificationService = runtime.getService('gamification') as GamificationService;
+    if (!gamificationService) {
+      return res.status(503).json({ error: 'Gamification service not available' });
+    }
+
+    const summary = await gamificationService.getUserSummary(userId as any);
+    res.json(summary);
+  } catch (error) {
+    logger.error({ error }, '[GamificationPlugin] Error fetching user summary');
+    res.status(500).json({ error: 'Error fetching user summary' });
+  }
+}
+
 export const gamificationPlugin: Plugin = {
   name: 'gamification',
   description: 'Points economy, leaderboards, and referral system for Otaku',
@@ -67,6 +89,11 @@ export const gamificationPlugin: Plugin = {
       path: '/leaderboard',
       type: 'GET',
       handler: handleGetLeaderboard,
+    },
+    {
+      path: '/summary',
+      type: 'GET',
+      handler: handleGetUserSummary,
     },
   ],
 };

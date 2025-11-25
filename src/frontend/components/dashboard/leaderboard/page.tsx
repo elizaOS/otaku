@@ -51,16 +51,19 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
   });
 
   // Transform leaderboard entries to RebelRanking format
-  const rebels: RebelRanking[] = (leaderboardData?.entries || []).map((entry: LeaderboardEntry, index: number) => ({
-    id: entry.rank,
-    name: entry.username || `User ${entry.userId.substring(0, 8)}`, // Use username from entity, fallback to userId
-    handle: '', // Removed redundant level name
-    streak: '', // Could add streak info if available
-    points: entry.points,
-    avatar: entry.avatar || `/avatars/user_krimson.png`, // Use avatar from entity, fallback to default
-    featured: index < 3, // Top 3 are featured
-    subtitle: undefined, // Removed redundant rank and level name subtitle
-  }));
+  const rebels: RebelRanking[] = (leaderboardData?.entries || []).map((entry: LeaderboardEntry, index: number) => {
+    const username = entry.username || `User ${entry.userId.substring(0, 8)}`;
+    return {
+      id: entry.rank,
+      name: username,
+      handle: username.toUpperCase(), // Use uppercase username as handle
+      streak: '', // Could add streak info if available
+      points: entry.points,
+      avatar: entry.avatar || `/avatars/user_krimson.png`, // Use avatar from entity, fallback to default
+      featured: index < 3, // Top 3 are featured
+      subtitle: undefined, // Removed redundant rank and level name subtitle
+    };
+  });
 
   const handleRefresh = () => {
     refetch();

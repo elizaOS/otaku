@@ -1,7 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import DashboardCard from "@/components/dashboard/card";
 import type { RebelRanking } from "@/types/dashboard";
-
 import { cn } from "@/lib/utils";
 
 interface RebelsRankingProps {
@@ -11,13 +10,13 @@ interface RebelsRankingProps {
 export default function RebelsRanking({ rebels }: RebelsRankingProps) {
   return (
     <DashboardCard
-      title="REBELS RANKING"
+      title="Leaderboard"
       intent="default"
       addon={<Badge variant="outline-warning">2 NEW</Badge>}
     >
       <div className="space-y-4">
         {rebels.map((rebel) => (
-          <div key={rebel.id} className="flex items-center justify-between">
+          <div key={rebel.id} className="flex items-center w-full">
             <div className="flex items-center gap-1 w-full">
               <div
                 className={cn(
@@ -53,20 +52,35 @@ export default function RebelsRanking({ rebels }: RebelsRankingProps) {
               >
                 <div className="flex flex-col flex-1">
                   <div className="flex items-center justify-between">
-                    <span
-                      className={cn(
-                        "font-display",
-                        rebel.featured
-                          ? "text-xl md:text-2xl"
-                          : "text-lg md:text-xl"
-                      )}
-                    >
-                      {rebel.name}
-                    </span>
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className={cn(
+                          "font-display",
+                          rebel.featured
+                            ? "text-xl md:text-2xl"
+                            : "text-lg md:text-xl"
+                        )}
+                      >
+                        {rebel.name}
+                      </span>
+                      <span className="text-muted-foreground text-xs md:text-sm">
+                        {rebel.handle}
+                      </span>
+                    </div>
                     <Badge variant={rebel.featured ? "default" : "secondary"}>
                       {rebel.points} POINTS
                     </Badge>
                   </div>
+                  {rebel.subtitle && (
+                    <span className="text-sm text-muted-foreground italic">
+                      {rebel.subtitle}
+                    </span>
+                  )}
+                  {rebel.streak && (
+                    <span className="text-sm text-muted-foreground italic">
+                      {rebel.streak}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

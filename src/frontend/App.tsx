@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { CDPReactProvider } from "@coinbase/cdp-react";
 import { useCDPWallet } from './hooks/useCDPWallet';
 import { elizaClient } from './lib/elizaClient';
@@ -73,6 +74,8 @@ interface Channel {
 const ABOUT_MODAL_ID = 'about-otaku-modal';
 
 function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { isInitialized, isSignedIn, userEmail, userName, signOut, currentUser } = useCDPWallet();
   const { showLoading, hide } = useLoadingPanel();
   const [userId, setUserId] = useState<string | null>(null);
@@ -81,10 +84,19 @@ function App() {
   const [isLoadingChannels, setIsLoadingChannels] = useState(true);
   const [isCreatingChannel, setIsCreatingChannel] = useState(false);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [currentView, setCurrentView] = useState<'chat' | 'account' | 'leaderboard'>('chat');
   const [totalBalance, setTotalBalance] = useState(0);
   const [isLoadingUserProfile, setIsLoadingUserProfile] = useState(true);
   const [isNewChatMode, setIsNewChatMode] = useState(false); // Track if we're in "new chat" mode (no channel yet)
+  
+  // Derive currentView from URL pathname
+  const getCurrentView = (): 'chat' | 'account' | 'leaderboard' => {
+    const path = location.pathname;
+    if (path === '/account') return 'account';
+    if (path === '/leaderboard') return 'leaderboard';
+    return 'chat'; // Default to chat for '/' or any other path
+  };
+  
+  const currentView = getCurrentView();
   
   // Ref to access wallet's refresh functions
   const walletRef = useRef<CDPWalletCardRef>(null);
@@ -595,7 +607,6 @@ function App() {
         handleNewChat={handleNewChat}
         handleChannelSelect={handleChannelSelect}
         handleBalanceChange={handleBalanceChange}
-        setCurrentView={setCurrentView}
         setChannels={setChannels}
         setActiveChannelId={setActiveChannelId}
         setIsNewChatMode={setIsNewChatMode}
@@ -603,6 +614,7 @@ function App() {
         signOut={signOut}
         isSignedIn={isSignedIn}
         agentId={agentId}
+        navigate={navigate}
       />
     </SidebarProvider>
   );
@@ -625,7 +637,6 @@ function AppContent({
   handleNewChat,
   handleChannelSelect,
   handleBalanceChange,
-  setCurrentView,
   setChannels,
   setActiveChannelId,
   setIsNewChatMode,
@@ -633,6 +644,7 @@ function AppContent({
   signOut,
   isSignedIn,
   agentId,
+  navigate,
 }: any) {
   const { setOpenMobile } = useSidebar();
   const { showModal, hideModal } = useModal();
@@ -656,13 +668,33 @@ function AppContent({
 
   const onNewChat = () => {
     handleNewChat();
-    setCurrentView('chat');
+    navigate('/');
     setOpenMobile(false);
   };
 
   const onChannelSelect = (id: string) => {
     handleChannelSelect(id);
-    setCurrentView('chat');
+    navigate('/');
+    setOpenMobile(false);
+  };
+  
+  const onChatClick = () => {
+    navigate('/');
+    setOpenMobile(false);
+  };
+  
+  const onAccountClick = () => {
+    navigate('/account');
+    setOpenMobile(false);
+  };
+  
+  const onLeaderboardClick = () => {
+    navigate('/leaderboard');
+    setOpenMobile(false);
+  };
+  
+  const onHomeClick = () => {
+    navigate('/');
     setOpenMobile(false);
   };
 
@@ -674,7 +706,7 @@ function AppContent({
       )}
       
       {/* Mobile Header */}
-      <MobileHeader onHomeClick={() => setCurrentView('chat')} />
+      <MobileHeader onHomeClick={() => navigate('/')} />
 
       {/* Desktop Layout - 3 columns */}
       <div className="w-full min-h-[100dvh] h-[100dvh] lg:min-h-screen lg:h-screen grid grid-cols-1 lg:grid-cols-12 gap-gap lg:px-sides">
@@ -688,10 +720,10 @@ function AppContent({
             isCreatingChannel={isCreatingChannel}
             userProfile={userProfile}
             onSignOut={signOut}
-            onChatClick={() => setCurrentView('chat')}
-            onAccountClick={() => setCurrentView('account')}
-            onLeaderboardClick={() => setCurrentView('leaderboard')}
-            onHomeClick={() => setCurrentView('chat')}
+            onChatClick={onChatClick}
+            onAccountClick={onAccountClick}
+            onLeaderboardClick={onLeaderboardClick}
+            onHomeClick={onHomeClick}
           />
         </div>
 
@@ -702,6 +734,8 @@ function AppContent({
               totalBalance={totalBalance} 
               userProfile={userProfile}
               onUpdateProfile={updateUserProfile}
+              agentId={agentId as UUID | undefined}
+              userId={userId as UUID | undefined}
             />
           ) : currentView === 'leaderboard' ? (
             agentId ? (

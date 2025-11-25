@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import DashboardPageLayout from "@/components/dashboard/layout";
 import DashboardCard from "@/components/dashboard/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { useLoadingPanel } from "@/contexts/LoadingPanelContext";
 import { useModal } from "@/contexts/ModalContext";
 import { useCDPWallet } from '@/hooks/useCDPWallet';
+import { elizaClient } from "@/lib/elizaClient";
 import { Copy, Check, Upload } from 'lucide-react';
+import { UUID } from '@elizaos/core';
 
 interface AccountPageProps {
   totalBalance?: number;
@@ -25,6 +28,8 @@ interface AccountPageProps {
     displayName?: string;
     bio?: string;
   }) => Promise<void>;
+  agentId?: UUID;
+  userId?: UUID;
 }
 
 // Compress and convert image to base64
@@ -139,7 +144,7 @@ function AvatarPickerModal({ currentAvatar, onSelectAvatar, onUploadCustom }: Av
   );
 }
 
-export default function AccountPage({ totalBalance = 0, userProfile, onUpdateProfile }: AccountPageProps) {
+export default function AccountPage({ totalBalance = 0, userProfile, onUpdateProfile, agentId, userId }: AccountPageProps) {
   const { signOut } = useCDPWallet();
   const { showLoading, showSuccess, showError } = useLoadingPanel();
   const { showModal, hideModal } = useModal();
@@ -151,6 +156,29 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
   const loadingPanelId = 'account-page'; // Unique ID for this component's loading panels
   const avatarPickerModalId = 'avatar-picker-modal';
 
+  // Fetch user summary from gamification service
+  const { data: userSummary, isLoading: isLoadingSummary } = useQuery({
+    queryKey: ['userSummary', agentId, userId],
+    queryFn: async () => {
+      if (!agentId || !userId) {
+        return null;
+      }
+      try {
+        return await elizaClient.gamification.getUserSummary(agentId, userId);
+      } catch (err: any) {
+        console.error('[AccountPage] Error fetching user summary:', err);
+        // If 404, return null (user might not have any points yet)
+        if (err?.response?.status === 404 || err?.status === 404) {
+          return null;
+        }
+        throw err;
+      }
+    },
+    enabled: !!agentId && !!userId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 1,
+  });
+
   // Initialize state from userProfile when it becomes available
   useEffect(() => {
     if (userProfile && !isInitialized.current) {
@@ -160,13 +188,13 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
     }
   }, [userProfile]);
 
-  // Dummy data
+  // Format data from userSummary or use defaults
   const memberSince = userProfile?.memberSince 
     ? new Date(userProfile.memberSince).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : 'Oct 2024';
-  const points = 0;
-  const weekStreak = 0;
-  const swapsCompleted = 0;
+  const points = userSummary?.allTimePoints || 0;
+  const streakDays = userSummary?.streakDays || 0;
+  const swapsCompleted = userSummary?.swapsCompleted || 0;
 
   const handleCopyAddress = async () => {
     if (!userProfile?.walletAddress) return;
@@ -349,7 +377,7 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Points</span>
-                  <span className="text-sm font-mono">{points}</span>
+                  <span className="text-sm font-mono">{isLoadingSummary ? '...' : points.toLocaleString()}</span>
                 </div>
               </div>
             </DashboardCard>
@@ -416,11 +444,15 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
             <DashboardCard title="Activity Summary">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center p-4 rounded-lg bg-muted/50">
-                  <div className="text-2xl font-bold font-mono">{points}</div>
+                  <div className="text-2xl font-bold font-mono">
+                    {isLoadingSummary ? '...' : points.toLocaleString()}
+                  </div>
                   <div className="text-xs text-muted-foreground uppercase mt-1">Total Points</div>
                 </div>
                 <div className="text-center p-4 rounded-lg bg-muted/50">
-                  <div className="text-2xl font-bold font-mono">{weekStreak}</div>
+                  <div className="text-2xl font-bold font-mono">
+                    {isLoadingSummary ? '...' : streakDays}
+                  </div>
                   <div className="text-xs text-muted-foreground uppercase mt-1">Week Streak</div>
                 </div>
                 <div className="text-center p-4 rounded-lg bg-muted/50">
@@ -428,7 +460,9 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
                   <div className="text-xs text-muted-foreground uppercase mt-1">Wallet Balance</div>
                 </div>
                 <div className="text-center p-4 rounded-lg bg-muted/50">
-                  <div className="text-2xl font-bold font-mono">{swapsCompleted}</div>
+                  <div className="text-2xl font-bold font-mono">
+                    {isLoadingSummary ? '...' : swapsCompleted}
+                  </div>
                   <div className="text-xs text-muted-foreground uppercase mt-1">Swaps Completed</div>
                 </div>
               </div>

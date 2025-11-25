@@ -18,6 +18,22 @@ export interface LeaderboardResponse {
   limit: number;
 }
 
+export interface UserSummary {
+  userId: string;
+  allTimePoints: number;
+  weeklyPoints: number;
+  streakDays: number;
+  level: number;
+  levelName: string;
+  nextMilestone?: {
+    level: number;
+    levelName: string;
+    pointsNeeded: number;
+  };
+  lastLoginDate: string | null;
+  swapsCompleted?: number;
+}
+
 export class GamificationService extends BaseApiClient {
   /**
    * Get leaderboard data
@@ -44,6 +60,21 @@ export class GamificationService extends BaseApiClient {
     return this.get<LeaderboardResponse>(
       `/api/agents/${agentId}/plugins/gamification/leaderboard`,
       { params }
+    );
+  }
+
+  /**
+   * Get user summary with points, level, streak, and swap count
+   * @param agentId Agent ID to route the request to
+   * @param userId User ID to get summary for
+   */
+  async getUserSummary(
+    agentId: UUID,
+    userId: UUID
+  ): Promise<UserSummary> {
+    return this.get<UserSummary>(
+      `/api/agents/${agentId}/plugins/gamification/summary`,
+      { params: { userId } }
     );
   }
 }

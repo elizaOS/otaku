@@ -49,6 +49,7 @@ export interface UserSummary {
     pointsNeeded: number;
   };
   lastLoginDate: Date | null;
+  swapsCompleted?: number;
 }
 
 /**
