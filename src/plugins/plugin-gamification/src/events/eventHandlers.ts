@@ -169,13 +169,29 @@ async function recordChatPoints(payload: RunEventPayload): Promise<void> {
 async function recordAccountCreationPoints(payload: EntityPayload): Promise<void> {
   try {
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
-    if (!gamificationService) return;
+    if (gamificationService) {
+      await gamificationService.recordEvent({
+        userId: payload.entityId,
+        actionType: GamificationEventType.ACCOUNT_CREATION,
+        metadata: { source: payload.source },
+      });
+    }
 
-    await gamificationService.recordEvent({
-      userId: payload.entityId,
-      actionType: GamificationEventType.ACCOUNT_CREATION,
-      metadata: { source: payload.source },
-    });
+    // Process referral if present
+    const referralService = payload.runtime.getService('referral') as ReferralService;
+    if (referralService) {
+      try {
+        const entity = await payload.runtime.getEntityById(payload.entityId);
+        const referredBy = entity?.metadata?.referredBy;
+        
+        if (referredBy && typeof referredBy === 'string') {
+          logger.info(`[Gamification] Processing referral code ${referredBy} for user ${payload.entityId}`);
+          await referralService.processReferralSignup(payload.entityId, referredBy);
+        }
+      } catch (err) {
+        logger.error({ error: err }, '[Gamification] Error processing referral in account creation');
+      }
+    }
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording account creation points');
   }

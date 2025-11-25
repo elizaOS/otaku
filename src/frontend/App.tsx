@@ -116,6 +116,16 @@ function App() {
   } | null>(null);
   const hasInitialized = useRef(false);
 
+  // Capture referral code from URL and persist it
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get('ref') || params.get('referral');
+    if (refCode) {
+      console.log(' Captured referral code:', refCode);
+      localStorage.setItem('referral_code', refCode);
+    }
+  }, []);
+
   // Control global loading panel based on app state
   useEffect(() => {
     const loadingPanelId = 'app-loading';
@@ -216,6 +226,12 @@ function App() {
           if (error?.status === 404 || error?.code === 'NOT_FOUND') {
             console.log(' Creating new user entity in database...');
             
+            // Get referral code from storage
+            const referralCode = localStorage.getItem('referral_code');
+            if (referralCode) {
+              console.log(' Applying referral code to new user:', referralCode);
+            }
+
             entity = await elizaClient.entities.createEntity({
               id: userId as UUID,
               agentId: agentId as UUID,
@@ -228,6 +244,7 @@ function App() {
                 displayName: finalUsername,
                 bio: 'DeFi Enthusiast • Blockchain Explorer',
                 createdAt: new Date().toISOString(),
+                referredBy: referralCode || undefined,
               },
             });
             
