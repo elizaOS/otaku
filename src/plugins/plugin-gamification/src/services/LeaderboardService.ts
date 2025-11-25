@@ -16,8 +16,9 @@ export class LeaderboardService extends Service {
   static serviceType = 'leaderboard-sync';
   capabilityDescription = 'Aggregates leaderboard snapshots and handles weekly resets';
 
-  private snapshotInterval: NodeJS.Timeout | null = null;
-  private weeklyResetInterval: NodeJS.Timeout | null = null;
+  private snapshotTimeout: NodeJS.Timeout | null = null;
+  private weeklyResetTimeout: NodeJS.Timeout | null = null;
+  private isStopped = false;
   private readonly SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
   private getDb(): DatabaseAdapter | undefined {
@@ -41,16 +42,30 @@ export class LeaderboardService extends Service {
   }
 
   /**
-   * Start snapshot aggregation worker
+   * Start snapshot aggregation worker using recursive setTimeout
+   * This prevents queue buildup if aggregation takes longer than the interval
    */
   private startSnapshotWorker(): void {
-    this.snapshotInterval = setInterval(async () => {
-      try {
-        await this.aggregateSnapshots();
-      } catch (error) {
-        logger.error({ error }, '[LeaderboardService] Error aggregating snapshots');
-      }
-    }, this.SNAPSHOT_INTERVAL_MS);
+    this.runSnapshotLoop();
+  }
+
+  /**
+   * Run snapshot aggregation loop with recursive setTimeout
+   * Prevents memory leak from setInterval queue buildup
+   */
+  private async runSnapshotLoop(): Promise<void> {
+    if (this.isStopped) return;
+
+    try {
+      await this.aggregateSnapshots();
+    } catch (error) {
+      logger.error({ error }, '[LeaderboardService] Error aggregating snapshots');
+    }
+
+    // Schedule next run only after current one completes
+    if (!this.isStopped) {
+      this.snapshotTimeout = setTimeout(() => this.runSnapshotLoop(), this.SNAPSHOT_INTERVAL_MS);
+    }
   }
 
   /**
@@ -121,22 +136,32 @@ export class LeaderboardService extends Service {
   }
 
   /**
-   * Schedule weekly reset
+   * Schedule weekly reset using recursive setTimeout
+   * Prevents memory leak from setInterval queue buildup
    */
   private scheduleWeeklyReset(): void {
     const now = new Date();
     const nextMonday = this.getNextMonday(now);
     const msUntilReset = nextMonday.getTime() - now.getTime();
 
-    setTimeout(async () => {
-      await this.resetWeeklyPoints();
-      // Schedule recurring weekly resets
-      this.weeklyResetInterval = setInterval(() => {
-        this.resetWeeklyPoints();
-      }, 7 * 24 * 60 * 60 * 1000);
-    }, msUntilReset);
+    this.weeklyResetTimeout = setTimeout(() => this.runWeeklyResetLoop(), msUntilReset);
 
     logger.info(`[LeaderboardService] Weekly reset scheduled for ${nextMonday.toISOString()}`);
+  }
+
+  /**
+   * Run weekly reset loop with recursive setTimeout
+   */
+  private async runWeeklyResetLoop(): Promise<void> {
+    if (this.isStopped) return;
+
+    await this.resetWeeklyPoints();
+
+    // Schedule next weekly reset only after current one completes
+    if (!this.isStopped) {
+      const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+      this.weeklyResetTimeout = setTimeout(() => this.runWeeklyResetLoop(), WEEK_MS);
+    }
   }
 
   /**
@@ -173,13 +198,14 @@ export class LeaderboardService extends Service {
    * Stop service
    */
   async stop(): Promise<void> {
-    if (this.snapshotInterval) {
-      clearInterval(this.snapshotInterval);
-      this.snapshotInterval = null;
+    this.isStopped = true;
+    if (this.snapshotTimeout) {
+      clearTimeout(this.snapshotTimeout);
+      this.snapshotTimeout = null;
     }
-    if (this.weeklyResetInterval) {
-      clearInterval(this.weeklyResetInterval);
-      this.weeklyResetInterval = null;
+    if (this.weeklyResetTimeout) {
+      clearTimeout(this.weeklyResetTimeout);
+      this.weeklyResetTimeout = null;
     }
     logger.info('[LeaderboardService] Stopped');
   }

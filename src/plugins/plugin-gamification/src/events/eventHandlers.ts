@@ -14,6 +14,15 @@ interface ActionResultWithValues extends ActionResult {
   };
 }
 
+/**
+ * Validate and sanitize volume USD value
+ * Returns 0 for invalid/negative values
+ */
+function validateVolumeUsd(volume: unknown): number {
+  const num = Number(volume);
+  return Number.isFinite(num) && num >= 0 ? num : 0;
+}
+
 async function getUserIdFromMessage(runtime: ActionEventPayload['runtime'], messageId?: UUID, roomId?: UUID, entityId?: UUID): Promise<UUID | null> {
   // Helper to resolve the actual user ID from an entity (handles agent-scoped entities)
   const resolveActualUserId = async (id: UUID): Promise<UUID | null> => {
@@ -89,7 +98,9 @@ async function recordSwapPoints(payload: ActionEventPayload): Promise<boolean> {
       return false;
     }
     
-    const volumeUsd = actionResult?.values?.volumeUsd || actionResult?.values?.valueUsd || 0;
+    // Validate volumeUsd to prevent negative/NaN values
+    // Use ?? instead of || to preserve valid zero values
+    const volumeUsd = validateVolumeUsd(actionResult?.values?.volumeUsd ?? actionResult?.values?.valueUsd);
 
     const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId, payload.entityId);
     if (!userId) return false;
@@ -130,8 +141,10 @@ async function recordBridgePoints(payload: ActionEventPayload): Promise<boolean>
       return false;
     }
     
-    const volumeUsd = actionResult?.values?.volumeUsd || actionResult?.values?.valueUsd || 0;
-    const chain = actionResult?.values?.destinationChain || actionResult?.values?.toChain;
+    // Validate volumeUsd to prevent negative/NaN values
+    // Use ?? instead of || to preserve valid zero values
+    const volumeUsd = validateVolumeUsd(actionResult?.values?.volumeUsd ?? actionResult?.values?.valueUsd);
+    const chain = actionResult?.values?.destinationChain ?? actionResult?.values?.toChain;
 
     const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId, payload.entityId);
     if (!userId) return false;
@@ -173,7 +186,8 @@ async function recordTransferPoints(payload: ActionEventPayload): Promise<boolea
       return false;
     }
     
-    const valueUsd = actionResult?.values?.valueUsd || 0;
+    // Validate valueUsd to prevent negative/NaN values
+    const valueUsd = validateVolumeUsd(actionResult?.values?.valueUsd);
 
     // Use constant instead of magic number
     if (valueUsd < MIN_TRANSFER_VALUE_USD) return false;
