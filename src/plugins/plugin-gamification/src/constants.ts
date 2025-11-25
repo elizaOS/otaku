@@ -14,6 +14,7 @@ export enum GamificationEventType {
   REFERRAL_ACTIVATION = 'REFERRAL_ACTIVATION',
   REFERRED_WELCOME = 'REFERRED_WELCOME',
   FIRST_CHAIN_BONUS = 'FIRST_CHAIN_BONUS',
+  AGENT_ACTION = 'AGENT_ACTION',
 }
 
 /**
@@ -22,7 +23,7 @@ export enum GamificationEventType {
 export const BASE_POINTS: Record<GamificationEventType, number> = {
   [GamificationEventType.ACCOUNT_CREATION]: 100,
   [GamificationEventType.DAILY_LOGIN_STREAK]: 25, // +10 per consecutive day (max +70)
-  [GamificationEventType.MEANINGFUL_CHAT]: 5, // Up to 6/day (30 pts)
+  [GamificationEventType.MEANINGFUL_CHAT]: 2, // Tiered: 2-5 pts based on length, up to 6/day
   [GamificationEventType.SWAP_COMPLETED]: 80, // +1 per $10 routed (cap +420)
   [GamificationEventType.BRIDGE_COMPLETED]: 120, // +1.5 per $10 bridged (cap +600)
   [GamificationEventType.TRANSFER_COMPLETED]: 40, // Only >$25 outward transfers
@@ -31,6 +32,7 @@ export const BASE_POINTS: Record<GamificationEventType, number> = {
   [GamificationEventType.REFERRAL_ACTIVATION]: 300,
   [GamificationEventType.REFERRED_WELCOME]: 50,
   [GamificationEventType.FIRST_CHAIN_BONUS]: 50,
+  [GamificationEventType.AGENT_ACTION]: 10, // Any action completed by agent
 };
 
 /**
@@ -40,6 +42,7 @@ export const DAILY_CAPS: Partial<Record<GamificationEventType, number>> = {
   [GamificationEventType.MEANINGFUL_CHAT]: 6, // 6 messages per day
   [GamificationEventType.SWAP_COMPLETED]: Infinity, // No cap, but volume bonus capped
   [GamificationEventType.BRIDGE_COMPLETED]: Infinity, // No cap, but volume bonus capped
+  [GamificationEventType.AGENT_ACTION]: Infinity, // No cap on agent actions
 };
 
 /**
@@ -85,7 +88,18 @@ export const MIN_TRANSFER_VALUE_USD = 25;
 /**
  * Minimum chat message length for "meaningful" chat (characters)
  */
-export const MIN_CHAT_LENGTH = 200;
+export const MIN_CHAT_LENGTH = 25;
+
+/**
+ * Message length tiers for chat points
+ * Messages < 25 chars earn 0 points
+ */
+export const MESSAGE_LENGTH_TIERS = [
+  { minLength: 25, maxLength: 74, points: 2 },    // Basic engagement
+  { minLength: 75, maxLength: 99, points: 3 },    // Medium engagement
+  { minLength: 100, maxLength: 199, points: 4 },  // Good engagement
+  { minLength: 200, maxLength: Infinity, points: 5 }, // Meaningful conversation
+];
 
 /**
  * Daily quest requirements

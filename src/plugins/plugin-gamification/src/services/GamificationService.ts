@@ -310,6 +310,11 @@ export class GamificationService extends Service {
   }
 
   private async calculatePoints(event: GamificationEventInput): Promise<number> {
+    // For MEANINGFUL_CHAT, use tier-based points from metadata
+    if (event.actionType === GamificationEventType.MEANINGFUL_CHAT && event.metadata?.tier) {
+      return event.metadata.tier as number;
+    }
+
     const basePoints = BASE_POINTS[event.actionType];
     if (!basePoints) return 0;
 

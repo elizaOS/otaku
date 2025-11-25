@@ -1,6 +1,6 @@
 import type { PluginEvents, ActionEventPayload, RunEventPayload, EntityPayload, ActionResult, UUID, Memory } from '@elizaos/core';
 import { EventType, logger } from '@elizaos/core';
-import { GamificationEventType } from '../constants';
+import { GamificationEventType, MESSAGE_LENGTH_TIERS, MIN_CHAT_LENGTH } from '../constants';
 import { GamificationService } from '../services/GamificationService';
 import { ReferralService } from '../services/ReferralService';
 
@@ -10,6 +10,7 @@ interface ActionResultWithValues extends ActionResult {
     valueUsd?: number;
     destinationChain?: string;
     toChain?: string;
+    swapSuccess?: boolean;
   };
 }
 
@@ -68,6 +69,8 @@ async function recordSwapPoints(payload: ActionEventPayload): Promise<void> {
       metadata: { actionResult },
       sourceEventId: payload.messageId,
     });
+    
+    return; // Return to prevent duplicate agent action points
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording swap points');
   }
@@ -108,6 +111,8 @@ async function recordBridgePoints(payload: ActionEventPayload): Promise<void> {
       metadata: { actionResult },
       sourceEventId: payload.messageId,
     });
+    
+    return; // Return to prevent duplicate agent action points
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording bridge points');
   }
@@ -148,9 +153,26 @@ async function recordTransferPoints(payload: ActionEventPayload): Promise<void> 
       metadata: { actionResult },
       sourceEventId: payload.messageId,
     });
+    
+    return; // Return to prevent duplicate agent action points
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording transfer points');
   }
+}
+
+/**
+ * Calculate points based on message length tiers
+ */
+function calculateChatPoints(messageLength: number): number {
+  if (messageLength < MIN_CHAT_LENGTH) return 0;
+  
+  for (const tier of MESSAGE_LENGTH_TIERS) {
+    if (messageLength >= tier.minLength && messageLength <= tier.maxLength) {
+      return tier.points;
+    }
+  }
+  
+  return 0;
 }
 
 async function recordChatPoints(payload: RunEventPayload): Promise<void> {
@@ -174,19 +196,66 @@ async function recordChatPoints(payload: RunEventPayload): Promise<void> {
       return;
     }
 
-    if (input.length < 200) return;
+    const messageLength = input.length;
+    const points = calculateChatPoints(messageLength);
+    
+    // Skip if message is too short or no points
+    if (points === 0) return;
 
     const gamificationService = payload.runtime.getService('gamification') as GamificationService;
     if (!gamificationService) return;
 
+    // Store the calculated points in metadata to override BASE_POINTS
     await gamificationService.recordEvent({
       userId: payload.entityId,
       actionType: GamificationEventType.MEANINGFUL_CHAT,
-      metadata: { inputLength: input.length },
+      metadata: { 
+        inputLength: messageLength,
+        tier: points,
+      },
       sourceEventId: payload.messageId,
     });
   } catch (error) {
     logger.error({ error }, '[Gamification] Error recording chat points');
+  }
+}
+
+async function recordAgentActionPoints(payload: ActionEventPayload): Promise<void> {
+  try {
+    const gamificationService = payload.runtime.getService('gamification') as GamificationService;
+    if (!gamificationService) return;
+
+    // Handle both actionResults (array) and actionResult (single) formats
+    const actionResults = payload.content?.actionResults;
+    const actionResultSingle = payload.content?.actionResult;
+    const actionResult: ActionResultWithValues | undefined = 
+      Array.isArray(actionResults) && actionResults.length > 0 
+        ? (actionResults[0] as ActionResultWithValues)
+        : actionResultSingle 
+          ? (actionResultSingle as ActionResultWithValues)
+          : undefined;
+    
+    // Only award points for successful actions
+    if (!actionResult || actionResult.success !== true) {
+      return;
+    }
+
+    const userId = await getUserIdFromMessage(payload.runtime, payload.messageId, payload.roomId);
+    if (!userId) return;
+
+    const actionName = payload.content?.actions?.[0] || 'unknown';
+
+    await gamificationService.recordEvent({
+      userId,
+      actionType: GamificationEventType.AGENT_ACTION,
+      metadata: { 
+        actionName,
+        actionResult,
+      },
+      sourceEventId: payload.messageId,
+    });
+  } catch (error) {
+    logger.error({ error }, '[Gamification] Error recording agent action points');
   }
 }
 
@@ -226,13 +295,20 @@ export const gamificationEvents: PluginEvents = {
     async (payload: ActionEventPayload) => {
       const actionName = payload.content?.actions?.[0];
 
+      // Award specific action points
       if (actionName === 'USER_WALLET_SWAP') {
         await recordSwapPoints(payload);
+        return; // Prevent double-counting
       } else if (actionName === 'EXECUTE_RELAY_BRIDGE' || actionName === 'RELAY_BRIDGE') {
         await recordBridgePoints(payload);
+        return; // Prevent double-counting
       } else if (actionName === 'USER_WALLET_TOKEN_TRANSFER' || actionName === 'USER_WALLET_NFT_TRANSFER') {
         await recordTransferPoints(payload);
+        return; // Prevent double-counting
       }
+
+      // Award generic 10 points for any other successful action
+      await recordAgentActionPoints(payload);
     },
   ],
 

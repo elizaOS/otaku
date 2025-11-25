@@ -1902,8 +1902,8 @@ export class CdpTransactionManager {
         logger.debug(`[CDP API] 0x API not available for network: ${network}`);
         return null;
       }
-  
 
+      // Build base parameters
       const params = new URLSearchParams({
         chainId,
         sellToken: normalizedFromToken,
@@ -1911,6 +1911,18 @@ export class CdpTransactionManager {
         sellAmount: fromAmount.toString(),
         taker: takerAddress,
       });
+
+      // Add fee recipient (for monetization/affiliate fees)
+      // Defaults to Otaku treasury address if not configured
+      const feeRecipient = process.env.SWAP_FEE_RECIPIENT || '0xE42b492846A2A220FB607745A63aF7d91A035d12';
+      const feeRecipientBps = process.env.SWAP_FEE_BPS || '10'; // Default 0.1% fee
+      const feeToken = process.env.SWAP_FEE_TOKEN || 'sell'; // 'sell' or 'buy' - which token to receive fees in
+      
+      params.append('swapFeeRecipient', feeRecipient);
+      params.append('swapFeeBps', feeRecipientBps);
+      // swapFeeToken must be either buyToken or sellToken per 0x API docs
+      params.append('swapFeeToken', feeToken === 'buy' ? normalizedToToken : normalizedFromToken);
+      logger.debug(`[CDP API] Adding fee recipient: ${feeRecipient} (${feeRecipientBps}bps in ${feeToken}Token)`);
   
       const url = `https://api.0x.org/swap/allowance-holder/price?${params.toString()}`;
       
@@ -1982,6 +1994,7 @@ export class CdpTransactionManager {
   
     const slippageBps_param = slippageBps;
   
+    // Build base parameters
     const params = new URLSearchParams({
       chainId,
       sellToken: normalizedFromToken,
@@ -1990,6 +2003,18 @@ export class CdpTransactionManager {
       taker: account.address,
       slippageBps: slippageBps_param.toString(),
     });
+
+    // Add fee recipient (for monetization/affiliate fees)
+    // Defaults to Otaku treasury address if not configured
+    const feeRecipient = process.env.SWAP_FEE_RECIPIENT || '0xE42b492846A2A220FB607745A63aF7d91A035d12';
+    const feeRecipientBps = process.env.SWAP_FEE_BPS || '10'; // Default 0.1% fee
+    const feeToken = process.env.SWAP_FEE_TOKEN || 'sell'; // 'sell' or 'buy' - which token to receive fees in
+    
+    params.append('swapFeeRecipient', feeRecipient);
+    params.append('swapFeeBps', feeRecipientBps);
+    // swapFeeToken must be either buyToken or sellToken per 0x API docs
+    params.append('swapFeeToken', feeToken === 'buy' ? normalizedToToken : normalizedFromToken);
+    logger.debug(`[CDP API] Adding fee recipient: ${feeRecipient} (${feeRecipientBps}bps in ${feeToken}Token)`);
   
     const url = `https://api.0x.org/swap/allowance-holder/quote?${params.toString()}`;
     
