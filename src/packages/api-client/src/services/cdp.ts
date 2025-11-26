@@ -151,7 +151,11 @@ export interface CoinGeckoToken {
   chain: string | null;
   icon: string | null;
   price: number | null;
-  platforms: Record<string, string>;
+  platforms?: Record<string, string>;
+  decimals?: number;
+  marketCap?: number | null;
+  volume24h?: number | null;
+  priceChange24h?: number | null;
 }
 
 export interface SearchTokenResponse {
@@ -265,6 +269,19 @@ export class CdpService extends BaseApiClient {
       params.append('chain', request.chain);
     }
     const response = await this.get<SearchTokenResponse>(`/api/cdp/tokens/search?${params.toString()}`);
+    return response;
+  }
+
+  /**
+   * Get top tokens by market cap and trending tokens for a specific chain
+   */
+  async getTopAndTrendingTokens(request: TopAndTrendingTokensRequest): Promise<TopAndTrendingTokensResponse> {
+    const params = new URLSearchParams();
+    params.append('chain', request.chain);
+    if (request.limit) {
+      params.append('limit', request.limit.toString());
+    }
+    const response = await this.get<TopAndTrendingTokensResponse>(`/api/cdp/tokens/top-and-trending?${params.toString()}`);
     return response;
   }
 }

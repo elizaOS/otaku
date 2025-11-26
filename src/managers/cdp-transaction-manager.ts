@@ -2507,6 +2507,254 @@ export class CdpTransactionManager {
       return 0;
     }
   }
+
+  /**
+   * Get top tokens by market cap and trending tokens for a specific chain
+   */
+  async getTopAndTrendingTokens(params: {
+    chain: string;
+    limit?: number;
+  }): Promise<{ topTokens: any[]; trendingTokens: any[] }> {
+    const { chain, limit = 20 } = params;
+
+    if (!chain) {
+      throw new Error('Chain parameter is required');
+    }
+
+    const apiKey = process.env.COINGECKO_API_KEY;
+    const isPro = Boolean(apiKey);
+    const baseUrl = isPro ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
+
+    // Map chain names to CoinGecko category IDs
+    const chainToCategory: Record<string, string> = {
+      'ethereum': 'ethereum-ecosystem',
+      'base': 'base-ecosystem',
+      'polygon': 'polygon-ecosystem',
+      'arbitrum': 'arbitrum-ecosystem',
+      'optimism': 'optimism-ecosystem',
+    };
+
+    const categoryId = chainToCategory[chain.toLowerCase()];
+
+    const topTokens: any[] = [];
+    const trendingTokens: any[] = [];
+
+    // Fetch top tokens by market cap - get contract addresses for swap functionality
+    if (categoryId) {
+      try {
+        const url = `${baseUrl}/coins/markets?vs_currency=usd&category=${categoryId}&order=market_cap_desc&per_page=${Math.min(limit, 15)}&page=1&sparkline=false`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            ...(isPro && apiKey ? { 'x-cg-pro-api-key': apiKey } : {}),
+            'User-Agent': 'Otaku-CDP-Wallet/1.0',
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          const data = await response.json();
+          
+          // Map chain names to CoinGecko platform IDs
+          const networkToPlatformId: Record<string, string> = {
+            'ethereum': 'ethereum',
+            'base': 'base',
+            'polygon': 'polygon-pos',
+            'arbitrum': 'arbitrum-one',
+            'optimism': 'optimistic-ethereum',
+          };
+
+          const platformId = networkToPlatformId[chain.toLowerCase()];
+
+          // Fetch contract addresses for top tokens (limit to avoid too many calls)
+          const topCoinIds = data.slice(0, 15).map((t: any) => t.id);
+          
+          // Batch fetch coin details to get contract addresses
+          // Use Promise.allSettled to handle failures gracefully
+          const coinDetailPromises = topCoinIds.map(async (coinId: string) => {
+            try {
+              const detailUrl = `${baseUrl}/coins/${coinId}`;
+              const detailController = new AbortController();
+              const detailTimeout = setTimeout(() => detailController.abort(), 5000);
+
+              const detailResponse = await fetch(detailUrl, {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/json',
+                  ...(isPro && apiKey ? { 'x-cg-pro-api-key': apiKey } : {}),
+                  'User-Agent': 'Otaku-CDP-Wallet/1.0',
+                },
+                signal: detailController.signal,
+              });
+
+              clearTimeout(detailTimeout);
+
+              if (detailResponse.ok) {
+                const detailData = await detailResponse.json();
+                const platforms = detailData.platforms || {};
+                const contractAddress = platformId ? platforms[platformId] : null;
+                
+                if (contractAddress) {
+                  const decimals = detailData.detail_platforms?.[platformId]?.decimal_place || 18;
+                  const tokenData = data.find((t: any) => t.id === coinId);
+                  
+                  return {
+                    id: coinId,
+                    symbol: tokenData?.symbol?.toUpperCase() || 'UNKNOWN',
+                    name: tokenData?.name || 'Unknown Token',
+                    contractAddress,
+                    chain: chain.toLowerCase(),
+                    icon: tokenData?.image || null,
+                    price: tokenData?.current_price || null,
+                    decimals,
+                  };
+                }
+              }
+            } catch (error) {
+              logger.debug(`[CdpTransactionManager] Failed to get contract for ${coinId}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            return null;
+          });
+
+          const coinDetails = await Promise.allSettled(coinDetailPromises);
+          
+          for (const result of coinDetails) {
+            if (result.status === 'fulfilled' && result.value) {
+              topTokens.push(result.value);
+            }
+          }
+        }
+      } catch (error) {
+        logger.warn(`[CdpTransactionManager] Failed to fetch top tokens: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // Fetch trending tokens from CoinGecko
+    try {
+      const trendingUrl = `${baseUrl}/search/trending`;
+      const trendingController = new AbortController();
+      const trendingTimeout = setTimeout(() => trendingController.abort(), 10000);
+
+      const trendingResponse = await fetch(trendingUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          ...(isPro && apiKey ? { 'x-cg-pro-api-key': apiKey } : {}),
+          'User-Agent': 'Otaku-CDP-Wallet/1.0',
+        },
+        signal: trendingController.signal,
+      });
+
+      clearTimeout(trendingTimeout);
+
+      if (trendingResponse.ok) {
+        const trendingData = await trendingResponse.json();
+        const coins = trendingData.coins || [];
+        
+        // Map chain names to CoinGecko platform IDs
+        const networkToPlatformId: Record<string, string> = {
+          'ethereum': 'ethereum',
+          'base': 'base',
+          'polygon': 'polygon-pos',
+          'arbitrum': 'arbitrum-one',
+          'optimism': 'optimistic-ethereum',
+        };
+
+        const platformId = networkToPlatformId[chain.toLowerCase()];
+
+        // Get top trending coins (limit to avoid too many API calls)
+        const trendingCoinIds = coins.slice(0, Math.min(limit, 15)).map((coin: any) => coin.item?.id).filter(Boolean);
+        
+        // Fetch contract addresses for trending tokens
+        const trendingDetailPromises = trendingCoinIds.map(async (coinId: string) => {
+          try {
+            const detailUrl = `${baseUrl}/coins/${coinId}`;
+            const detailController = new AbortController();
+            const detailTimeout = setTimeout(() => detailController.abort(), 5000);
+
+            const detailResponse = await fetch(detailUrl, {
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+                ...(isPro && apiKey ? { 'x-cg-pro-api-key': apiKey } : {}),
+                'User-Agent': 'Otaku-CDP-Wallet/1.0',
+              },
+              signal: detailController.signal,
+            });
+
+            clearTimeout(detailTimeout);
+
+            if (detailResponse.ok) {
+              const detailData = await detailResponse.json();
+              const platforms = detailData.platforms || {};
+              const contractAddress = platformId ? platforms[platformId] : null;
+              
+              if (contractAddress) {
+                const decimals = detailData.detail_platforms?.[platformId]?.decimal_place || 18;
+                const coinItem = coins.find((c: any) => c.item?.id === coinId)?.item;
+                
+                // Get current price from markets endpoint
+                let price = null;
+                try {
+                  const priceUrl = `${baseUrl}/simple/price?ids=${coinId}&vs_currencies=usd`;
+                  const priceController = new AbortController();
+                  const priceTimeout = setTimeout(() => priceController.abort(), 5000);
+                  const priceResponse = await fetch(priceUrl, {
+                    method: 'GET',
+                    headers: {
+                      'Accept': 'application/json',
+                      ...(isPro && apiKey ? { 'x-cg-pro-api-key': apiKey } : {}),
+                      'User-Agent': 'Otaku-CDP-Wallet/1.0',
+                    },
+                    signal: priceController.signal,
+                  });
+                  clearTimeout(priceTimeout);
+                  if (priceResponse.ok) {
+                    const priceData = await priceResponse.json();
+                    price = priceData[coinId]?.usd || null;
+                  }
+                } catch (error) {
+                  logger.debug(`[CdpTransactionManager] Failed to get price for ${coinId}`);
+                }
+                
+                return {
+                  id: coinId,
+                  symbol: coinItem?.symbol?.toUpperCase() || detailData.symbol?.toUpperCase() || 'UNKNOWN',
+                  name: coinItem?.name || detailData.name || 'Unknown Token',
+                  contractAddress,
+                  chain: chain.toLowerCase(),
+                  icon: coinItem?.large || coinItem?.thumb || detailData.image?.large || detailData.image?.thumb || null,
+                  price,
+                  decimals,
+                };
+              }
+            }
+          } catch (error) {
+            logger.debug(`[CdpTransactionManager] Failed to get trending token details for ${coinId}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+          return null;
+        });
+
+        const trendingDetails = await Promise.allSettled(trendingDetailPromises);
+        
+        for (const result of trendingDetails) {
+          if (result.status === 'fulfilled' && result.value) {
+            trendingTokens.push(result.value);
+          }
+        }
+      }
+    } catch (error) {
+      logger.warn(`[CdpTransactionManager] Failed to fetch trending tokens: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    return { topTokens, trendingTokens };
+  }
 }
 
 

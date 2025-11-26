@@ -467,5 +467,45 @@ export function cdpRouter(serverInstance: AgentServer): express.Router {
     }
   });
 
+  /**
+   * GET /api/cdp/tokens/top-and-trending
+   * Get top tokens by market cap and trending tokens for a specific chain
+   * Query params:
+   *   - chain (required): Specific chain (e.g., 'base', 'ethereum', 'polygon', 'arbitrum', 'optimism')
+   *   - limit (optional): Number of tokens to return (default: 20)
+   * NOTE: This endpoint does not require authentication
+   */
+  router.get('/tokens/top-and-trending', async (req, res) => {
+    try {
+      const { chain, limit } = req.query;
+
+      if (!chain || typeof chain !== 'string') {
+        return sendError(res, 400, 'INVALID_REQUEST', 'Chain parameter is required');
+      }
+
+      const limitNum = limit ? parseInt(limit as string, 10) : 20;
+      const clampedLimit = Math.max(1, Math.min(50, limitNum));
+
+      const result = await cdpTransactionManager.getTopAndTrendingTokens({
+        chain: chain as string,
+        limit: clampedLimit,
+      });
+
+      return sendSuccess(res, result);
+    } catch (error) {
+      logger.error(
+        '[CDP API] Error fetching top and trending tokens:',
+        error instanceof Error ? error.message : String(error)
+      );
+      return sendError(
+        res,
+        500,
+        'FETCH_FAILED',
+        'Failed to fetch top and trending tokens',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  });
+
   return router;
 }
