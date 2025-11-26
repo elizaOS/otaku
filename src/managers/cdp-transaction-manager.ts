@@ -445,6 +445,7 @@ export class CdpTransactionManager {
         withPrices: true,
         includeNativeTokens: true,
         includeErc20Tokens: true,
+        excludeSpam: true, // Filter out known spam/scam tokens
       }),
     });
 
