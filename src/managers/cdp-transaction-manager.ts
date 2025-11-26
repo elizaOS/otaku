@@ -1348,44 +1348,50 @@ export class CdpTransactionManager {
           
           const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as `0x${string}`;
           
-          // Use CDP SDK's account.sendTransaction for approval to keep nonce in sync
-          logger.info(`[CdpTransactionManager] Sending Permit2 approval transaction for ${normalizedFromToken}...`);
-          
-          // ERC20 approve function selector: 0x095ea7b3
-          const approveSelector = '0x095ea7b3';
-          const paddedSpender = PERMIT2_ADDRESS.slice(2).padStart(64, '0');
-          const paddedAmount = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
-          const approveData = `${approveSelector}${paddedSpender}${paddedAmount}`;
-          
-          const { transactionHash: approvalHash } = await account.sendTransaction({
-            network: network as any,
-            transaction: {
-              to: normalizedFromToken as `0x${string}`,
-              data: approveData as `0x${string}`,
-              value: 0n,
-            },
+          // Get viem clients for approval transaction
+          const { walletClient, publicClient } = await this.getViemClientsForAccount({
+            accountName: userId,
+            network,
           });
+          
+          // ERC20 approve ABI
+          const approveAbi = [{
+            name: "approve",
+            type: "function",
+            stateMutability: "nonpayable",
+            inputs: [
+              { name: "spender", type: "address" },
+              { name: "amount", type: "uint256" }
+            ],
+            outputs: [{ type: "bool" }]
+          }] as const;
+          
+          // Approve max uint256 for Permit2
+          logger.info(`[CdpTransactionManager] Sending Permit2 approval transaction for ${normalizedFromToken}...`);
+          const approvalHash = await walletClient.writeContract({
+            address: normalizedFromToken as `0x${string}`,
+            abi: approveAbi,
+            functionName: "approve",
+            args: [
+              PERMIT2_ADDRESS,
+              BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+            ],
+            chain: walletClient.chain,
+          } as any);
           
           logger.info(`[CdpTransactionManager] Permit2 approval sent: ${approvalHash}`);
           
           // Wait for approval confirmation
-          const alchemyKey = process.env.ALCHEMY_API_KEY;
-          if (alchemyKey) {
-            const rpcUrl = getRpcUrl(network, alchemyKey);
-            const chain = getViemChain(network);
-            if (rpcUrl && chain) {
-              const publicClient = createPublicClient({
-                chain,
-                transport: http(rpcUrl),
-              });
-              logger.info(`[CdpTransactionManager] Waiting for approval confirmation...`);
-              const receipt = await publicClient.waitForTransactionReceipt({ 
-                hash: approvalHash as `0x${string}`,
-                timeout: 60_000,
-              });
-              logger.info(`[CdpTransactionManager] Approval confirmed in block ${receipt.blockNumber}`);
-            }
-          }
+          logger.info(`[CdpTransactionManager] Waiting for approval confirmation...`);
+          const receipt = await publicClient.waitForTransactionReceipt({ 
+            hash: approvalHash,
+            timeout: 60_000,
+          });
+          logger.info(`[CdpTransactionManager] Approval confirmed in block ${receipt.blockNumber}`);
+          
+          // Wait for CDP SDK's nonce cache to sync with on-chain state
+          logger.info(`[CdpTransactionManager] Waiting 8 seconds for CDP SDK nonce cache to sync...`);
+          await new Promise(resolve => setTimeout(resolve, 8000));
           
           // Retry swap after approval using networkAccount
           try {
