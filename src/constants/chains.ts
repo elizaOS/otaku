@@ -21,6 +21,7 @@ export interface ChainConfig {
     decimals: number;
   };
   coingeckoPlatform: string;
+  alchemyPortfolioNetwork: string; // Network ID for Alchemy Portfolio API
   // Swap configuration
   swap: {
     cdpSupported: boolean; // Does CDP SDK support swaps on this network?
@@ -44,6 +45,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'base',
+    alchemyPortfolioNetwork: 'base-mainnet',
     swap: {
       cdpSupported: true, // CDP SDK supports Base swaps
     },
@@ -60,6 +62,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'ethereum',
+    alchemyPortfolioNetwork: 'eth-mainnet',
     swap: {
       cdpSupported: true, // CDP SDK supports Ethereum swaps
     },
@@ -76,6 +79,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'polygon-pos',
+    alchemyPortfolioNetwork: 'matic-mainnet', // Alchemy uses 'matic-mainnet' not 'polygon-mainnet'
     swap: {
       cdpSupported: false, // CDP SDK does NOT support Polygon swaps
     },
@@ -92,6 +96,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'arbitrum-one',
+    alchemyPortfolioNetwork: 'arb-mainnet',
     swap: {
       cdpSupported: false, // CDP SDK does NOT support Arbitrum swaps
     },
@@ -108,6 +113,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'optimistic-ethereum',
+    alchemyPortfolioNetwork: 'opt-mainnet',
     swap: {
       cdpSupported: false, // CDP SDK does NOT support Optimism swaps
     },
@@ -124,6 +130,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'scroll',
+    alchemyPortfolioNetwork: 'scroll-mainnet',
     swap: {
       cdpSupported: false, // CDP SDK does NOT support Scroll swaps
     },
@@ -140,6 +147,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'base',
+    alchemyPortfolioNetwork: 'base-sepolia',
     swap: {
       cdpSupported: false, // Testnet - no CDP swap support
     },
@@ -156,6 +164,7 @@ export const CHAIN_CONFIGS: Record<SupportedNetwork, ChainConfig> = {
       decimals: 18,
     },
     coingeckoPlatform: 'ethereum',
+    alchemyPortfolioNetwork: 'eth-sepolia',
     swap: {
       cdpSupported: false, // Testnet - no CDP swap support
     },
@@ -238,6 +247,14 @@ export function getNativeTokenInfo(network: string) {
 export function getCoingeckoPlatform(network: string): string | null {
   const config = getChainConfig(network);
   return config?.coingeckoPlatform || null;
+}
+
+/**
+ * Helper: Get Alchemy Portfolio API network identifier
+ */
+export function getAlchemyPortfolioNetwork(network: string): string | null {
+  const config = getChainConfig(network);
+  return config?.alchemyPortfolioNetwork || null;
 }
 
 /**

@@ -115,6 +115,8 @@ export class CdpTransactionManager {
   private tokensCache = new Map<string, CacheEntry<any>>();
   private nftsCache = new Map<string, CacheEntry<any>>();
   private iconCache = new Map<string, string | null>(); // Global icon cache: contractAddress -> iconUrl (null = no icon)
+  private walletAddressCache = new Map<string, string>(); // userId -> wallet address (CDP SDK can't handle concurrent getOrCreateAccount calls)
+  private walletAddressPending = new Map<string, Promise<string | undefined>>(); // Prevents concurrent CDP SDK calls per user
   private readonly CACHE_TTL = 300 * 1000; // 5 minutes
 
   // Private constructor to prevent direct instantiation
@@ -236,16 +238,63 @@ export class CdpTransactionManager {
   // Wallet Operations
   // ============================================================================
 
+  /**
+   * Get wallet address for a user with caching and concurrency protection.
+   * CDP SDK doesn't handle concurrent getOrCreateAccount calls well, so we:
+   * 1. Cache the address after first successful fetch
+   * 2. Deduplicate concurrent requests using a pending promise map
+   */
+  private async getWalletAddress(client: CdpClient, userId: string): Promise<string | undefined> {
+    // Check cache first
+    const cached = this.walletAddressCache.get(userId);
+    if (cached) {
+      return cached;
+    }
+
+    // Check if there's already a pending request for this user
+    const pending = this.walletAddressPending.get(userId);
+    if (pending) {
+      return pending;
+    }
+
+    // Create a new promise for this request
+    const fetchPromise = (async () => {
+      try {
+        const account = await client.evm.getOrCreateAccount({ name: userId });
+        if (account.address) {
+          // Cache the address
+          this.walletAddressCache.set(userId, account.address);
+          logger.debug(`[CDP API] Cached wallet address for user ${userId.substring(0, 8)}...: ${account.address}`);
+        }
+        return account.address;
+      } catch (error) {
+        logger.error(`[CDP API] Error getting wallet address for ${userId.substring(0, 8)}...:`, error instanceof Error ? error.message : String(error));
+        return undefined;
+      } finally {
+        // Clean up pending promise
+        this.walletAddressPending.delete(userId);
+      }
+    })();
+
+    // Store the pending promise
+    this.walletAddressPending.set(userId, fetchPromise);
+    return fetchPromise;
+  }
+
   async getOrCreateWallet(userId: string): Promise<{ address: string; accountName: string }> {
     logger.info(`[CdpTransactionManager] Getting/creating wallet for user: ${userId.substring(0, 8)}...`);
     
     const client = this.getCdpClient();
-    const account = await client.evm.getOrCreateAccount({ name: userId });
+    const address = await this.getWalletAddress(client, userId);
     
-    logger.info(`[CdpTransactionManager] Wallet ready: ${account.address}`);
+    logger.info(`[CdpTransactionManager] Wallet ready: ${address}`);
+    
+    if (!address) {
+      throw new Error('Failed to get wallet address from CDP');
+    }
     
     return {
-      address: account.address,
+      address,
       accountName: userId,
     };
   }
@@ -337,15 +386,22 @@ export class CdpTransactionManager {
     address: string;
   }> {
     logger.info(`[CDP API] Fetching token balances for user: ${name}${chain ? ` on chain: ${chain}` : ' (all chains)'}`);
-  
-    const account = await client.evm.getOrCreateAccount({ name });
-    const address = account.address;
+
+    // Use cached wallet address with concurrency protection
+    const address = await this.getWalletAddress(client, name);
+    
+    // Validate address is defined
+    if (!address) {
+      logger.error(`[CDP API] Failed to get wallet address for user: ${name}`);
+      throw new Error('Failed to get wallet address from CDP');
+    }
+    
     const alchemyKey = process.env.ALCHEMY_API_KEY;
     
     if (!alchemyKey) {
       throw new Error('Alchemy API key not configured');
     }
-  
+
     // Determine which networks to fetch
     let networksToFetch: string[];
     if (chain) {
@@ -362,193 +418,152 @@ export class CdpTransactionManager {
     } else {
       networksToFetch = MAINNET_NETWORKS;
     }
-  
-    const allTokens: any[] = [];
-    let totalUsdValue = 0;
-  
+
+    // Map our chain names to Alchemy Portfolio API network identifiers
+    const alchemyNetworks = networksToFetch
+      .map(network => {
+        const config = getChainConfig(network);
+        return config?.alchemyPortfolioNetwork;
+      })
+      .filter((n): n is string => !!n);
+
+    // Use Alchemy Portfolio API - single request for all networks
+    // https://www.alchemy.com/docs/data/portfolio-apis/portfolio-api-endpoints/portfolio-api-endpoints/get-tokens-by-address
+    const portfolioUrl = `https://api.g.alchemy.com/data/v1/${alchemyKey}/assets/tokens/by-address`;
+    
+    logger.debug(`[CDP API] Calling Alchemy Portfolio API for address: ${address}, networks: ${alchemyNetworks.join(', ')}`);
+    
+    const portfolioResponse = await fetch(portfolioUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        addresses: [{
+          address,
+          networks: alchemyNetworks,
+        }],
+        withMetadata: true,
+        withPrices: true,
+        includeNativeTokens: true,
+        includeErc20Tokens: true,
+      }),
+    });
+
+    if (!portfolioResponse.ok) {
+      const errorBody = await portfolioResponse.text().catch(() => 'Unable to read error body');
+      logger.warn(`[CDP API] Portfolio API failed: ${portfolioResponse.status} - ${errorBody}`);
+      throw new Error(`Alchemy Portfolio API failed: ${portfolioResponse.status}`);
+    }
+
+    const portfolioData = await portfolioResponse.json();
+    const tokens = portfolioData?.data?.tokens || [];
+    
+    logger.debug(`[CDP API] Portfolio API returned ${tokens.length} tokens for ${address}`);
+
+    // Map Alchemy network names back to our chain names
+    const networkToChain: Record<string, string> = {};
     for (const network of networksToFetch) {
-      const chainTokens: any[] = [];
-      let chainUsdValue = 0;
-      
-      try {
-        const chainConfig = getChainConfig(network);
-        if (!chainConfig) {
-          logger.warn(`[CDP API] Unsupported network: ${network}`);
-          continue;
-        }
-  
-        const rpcUrl = chainConfig.rpcUrl(alchemyKey);
-  
-        // Step 1: Fetch native token balance
-        const nativeResponse = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'eth_getBalance',
-            params: [address, 'latest'],
-          }),
-        });
-  
-        const nativeJson = await nativeResponse.json();
-        const nativeBalance = BigInt(nativeJson.result || '0');
-  
-        // Add native token if balance > 0
-        if (nativeBalance > 0n) {
-          const amountNum = this.safeBalanceToNumber('0x' + nativeBalance.toString(16), chainConfig.nativeToken.decimals);
-          const usdPrice = await this.getNativeTokenPrice(chainConfig.nativeToken.coingeckoId);
-          const usdValue = amountNum * usdPrice;
-          
-          // Only add to total if it's a valid number
-          if (!isNaN(usdValue)) {
-            chainUsdValue += usdValue;
-          }
-  
-          const nativeToken = {
-            symbol: chainConfig.nativeToken.symbol,
-            name: chainConfig.nativeToken.name,
-            balance: isNaN(amountNum) ? '0' : amountNum.toString(),
-            balanceFormatted: isNaN(amountNum) ? '0' : amountNum.toFixed(6).replace(/\.?0+$/, ''),
-            usdValue: isNaN(usdValue) ? 0 : usdValue,
-            usdPrice: isNaN(usdPrice) ? 0 : usdPrice,
-            contractAddress: null,
-            chain: network,
-            decimals: chainConfig.nativeToken.decimals,
-            icon: undefined,
-          };
-          chainTokens.push(nativeToken);
-        }
-  
-        // Step 2: Fetch ERC20 token balances using Alchemy
-        const tokensResponse = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 2,
-            method: 'alchemy_getTokenBalances',
-            params: [address],
-          }),
-        });
-  
-        if (!tokensResponse.ok) {
-          logger.warn(`[CDP API] Failed to fetch tokens for ${network}: ${tokensResponse.status}`);
-          continue;
-        }
-  
-        const tokensJson = await tokensResponse.json();
-        if (tokensJson.error) {
-          logger.warn(`[CDP API] RPC error for ${network}:`, tokensJson.error);
-          continue;
-        }
-  
-        const tokenBalances = tokensJson?.result?.tokenBalances || [];
-  
-        // Step 3: Process ERC20 tokens
-        for (const tokenBalance of tokenBalances) {
-          try {
-            const contractAddress = tokenBalance.contractAddress;
-            const tokenBalanceHex = tokenBalance.tokenBalance;
-            
-            // Skip tokens with 0 balance
-            if (!tokenBalanceHex || BigInt(tokenBalanceHex) === 0n) continue;
-            
-            // Get token info from CoinGecko
-            const platform = chainConfig.coingeckoPlatform;
-            let tokenInfo = await this.getTokenInfo(contractAddress, platform);
-            let usdPrice = 0;
-            
-            if (!tokenInfo) {
-              // Try DexScreener as fallback
-              const dexInfo = await this.getTokenInfoFromDexScreener(contractAddress, network);
-              if (dexInfo?.price) {
-                usdPrice = dexInfo.price;
-                // Use DexScreener data with token metadata
-                const amountNum = this.safeBalanceToNumber(tokenBalanceHex, 18); // Assume 18 decimals
-                const usdValue = amountNum * usdPrice;
-                
-                // Only add to total if it's a valid number
-                if (!isNaN(usdValue)) {
-                  chainUsdValue += usdValue;
-                }
-                
-                chainTokens.push({
-                  symbol: dexInfo.symbol?.toUpperCase() || 'UNKNOWN',
-                  name: dexInfo.name || 'Unknown Token',
-                  balance: isNaN(amountNum) ? '0' : amountNum.toString(),
-                  balanceFormatted: isNaN(amountNum) ? '0' : amountNum.toFixed(6).replace(/\.?0+$/, ''),
-                  usdValue: isNaN(usdValue) ? 0 : usdValue,
-                  usdPrice: isNaN(usdPrice) ? 0 : usdPrice,
-                  contractAddress,
-                  chain: network,
-                  decimals: 18,
-                  icon: undefined,
-                });
-              } else {
-                logger.debug(`[CDP API] Could not get price for token ${contractAddress} on ${network}`);
-              }
-              continue;
-            }
-            
-            // Use token info price, fallback to 0 if null
-            usdPrice = tokenInfo.price || 0;
-            
-            // Populate icon cache
-            this.setIconInCache(contractAddress, tokenInfo.icon);
-            
-            // Convert balance using correct decimals
-            const amountNum = this.safeBalanceToNumber(tokenBalanceHex, tokenInfo.decimals || 18);
-            const usdValue = amountNum * usdPrice;
-            
-            // Only add to total if it's a valid number
-            if (!isNaN(usdValue)) {
-              chainUsdValue += usdValue;
-            }
-            
-            chainTokens.push({
-              symbol: tokenInfo.symbol || 'UNKNOWN',
-              name: tokenInfo.name || 'Unknown Token',
-              balance: isNaN(amountNum) ? '0' : amountNum.toString(),
-              balanceFormatted: isNaN(amountNum) ? '0' : amountNum.toFixed(6).replace(/\.?0+$/, ''),
-              usdValue: isNaN(usdValue) ? 0 : usdValue,
-              usdPrice: isNaN(usdPrice) ? 0 : usdPrice,
-              contractAddress,
-              chain: network,
-              decimals: tokenInfo.decimals || 18,
-              icon: tokenInfo.icon,
-            });
-          } catch (err) {
-            logger.warn(`[CDP API] Error processing token ${tokenBalance.contractAddress} on ${network}:`, err instanceof Error ? err.message : String(err));
-          }
-        }
-        
-        // Cache this chain's results immediately
-        const chainCacheKey = `${name}:${network}`;
-        const chainUsdValueFinal = isNaN(chainUsdValue) ? 0 : chainUsdValue;
-        this.tokensCache.set(chainCacheKey, {
-          data: {
-            tokens: chainTokens,
-            totalUsdValue: chainUsdValueFinal,
-            address,
-          },
-          timestamp: Date.now(),
-        });
-        logger.debug(`[CDP API] Cached tokens for ${network}: ${chainTokens.length} tokens, $${chainUsdValueFinal.toFixed(2)}`);
-        
-        // Add to overall results
-        allTokens.push(...chainTokens);
-        totalUsdValue += chainUsdValue;
-      } catch (err) {
-        logger.warn(`[CDP API] Failed to fetch balances for ${network}:`, err instanceof Error ? err.message : String(err));
+      const config = getChainConfig(network);
+      if (config?.alchemyPortfolioNetwork) {
+        networkToChain[config.alchemyPortfolioNetwork] = network;
       }
     }
-  
+
+    const allTokens: any[] = [];
+    let totalUsdValue = 0;
+    
+    // Group tokens by chain for per-chain caching
+    const tokensByChain: Record<string, any[]> = {};
+    const usdValueByChain: Record<string, number> = {};
+    
+    for (const token of tokens) {
+      try {
+        const alchemyNetwork = token.network;
+        const chainName = networkToChain[alchemyNetwork] || alchemyNetwork;
+        
+        // tokenBalance from Alchemy Portfolio API is already the decimal-adjusted string balance
+        // NOT the raw wei value - it's a human-readable string like "0.001234"
+        const balanceRaw = token.tokenBalance;
+        const decimals = token.tokenMetadata?.decimals ?? 18;
+        
+        // Parse the balance - it's already decimal-adjusted from Alchemy Portfolio API
+        let balance: number;
+        if (balanceRaw.startsWith('0x')) {
+          // If hex, convert from raw units
+          balance = this.safeBalanceToNumber(balanceRaw, decimals);
+        } else {
+          // If decimal string, Alchemy Portfolio API returns it already adjusted
+          balance = parseFloat(balanceRaw);
+        }
+        
+        // Skip zero or invalid balances
+        if (!balance || balance === 0 || isNaN(balance)) continue;
+        
+        // Get USD price from Alchemy response
+        const priceData = token.tokenPrices?.find((p: any) => p.currency === 'usd');
+        const usdPrice = priceData ? parseFloat(priceData.value) : 0;
+        const usdValue = balance * usdPrice;
+        
+        // Determine if native token (tokenAddress is empty or null for native)
+        const isNative = !token.tokenAddress || token.tokenAddress === '0x0000000000000000000000000000000000000000';
+        
+        const formattedToken = {
+          symbol: token.tokenMetadata?.symbol?.toUpperCase() || 'UNKNOWN',
+          name: token.tokenMetadata?.name || 'Unknown Token',
+          balance: balance.toString(),
+          balanceFormatted: balance.toFixed(6).replace(/\.?0+$/, ''),
+          usdValue: isNaN(usdValue) ? 0 : usdValue,
+          usdPrice: isNaN(usdPrice) ? 0 : usdPrice,
+          contractAddress: isNative ? null : token.tokenAddress,
+          chain: chainName,
+          decimals,
+          icon: token.tokenMetadata?.logo || undefined,
+        };
+        
+        // Cache icon if available
+        if (token.tokenAddress && token.tokenMetadata?.logo) {
+          this.setIconInCache(token.tokenAddress, token.tokenMetadata.logo);
+        }
+        
+        allTokens.push(formattedToken);
+        
+        if (!isNaN(usdValue)) {
+          totalUsdValue += usdValue;
+        }
+        
+        // Track per-chain for caching
+        if (!tokensByChain[chainName]) {
+          tokensByChain[chainName] = [];
+          usdValueByChain[chainName] = 0;
+        }
+        tokensByChain[chainName].push(formattedToken);
+        if (!isNaN(usdValue)) {
+          usdValueByChain[chainName] += usdValue;
+        }
+      } catch (err) {
+        logger.warn(`[CDP API] Error processing token:`, err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    // Cache per-chain results
+    for (const chainName of Object.keys(tokensByChain)) {
+      const chainCacheKey = `${name}:${chainName}`;
+      const chainUsdValue = usdValueByChain[chainName] || 0;
+      this.tokensCache.set(chainCacheKey, {
+        data: {
+          tokens: tokensByChain[chainName],
+          totalUsdValue: chainUsdValue,
+          address,
+        },
+        timestamp: Date.now(),
+      });
+      logger.debug(`[CDP API] Cached tokens for ${chainName}: ${tokensByChain[chainName].length} tokens, $${chainUsdValue.toFixed(2)}`);
+    }
+
     // Ensure totalUsdValue is a valid number
     const finalTotalUsdValue = isNaN(totalUsdValue) ? 0 : totalUsdValue;
     
     logger.info(`[CDP API] Found ${allTokens.length} tokens for user ${name}${chain ? ` on ${chain}` : ''}, total value: $${finalTotalUsdValue.toFixed(2)}`);
-  
+
     // Cache aggregate result if fetching all chains
     if (!chain) {
       const aggregateCacheKey = name;
@@ -556,7 +571,7 @@ export class CdpTransactionManager {
         data: {
           tokens: allTokens,
           totalUsdValue: finalTotalUsdValue,
-          address: account.address,
+          address,
         },
         timestamp: Date.now(),
       });
@@ -566,7 +581,7 @@ export class CdpTransactionManager {
     return {
       tokens: allTokens,
       totalUsdValue: finalTotalUsdValue,
-      address: account.address,
+      address,
     };
   }
 
@@ -615,8 +630,11 @@ export class CdpTransactionManager {
   
     logger.info(`[CDP API] Fetching NFTs for user: ${name}${chain ? ` on chain: ${chain}` : ' (all chains)'}`);
   
-    const account = await client.evm.getOrCreateAccount({ name });
-    const address = account.address;
+    // Use cached wallet address with concurrency protection
+    const address = await this.getWalletAddress(client, name);
+    if (!address) {
+      throw new Error('Failed to get wallet address from CDP');
+    }
   
     // Determine which networks to fetch
     let networksToFetch: string[];
@@ -754,8 +772,11 @@ export class CdpTransactionManager {
 
     logger.info(`[CdpTransactionManager] Fetching transaction history for user: ${userId.substring(0, 8)}...`);
 
-    const account = await client.evm.getOrCreateAccount({ name: userId });
-    const address = account.address;
+    // Use cached wallet address with concurrency protection
+    const address = await this.getWalletAddress(client, userId);
+    if (!address) {
+      throw new Error('Failed to get wallet address from CDP');
+    }
 
     const networks = MAINNET_NETWORKS.map(network => {
         const config = getChainConfig(network);
