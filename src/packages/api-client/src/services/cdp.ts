@@ -1,4 +1,5 @@
 import { BaseApiClient } from '../lib/base-client';
+import type { TopAndTrendingTokensRequest, TopAndTrendingTokensResponse } from '../types/cdp';
 
 /**
  * Native token address used by swap protocols

@@ -13,3 +13,19 @@ export interface WalletResponse {
   accountName: string;
 }
 
+/**
+ * Request for top and trending tokens
+ */
+export interface TopAndTrendingTokensRequest {
+  chain: string;
+  limit?: number;
+}
+
+/**
+ * Response for top and trending tokens
+ */
+export interface TopAndTrendingTokensResponse {
+  topTokens: any[];
+  trendingTokens: any[];
+}
+

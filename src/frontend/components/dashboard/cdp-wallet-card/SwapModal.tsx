@@ -133,13 +133,24 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
   });
 
   // Helper function to convert amount to base units without scientific notation
-  const convertToBaseUnits = (amount: string, decimals: number): string => {
+  const convertToBaseUnits = (amount: string, decimals: number, maxBalance?: string): string => {
     // Remove any existing decimals and convert to integer string
     const [intPart, decPart = ''] = amount.split('.');
     const paddedDecPart = decPart.padEnd(decimals, '0').slice(0, decimals);
-    const result = intPart + paddedDecPart;
+    let result = intPart + paddedDecPart;
     // Remove leading zeros but keep at least one digit
-    return result.replace(/^0+/, '') || '0';
+    result = result.replace(/^0+/, '') || '0';
+    
+    // Cap at maxBalance if provided to prevent exceeding actual balance
+    if (maxBalance) {
+      const maxBalanceBigInt = BigInt(maxBalance);
+      const resultBigInt = BigInt(result);
+      if (resultBigInt > maxBalanceBigInt) {
+        return maxBalance;
+      }
+    }
+    
+    return result;
   };
 
   // Close dropdown when clicking outside
@@ -277,7 +288,8 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
 
     try {
       // Convert amount to base units (with decimals) - avoid scientific notation
-      const amountInBaseUnits = convertToBaseUnits(fromAmount, fromToken.decimals);
+      // Cap at actual balance to prevent exceeding balance
+      const amountInBaseUnits = convertToBaseUnits(fromAmount, fromToken.decimals, fromToken.balance);
 
       // Send token address or 'eth' for native token - server will normalize it
       const fromTokenAddress = fromToken.contractAddress || 'eth';
@@ -339,7 +351,8 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
       showLoading('Swapping Tokens', 'Please wait while we process your swap...', modalId);
       
       // Convert amount to base units - avoid scientific notation
-      const amountInBaseUnits = convertToBaseUnits(fromAmount, fromToken.decimals);
+      // Cap at actual balance to prevent TRANSFER_FROM_FAILED errors
+      const amountInBaseUnits = convertToBaseUnits(fromAmount, fromToken.decimals, fromToken.balance);
       
       // Convert slippage to basis points (1% = 100 bps)
       const slippageBps = Math.round(parseFloat(slippage) * 100);
@@ -399,7 +412,16 @@ export function SwapModalContent({ tokens, userId, onSuccess }: SwapModalContent
 
   const handleSetMaxAmount = () => {
     if (fromToken) {
-      setFromAmount(fromToken.balanceFormatted);
+      // Use balanceFormatted for display, but we'll cap the conversion at actual balance
+      // Convert raw balance to human-readable format for display
+      const balanceNum = parseFloat(fromToken.balance);
+      if (balanceNum > 0) {
+        // Use formatted balance but ensure it doesn't exceed actual balance
+        const formatted = balanceNum.toFixed(Math.min(fromToken.decimals, 8));
+        setFromAmount(formatted);
+      } else {
+        setFromAmount('0');
+      }
     }
   };
 

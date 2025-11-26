@@ -252,6 +252,7 @@ export const cdpWalletSwap: Action = {
         } as ActionResult & { input: {} };
       }
       const accountName = walletResult.metadata?.accountName as string;
+      const walletAddress = walletResult.walletAddress;
       if (!accountName) {
         const errorMsg = "Could not find account name for wallet";
         logger.error(`[USER_WALLET_SWAP] ${errorMsg}`);
@@ -267,7 +268,7 @@ export const cdpWalletSwap: Action = {
         });
         return errorResult;
       }
-      logger.debug("[USER_WALLET_SWAP] Entity wallet verified successfully");
+      logger.debug(`[USER_WALLET_SWAP] Entity wallet verified successfully. Account: ${accountName}, Address: ${walletAddress || 'not provided'}`);
 
       // Read parameters from state (extracted by multiStepDecisionTemplate)
       const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
@@ -449,62 +450,141 @@ export const cdpWalletSwap: Action = {
       const decimals = await getTokenDecimals(fromToken, swapParams.network);
       logger.debug(`[USER_WALLET_SWAP] Token decimals: ${decimals}`);
 
+      // Helper functions for unit conversion
+      const parseUnits = (value: string, decimals: number): bigint => {
+        const [integer, fractional = ""] = value.split(".");
+        const paddedFractional = fractional.padEnd(decimals, "0").slice(0, decimals);
+        return BigInt(integer + paddedFractional);
+      };
+      
+      const formatUnits = (value: bigint, decimals: number): string => {
+        const divisor = BigInt(10 ** decimals);
+        const quotient = value / divisor;
+        const remainder = value % divisor;
+        if (remainder === BigInt(0)) {
+          return quotient.toString();
+        }
+        const remainderStr = remainder.toString().padStart(decimals, '0');
+        const trimmedRemainder = remainderStr.replace(/0+$/, '');
+        return `${quotient}.${trimmedRemainder}`;
+      };
+
       // Determine the amount to swap (either specific amount or percentage of balance)
       let amountToSwap: string;
+      let amountInWei: bigint;
       let volumeUsd = 0;
       
       if (swapParams.percentage !== undefined) {
         // Percentage-based swap - fetch wallet info to get token balance
         logger.info(`Percentage-based swap: ${swapParams.percentage}% of ${swapParams.fromToken}`);
         
-        const walletInfo = await cdpService.getWalletInfoCached(accountName);
-        
-        // Find the token in wallet (matching both symbol and address)
-        const walletToken = walletInfo.tokens.find((t) => {
-          // Check if token matches by address
-          if (t.contractAddress && fromToken.startsWith("0x")) {
-            return t.contractAddress.toLowerCase() === fromToken.toLowerCase();
+        // For 100% swaps, fetch actual on-chain balance to avoid rounding errors
+        if (swapParams.percentage >= 100) {
+          logger.info(`[USER_WALLET_SWAP] 100% swap detected - fetching actual on-chain balance for accuracy`);
+          
+          // Get actual on-chain balance directly from blockchain
+          const onChainBalance = await cdpService.getOnChainBalance({
+            accountName,
+            network: swapParams.network,
+            tokenAddress: fromToken as `0x${string}`,
+            walletAddress: walletAddress as `0x${string}` | undefined,
+          });
+
+          if (onChainBalance === BigInt(0)) {
+            logger.error(`Zero on-chain balance for token ${swapParams.fromToken}`);
+            throw new Error(`You have zero balance for ${swapParams.fromToken.toUpperCase()}. Cannot swap.`);
           }
-          // Check if token matches by symbol
-          return t.symbol.toLowerCase() === swapParams.fromToken.toLowerCase() && 
-                 t.chain === swapParams.network;
-        });
 
-        if (!walletToken) {
-          logger.error(`Token ${swapParams.fromToken} not found in wallet on ${swapParams.network}`);
-          throw new Error(`You don't have any ${swapParams.fromToken.toUpperCase()} in your wallet on ${swapParams.network}.`);
-        }
+          // For 100% swaps, use the actual on-chain balance
+          // Leave a small buffer (0.1%) to account for any potential gas/fee requirements
+          // This prevents "insufficient balance" errors due to rounding
+          const bufferBps = BigInt(10); // 0.1% buffer
+          amountInWei = (onChainBalance * (BigInt(10000) - bufferBps)) / BigInt(10000);
+          
+          // Ensure we don't exceed the actual balance
+          if (amountInWei > onChainBalance) {
+            amountInWei = onChainBalance;
+          }
 
-        const tokenBalance = parseFloat(walletToken.balance);
-        if (tokenBalance <= 0) {
-          logger.error(`Zero balance for token ${swapParams.fromToken}: ${tokenBalance}`);
-          throw new Error(`You have zero balance for ${swapParams.fromToken.toUpperCase()}. Cannot swap.`);
-        }
+          // Get token decimals for formatting
+          const tokenDecimals = await getTokenDecimals(fromToken, swapParams.network);
+          amountToSwap = formatUnits(amountInWei, tokenDecimals);
+          
+          // Get wallet info for USD value calculation
+          const walletInfo = await cdpService.getWalletInfoCached(accountName, swapParams.network, walletAddress);
+          const walletToken = walletInfo.tokens.find((t) => {
+            if (t.contractAddress && fromToken.startsWith("0x")) {
+              return t.contractAddress.toLowerCase() === fromToken.toLowerCase();
+            }
+            return t.symbol.toLowerCase() === swapParams.fromToken.toLowerCase() && 
+                   t.chain === swapParams.network;
+          });
+          
+          if (walletToken && walletToken.usdValue) {
+            const tokenBalanceNum = parseFloat(walletToken.balance);
+            if (tokenBalanceNum > 0) {
+              const calculatedAmountNum = parseFloat(amountToSwap);
+              volumeUsd = (calculatedAmountNum / tokenBalanceNum) * walletToken.usdValue;
+            }
+          }
+          
+          logger.info(`[USER_WALLET_SWAP] Using on-chain balance for 100% swap: ${amountToSwap} ${swapParams.fromToken} (on-chain: ${onChainBalance.toString()}, using: ${amountInWei.toString()})`);
+        } else {
+          // For non-100% swaps, use cached wallet info (more efficient)
+          const walletInfo = await cdpService.getWalletInfoCached(accountName, swapParams.network, walletAddress);
+          
+          // Find the token in wallet (matching both symbol and address)
+          const walletToken = walletInfo.tokens.find((t) => {
+            // Check if token matches by address
+            if (t.contractAddress && fromToken.startsWith("0x")) {
+              return t.contractAddress.toLowerCase() === fromToken.toLowerCase();
+            }
+            // Check if token matches by symbol
+            return t.symbol.toLowerCase() === swapParams.fromToken.toLowerCase() && 
+                   t.chain === swapParams.network;
+          });
 
-        // Calculate amount based on percentage
-        const calculatedAmount = (tokenBalance * swapParams.percentage) / 100;
-        amountToSwap = calculatedAmount.toString();
-        
-        // Calculate USD value from already-fetched wallet token data (no extra fetch)
-        if (walletToken.usdValue && tokenBalance > 0) {
-          volumeUsd = (calculatedAmount / tokenBalance) * walletToken.usdValue;
+          if (!walletToken) {
+            logger.error(`Token ${swapParams.fromToken} not found in wallet on ${swapParams.network}`);
+            throw new Error(`You don't have any ${swapParams.fromToken.toUpperCase()} in your wallet on ${swapParams.network}.`);
+          }
+
+          const tokenBalance = parseFloat(walletToken.balance);
+          if (tokenBalance <= 0) {
+            logger.error(`Zero balance for token ${swapParams.fromToken}: ${tokenBalance}`);
+            throw new Error(`You have zero balance for ${swapParams.fromToken.toUpperCase()}. Cannot swap.`);
+          }
+
+          // Get actual balance in base units (wei) to avoid floating point rounding errors
+          const balanceInBaseUnits = parseUnits(walletToken.balance, walletToken.decimals);
+          
+          // Calculate percentage: (balance * percentage) / 100
+          // Use BigInt arithmetic to avoid rounding errors
+          amountInWei = (balanceInBaseUnits * BigInt(Math.floor(swapParams.percentage * 100))) / BigInt(10000);
+          
+          // Cap at actual balance to prevent exceeding balance due to any rounding
+          if (amountInWei > balanceInBaseUnits) {
+            logger.warn(`[USER_WALLET_SWAP] Calculated amount ${amountInWei.toString()} exceeds balance ${balanceInBaseUnits.toString()}, capping to balance`);
+            amountInWei = balanceInBaseUnits;
+          }
+          
+          // Convert to human-readable format for display
+          amountToSwap = formatUnits(amountInWei, walletToken.decimals);
+          
+          // Calculate USD value from already-fetched wallet token data (no extra fetch)
+          if (walletToken.usdValue && tokenBalance > 0) {
+            const calculatedAmountNum = parseFloat(amountToSwap);
+            volumeUsd = (calculatedAmountNum / tokenBalance) * walletToken.usdValue;
+          }
+          
+          logger.info(`Calculated amount from ${swapParams.percentage}%: ${amountToSwap} ${swapParams.fromToken} (from balance: ${tokenBalance}, base units: ${balanceInBaseUnits.toString()}, calculated: ${amountInWei.toString()})`);
         }
-        
-        logger.info(`Calculated amount from ${swapParams.percentage}%: ${amountToSwap} ${swapParams.fromToken} (from balance: ${tokenBalance})`);
       } else {
-        // Specific amount provided - skip USD calculation to avoid blocking
+        // Specific amount provided - parse to wei
         amountToSwap = swapParams.amount!;
+        amountInWei = parseUnits(amountToSwap, decimals);
         logger.info(`Using specific amount: ${amountToSwap} ${swapParams.fromToken}`);
       }
-
-      // Parse amount to wei using correct decimals
-      const parseUnits = (value: string, decimals: number): bigint => {
-        const [integer, fractional = ""] = value.split(".");
-        const paddedFractional = fractional.padEnd(decimals, "0").slice(0, decimals);
-        return BigInt(integer + paddedFractional);
-      };
-
-      const amountInWei = parseUnits(amountToSwap, decimals);
       logger.debug(`Amount in wei: ${amountInWei.toString()}`);
 
       logger.info(`[USER_WALLET_SWAP] Executing CDP swap: network=${swapParams.network}, fromToken=${fromToken}, toToken=${toToken}, amount=${amountToSwap}, slippageBps=${swapParams.slippageBps}`);

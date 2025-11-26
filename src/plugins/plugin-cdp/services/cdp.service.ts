@@ -84,13 +84,14 @@ export class CdpService extends Service {
    * @param accountName User's account identifier
    * @param chain Optional specific chain to fetch (if not provided, fetches all chains)
    */
-  async getWalletInfoCached(accountName: string, chain?: string): Promise<WalletInfo> {
-    logger.info(`[CDP Service] Getting wallet info for ${accountName}${chain ? ` (chain: ${chain})` : ' (all chains)'}`);
+  async getWalletInfoCached(accountName: string, chain?: string, address?: string): Promise<WalletInfo> {
+    logger.info(`[CDP Service] Getting wallet info for ${accountName}${chain ? ` (chain: ${chain})` : ' (all chains)'}${address ? ` (address: ${address.substring(0, 10)}...)` : ''}`);
 
     // Use manager's cache (5-minute TTL)
+    // Pass address if available to avoid CDP account lookup
     const [tokensResult, nftsResult] = await Promise.all([
-      this.transactionManager.getTokenBalances(accountName, chain, false), // use cache
-      this.transactionManager.getNFTs(accountName, chain, false), // use cache
+      this.transactionManager.getTokenBalances(accountName, chain, false, address), // use cache, pass address
+      this.transactionManager.getNFTs(accountName, chain, false, address), // use cache, pass address
     ]);
 
     return {
@@ -252,5 +253,32 @@ export class CdpService extends Service {
       transactionHash: result.transactionHash,
       from: result.from,
     };
+  }
+
+  /**
+   * Get actual on-chain token balance for a specific token
+   * This fetches the real-time balance directly from the blockchain
+   * Use this for 100% swaps to ensure we use the exact on-chain balance
+   * @param accountName User's account identifier
+   * @param network Network to check balance on
+   * @param tokenAddress Token contract address (or native token address)
+   * @param walletAddress Optional wallet address to avoid CDP account lookup
+   */
+  async getOnChainBalance(params: {
+    accountName: string;
+    network: CdpNetwork;
+    tokenAddress: `0x${string}`;
+    walletAddress?: string;
+  }): Promise<bigint> {
+    const { accountName, network, tokenAddress, walletAddress } = params;
+
+    logger.info(`[CDP Service] Getting on-chain balance for token ${tokenAddress} on ${network} for ${accountName}`);
+
+    return this.transactionManager.getOnChainTokenBalance({
+      userId: accountName,
+      network,
+      tokenAddress,
+      walletAddress,
+    });
   }
 }
