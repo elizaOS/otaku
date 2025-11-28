@@ -21,6 +21,7 @@ import { MessageSquare, Info } from 'lucide-react';
 import { resolveCdpUserInfo, type CdpUser } from '@/lib/cdpUser';
 import { UUID } from '@elizaos/core';
 import { AboutModalContent } from '@/components/about/about-modal-content';
+import { getRandomAvatar } from '@/lib/utils';
 
 /**
  * Authenticate with backend and get JWT token
@@ -245,12 +246,13 @@ function App() {
               console.log(' Applying referral code to new user:', referralCode);
             }
 
+            const randomAvatar = getRandomAvatar();
             entity = await elizaClient.entities.createEntity({
               id: userId as UUID,
               agentId: agentId as UUID,
               names: [finalUsername],
               metadata: {
-                avatarUrl: '/avatars/user_krimson.png',
+                avatarUrl: randomAvatar,
                 email: finalEmail,
                 phoneNumber,
                 walletAddress,
@@ -263,7 +265,7 @@ function App() {
             
             // Set user profile state
             setUserProfile({
-              avatarUrl: entity.metadata?.avatarUrl || '/avatars/user_krimson.png',
+              avatarUrl: entity.metadata?.avatarUrl || randomAvatar,
               displayName: entity.metadata?.displayName || finalUsername,
               bio: entity.metadata?.bio || 'DeFi Enthusiast • Blockchain Explorer',
               email: entity.metadata?.email || finalEmail,
@@ -290,10 +292,12 @@ function App() {
 
         if (needsUpdate) {
           console.log(' Updating user entity metadata...');
+          // If user doesn't have an avatar, assign a random one
+          const avatarUrl = entity.metadata?.avatarUrl || getRandomAvatar();
           const updated = await elizaClient.entities.updateEntity(userId as UUID, {
             metadata: {
               ...entity.metadata,
-              avatarUrl: entity.metadata?.avatarUrl || '/avatars/user_krimson.png',
+              avatarUrl,
               email: finalEmail || entity.metadata?.email || '',
               phoneNumber: phoneNumber || entity.metadata?.phoneNumber || undefined,
               walletAddress: walletAddress || entity.metadata?.walletAddress || '',
@@ -310,7 +314,7 @@ function App() {
         
         // Set user profile state from entity
         setUserProfile({
-          avatarUrl: entity.metadata?.avatarUrl || '/avatars/user_krimson.png',
+          avatarUrl: entity.metadata?.avatarUrl || getRandomAvatar(),
           displayName: entity.metadata?.displayName || finalUsername || 'User',
           bio: entity.metadata?.bio || 'DeFi Enthusiast • Blockchain Explorer',
           email: finalEmail || '',
