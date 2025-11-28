@@ -51,20 +51,52 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
     retry: 1, // Only retry once
   });
 
+  // Available default avatars for randomization
+  const defaultAvatars = [
+    '/avatars/user_joyboy.png',
+    '/avatars/user_krimson.png',
+    '/avatars/user_mati.png',
+    '/avatars/user_pek.png',
+  ];
+
+  // Simple hash function to deterministically select avatar based on userId
+  const getRandomAvatar = (userId: string): string => {
+    // Use userId as seed for deterministic randomization
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) {
+      const char = userId.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    const index = Math.abs(hash) % defaultAvatars.length;
+    return defaultAvatars[index];
+  };
+
+  // Check if avatar is the default krimson avatar (early users have this)
+  const isKrimsonAvatar = (avatar: string | undefined): boolean => {
+    if (!avatar) return false;
+    return avatar.includes('user_krimson.png') || avatar.includes('user_krimson');
+  };
+
   // Transform leaderboard entries to RebelRanking format
+  // API already limits to 50 entries
   const rebels: RebelRanking[] = (leaderboardData?.entries || []).map((entry: LeaderboardEntry, index: number) => {
-    const username = entry.username || `User ${entry.userId.substring(0, 8)}`;
-    return {
-      id: entry.rank,
-      name: username,
-      handle: username.toUpperCase(), // Use uppercase username as handle
-      streak: '', // Could add streak info if available
-      points: entry.points,
-      avatar: entry.avatar || `/avatars/user_krimson.png`, // Use avatar from entity, fallback to default
-      featured: index < 3, // Top 3 are featured
-      subtitle: undefined, // Removed redundant rank and level name subtitle
-    };
-  });
+      const username = entry.username || `User ${entry.userId.substring(0, 8)}`;
+      // Randomize if no avatar or if avatar is the default krimson avatar
+      const avatar = (!entry.avatar || isKrimsonAvatar(entry.avatar)) 
+        ? getRandomAvatar(entry.userId)
+        : entry.avatar;
+      return {
+        id: entry.rank,
+        name: username,
+        handle: username.toUpperCase(), // Use uppercase username as handle
+        streak: '', // Could add streak info if available
+        points: entry.points,
+        avatar, // Use randomized avatar if missing or if it's the default krimson avatar
+        featured: index < 3, // Top 3 are featured
+        subtitle: undefined, // Removed redundant rank and level name subtitle
+      };
+    });
 
   const handleRefresh = () => {
     refetch();
@@ -95,6 +127,20 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
     }
   };
 
+  // Calculate if we need to account for "Your Rank" card and referral card in height
+  const hasUserRank = leaderboardData?.userRank != null && leaderboardData.userRank > 0;
+  const hasReferralCard = !!userId;
+  
+  // Calculate max-height for leaderboard: viewport height minus header, tabs, user rank card, referral card, and spacing
+  // Approximate heights: header ~80px, tabs ~60px, user rank ~100px, referral ~200px, spacing ~100px
+  const leaderboardMaxHeight = hasUserRank && hasReferralCard 
+    ? 'calc(100vh - 540px)' // Account for all elements
+    : hasUserRank 
+    ? 'calc(100vh - 340px)' // Account for user rank only
+    : hasReferralCard
+    ? 'calc(100vh - 440px)' // Account for referral only
+    : 'calc(100vh - 240px)'; // Just header and tabs
+
   return (
     <DashboardPageLayout
       header={{
@@ -102,10 +148,10 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
         description: scope === 'weekly' ? 'Weekly Sprint Rankings' : 'All-Time Rankings',
       }}
     >
-      <div className="space-y-6">
+      <div className="flex flex-col h-full">
         {/* Scope Tabs */}
-        <Tabs value={scope} onValueChange={(value) => setScope(value as 'weekly' | 'all_time')}>
-          <div className="flex items-center justify-between">
+        <Tabs value={scope} onValueChange={(value) => setScope(value as 'weekly' | 'all_time')} className="flex flex-col flex-1 min-h-0">
+          <div className="flex items-center justify-between flex-shrink-0">
             <TabsList>
               <TabsTrigger value="weekly">Weekly</TabsTrigger>
               <TabsTrigger value="all_time">All-Time</TabsTrigger>
@@ -121,7 +167,7 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
             </Button>
           </div>
 
-          <TabsContent value="weekly" className="mt-6">
+          <TabsContent value="weekly" className="mt-6 flex-1 min-h-0 flex flex-col">
             {error && !isLoading ? (
               <DashboardCard title="WEEKLY LEADERBOARD">
                 <div className="text-center py-12">
@@ -152,7 +198,7 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
                 </div>
               </DashboardCard>
             ) : rebels.length > 0 ? (
-              <RebelsRanking rebels={rebels} />
+              <RebelsRanking rebels={rebels} maxHeight={leaderboardMaxHeight} />
             ) : (
               <DashboardCard title="WEEKLY LEADERBOARD">
                 <div className="text-center py-12">
@@ -166,7 +212,7 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
             )}
           </TabsContent>
 
-          <TabsContent value="all_time" className="mt-6">
+          <TabsContent value="all_time" className="mt-6 flex-1 min-h-0 flex flex-col">
             {error && !isLoading ? (
               <DashboardCard title="ALL-TIME LEADERBOARD">
                 <div className="text-center py-12">
@@ -197,7 +243,7 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
                 </div>
               </DashboardCard>
             ) : rebels.length > 0 ? (
-              <RebelsRanking rebels={rebels} />
+              <RebelsRanking rebels={rebels} maxHeight={leaderboardMaxHeight} />
             ) : (
               <DashboardCard title="ALL-TIME LEADERBOARD">
                 <div className="text-center py-12">
@@ -213,20 +259,22 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
         </Tabs>
 
         {/* User Rank Card */}
-        {leaderboardData?.userRank != null && leaderboardData.userRank > 0 && (
-          <DashboardCard title="Your Rank">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-3xl font-bold font-mono">#{leaderboardData.userRank}</div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {scope === 'weekly' ? 'Weekly Ranking' : 'All-Time Ranking'}
+        {hasUserRank && (
+          <div className="mt-6 mb-4 flex-shrink-0">
+            <DashboardCard title="Your Rank">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-3xl font-bold font-mono">#{leaderboardData.userRank}</div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    {scope === 'weekly' ? 'Weekly Ranking' : 'All-Time Ranking'}
+                  </div>
                 </div>
+                <Badge variant="default" className="text-lg px-4 py-2">
+                  {leaderboardData.entries.find((e: LeaderboardEntry) => e.userId === userId)?.points.toLocaleString() || 0} POINTS
+                </Badge>
               </div>
-              <Badge variant="default" className="text-lg px-4 py-2">
-                {leaderboardData.entries.find((e: LeaderboardEntry) => e.userId === userId)?.points.toLocaleString() || 0} POINTS
-              </Badge>
-            </div>
-          </DashboardCard>
+            </DashboardCard>
+          </div>
         )}
 
         {/* Referral Link Card */}

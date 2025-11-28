@@ -23,6 +23,32 @@ import { UUID } from '@elizaos/core';
 import { AboutModalContent } from '@/components/about/about-modal-content';
 import { getRandomAvatar } from '@/lib/utils';
 
+// Available default avatars for deterministic randomization
+const DEFAULT_AVATARS = [
+  '/avatars/user_joyboy.png',
+  '/avatars/user_krimson.png',
+  '/avatars/user_mati.png',
+  '/avatars/user_pek.png',
+];
+
+// Check if avatar is the default krimson avatar (early users have this)
+const isKrimsonAvatar = (avatar: string | undefined): boolean => {
+  if (!avatar) return false;
+  return avatar.includes('user_krimson.png') || avatar.includes('user_krimson');
+};
+
+// Deterministic avatar selection based on userId (same user always gets same avatar)
+const getDeterministicAvatar = (userId: string): string => {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    const char = userId.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  const index = Math.abs(hash) % DEFAULT_AVATARS.length;
+  return DEFAULT_AVATARS[index];
+};
+
 /**
  * Authenticate with backend and get JWT token
  * Uses CDP's userId as the primary identifier
@@ -94,10 +120,18 @@ function App() {
     const path = location.pathname;
     if (path === '/account') return 'account';
     if (path === '/leaderboard') return 'leaderboard';
-    return 'chat'; // Default to chat for '/' or any other path
+    if (path === '/chat' || path === '/') return 'chat'; // Chat mode at /chat or /
+    return 'chat'; // Default to chat for any other path
   };
   
   const currentView = getCurrentView();
+  
+  // Redirect root path to /chat when logged in
+  useEffect(() => {
+    if (isSignedIn && location.pathname === '/') {
+      navigate('/chat', { replace: true });
+    }
+  }, [isSignedIn, location.pathname, navigate]);
   
   // Ref to access wallet's refresh functions
   const walletRef = useRef<CDPWalletCardRef>(null);
@@ -279,9 +313,13 @@ function App() {
           throw error;
         }
 
+        // Check if avatar needs randomization (missing or is krimson.png)
+        const currentAvatar = entity.metadata?.avatarUrl;
+        const shouldRandomizeAvatar = !currentAvatar || isKrimsonAvatar(currentAvatar);
+        
         // Entity exists, check if metadata needs updating
         const needsUpdate = 
-          !entity.metadata?.avatarUrl ||
+          shouldRandomizeAvatar ||
           !entity.metadata?.email ||
           !entity.metadata?.walletAddress ||
           !entity.metadata?.bio ||
@@ -292,8 +330,15 @@ function App() {
 
         if (needsUpdate) {
           console.log(' Updating user entity metadata...');
-          // If user doesn't have an avatar, assign a random one
-          const avatarUrl = entity.metadata?.avatarUrl || getRandomAvatar();
+          // If user doesn't have an avatar or has krimson.png, assign a deterministic random one
+          const avatarUrl = shouldRandomizeAvatar 
+            ? getDeterministicAvatar(userId)
+            : (entity.metadata?.avatarUrl || getRandomAvatar());
+          
+          if (shouldRandomizeAvatar) {
+            console.log(` Randomizing avatar for user (was: ${currentAvatar || 'none'}, now: ${avatarUrl})`);
+          }
+          
           const updated = await elizaClient.entities.updateEntity(userId as UUID, {
             metadata: {
               ...entity.metadata,
@@ -672,18 +717,18 @@ function AppContent({
 
   const onNewChat = () => {
     handleNewChat();
-    navigate('/');
+    navigate('/chat');
     setOpenMobile(false);
   };
 
   const onChannelSelect = (id: string) => {
     handleChannelSelect(id);
-    navigate('/');
+    navigate('/chat');
     setOpenMobile(false);
   };
   
   const onChatClick = () => {
-    navigate('/');
+    navigate('/chat');
     setOpenMobile(false);
   };
   
@@ -698,7 +743,7 @@ function AppContent({
   };
   
   const onHomeClick = () => {
-    navigate('/');
+    navigate('/chat');
     setOpenMobile(false);
   };
 
@@ -710,7 +755,7 @@ function AppContent({
       )}
       
       {/* Mobile Header */}
-      <MobileHeader onHomeClick={() => navigate('/')} />
+      <MobileHeader onHomeClick={() => navigate('/chat')} />
 
       {/* Desktop Layout - 3 columns */}
       <div className="w-full min-h-[100dvh] h-[100dvh] lg:min-h-screen lg:h-screen grid grid-cols-1 lg:grid-cols-12 gap-gap lg:px-sides">

@@ -5,15 +5,16 @@ import { cn } from "@/lib/utils";
 
 interface RebelsRankingProps {
   rebels: RebelRanking[];
+  maxHeight?: string;
 }
 
-export default function RebelsRanking({ rebels }: RebelsRankingProps) {
+export default function RebelsRanking({ rebels, maxHeight = '65vh' }: RebelsRankingProps) {
   return (
     <DashboardCard
       title="Leaderboard"
       intent="default"
     >
-      <div className="space-y-4">
+      <div className="space-y-4 overflow-y-auto pr-2" style={{ maxHeight }}>
         {rebels.map((rebel) => (
           <div key={rebel.id} className="flex items-center w-full">
             <div className="flex items-center gap-1 w-full">
