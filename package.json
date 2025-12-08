@@ -32,7 +32,7 @@
     "@coinbase/x402": "^0.7.1",
     "@elizaos/api-client": "workspace:*",
     "@elizaos/cli": "latest",
-    "@elizaos/core": "alpha",
+    "@elizaos/core": "1.6.5-alpha.17",
     "@elizaos/plugin-analytics": "^1.0.1",
     "@elizaos/plugin-anthropic": "^1.0.6",
     "@elizaos/plugin-bootstrap": "workspace:*",
