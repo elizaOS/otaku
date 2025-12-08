@@ -93,7 +93,6 @@ async function build() {
             '@elizaos/core',
             '@elizaos/plugin-bootstrap',
             '@elizaos/plugin-sql',
-            '@elizaos/cli',
             '@elizaos/server',
             'zod',
           ],
