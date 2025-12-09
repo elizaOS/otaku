@@ -372,7 +372,8 @@ export const cdpWalletTokenTransfer: Action = {
       );
 
       // Get user's wallet info to find the token (use cached data if available)
-      const walletInfo = await cdpService.getWalletInfoCached(accountName);
+      // Pass wallet address to avoid CDP account lookup (prevents "account not initialized" errors)
+      const walletInfo = await cdpService.getWalletInfoCached(accountName, undefined, walletResult.walletAddress);
 
       const resolvedNetwork = transferParams.network;
       let tokenAddress: string;

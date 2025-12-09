@@ -235,7 +235,8 @@ export const cdpWalletCheckBalance: Action = {
         `[CHECK_TOKEN_BALANCE] Checking balance for ${logToken}${chainInfo} (account: ${accountName})`,
       );
       
-      const walletInfo = await cdpService.fetchWalletInfo(accountName, chain);
+      // Pass wallet address to avoid CDP account lookup (prevents "account not initialized" errors)
+      const walletInfo = await cdpService.fetchWalletInfo(accountName, chain, wallet.walletAddress);
 
       // Find the token in wallet
       let matchedToken: typeof walletInfo.tokens[number] | undefined;

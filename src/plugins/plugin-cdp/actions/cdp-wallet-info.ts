@@ -196,7 +196,8 @@ export const cdpWalletInfo: Action = {
       logger.info(`[USER_WALLET_INFO] Fetching fresh wallet info for account: ${accountName}${chainInfo}`);
       callback?.({ text: ` Fetching your wallet information${chainInfo}...` });
 
-      const walletInfo = await cdpService.fetchWalletInfo(accountName, chain);
+      // Pass wallet address to avoid CDP account lookup (prevents "account not initialized" errors)
+      const walletInfo = await cdpService.fetchWalletInfo(accountName, chain, wallet.walletAddress);
 
       logger.info(`[USER_WALLET_INFO] Successfully fetched wallet info: ${walletInfo.tokens.length} tokens, ${walletInfo.nfts.length} NFTs, $${walletInfo.totalUsdValue.toFixed(2)} total value${chainInfo}`);
 

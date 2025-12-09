@@ -81,19 +81,11 @@ export function createAgentCrudRouter(
       }
 
       const runtime = elizaOS.getAgent(agentId);
-      // Sanitize sensitive fields before returning publicly
-      const { settings, ...rest } = agent as any;
-      const safeSettings = settings
-        ? {
-            ...settings,
-            // Never expose secrets
-            secrets: undefined,
-          }
-        : undefined;
+      // Remove ALL settings to prevent exposure of secrets and API keys
+      const { settings, ...safeAgent } = agent as any;
 
       const response = {
-        ...rest,
-        ...(safeSettings ? { settings: safeSettings } : {}),
+        ...safeAgent,
         status: runtime ? 'active' : 'inactive',
       };
 
@@ -166,11 +158,14 @@ export function createAgentCrudRouter(
         throw new Error(`Failed to create agent ${character.name}`);
       }
 
+      // Remove settings from response to prevent exposure of secrets
+      const { settings, ...safeCharacter } = character as any;
+
       res.status(201).json({
         success: true,
         data: {
           id: newAgent.id,
-          character: character,
+          character: safeCharacter,
         },
       });
       logger.success(`[AGENT CREATE] Successfully created agent: ${character.name}`);
@@ -306,7 +301,10 @@ export function createAgentCrudRouter(
       const runtime = elizaOS.getAgent(agentId);
       const status = runtime ? 'active' : 'inactive';
 
-      sendSuccess(res, { ...updatedAgent, status });
+      // Remove settings from response to prevent exposure of secrets
+      const { settings, ...safeAgent } = updatedAgent as any;
+
+      sendSuccess(res, { ...safeAgent, status });
     } catch (error) {
       logger.error(
         '[AGENT UPDATE] Error updating agent:',

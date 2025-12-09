@@ -265,7 +265,8 @@ export const cdpWalletNftTransfer: Action = {
 
       // Verify the user owns this NFT
       logger.info(`[USER_WALLET_NFT_TRANSFER] Verifying NFT ownership in wallet`);
-      const walletInfo = await cdpService.getWalletInfoCached(accountName);
+      // Pass wallet address to avoid CDP account lookup (prevents "account not initialized" errors)
+      const walletInfo = await cdpService.getWalletInfoCached(accountName, undefined, walletResult.walletAddress);
       
       const nftInWallet = walletInfo.nfts.find(
         nft => nft.contractAddress.toLowerCase() === transferParams.contractAddress.toLowerCase() &&

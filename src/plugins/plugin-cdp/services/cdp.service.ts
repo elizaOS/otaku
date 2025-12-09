@@ -108,14 +108,16 @@ export class CdpService extends Service {
    * Delegates to transaction manager with forceSync=true
    * @param accountName User's account identifier
    * @param chain Optional specific chain to fetch (if not provided, fetches all chains)
+   * @param address Optional wallet address to avoid CDP account lookup
    */
-  async fetchWalletInfo(accountName: string, chain?: string): Promise<WalletInfo> {
-    logger.info(`[CDP Service] Force fetching wallet info for ${accountName}${chain ? ` on chain: ${chain}` : ' (all chains)'}`);
+  async fetchWalletInfo(accountName: string, chain?: string, address?: string): Promise<WalletInfo> {
+    logger.info(`[CDP Service] Force fetching wallet info for ${accountName}${chain ? ` on chain: ${chain}` : ' (all chains)'}${address ? ` (address: ${address.substring(0, 10)}...)` : ''}`);
 
     // Force sync - bypass manager's cache
+    // Pass address if available to avoid CDP account lookup
     const [tokensResult, nftsResult] = await Promise.all([
-      this.transactionManager.getTokenBalances(accountName, chain, false),
-      this.transactionManager.getNFTs(accountName, chain, false),
+      this.transactionManager.getTokenBalances(accountName, chain, false, address),
+      this.transactionManager.getNFTs(accountName, chain, false, address),
     ]);
 
     return {

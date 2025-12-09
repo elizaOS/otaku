@@ -362,7 +362,8 @@ export const relayBridgeAction: Action = {
         let volumeUsd = 0;
         try {
           // Get user's wallet info to calculate USD value
-          const walletInfo = await cdp.getWalletInfoCached(accountName);
+          // Pass wallet address to avoid CDP account lookup (prevents "account not initialized" errors)
+          const walletInfo = await cdp.getWalletInfoCached(accountName, undefined, wallet.walletAddress);
           
           // Find the token in wallet to get price/value
           const walletToken = walletInfo.tokens.find(t => {
