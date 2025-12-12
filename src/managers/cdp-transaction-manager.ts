@@ -125,12 +125,15 @@ export class CdpTransactionManager {
   private cdpClient: CdpClient | null = null;
   private tokensCache = new Map<string, CacheEntry<any>>();
   private nftsCache = new Map<string, CacheEntry<any>>();
-  private iconCache = new Map<string, string | null>(); // Global icon cache: contractAddress -> iconUrl (null = no icon)
+  private iconCache = new Map<string, CacheEntry<string | null>>(); // Global icon cache: contractAddress -> iconUrl (null = no icon)
   private readonly CACHE_TTL = 300 * 1000; // 5 minutes
+  private readonly ICON_CACHE_TTL = 3600 * 1000; // 1 hour
+  private cleanupInterval?: NodeJS.Timeout;
 
   // Private constructor to prevent direct instantiation
   private constructor() {
     this.initializeCdpClient();
+    this.startCacheCleanup();
   }
 
   /**
@@ -193,10 +196,16 @@ export class CdpTransactionManager {
       return null;
     }
     const key = contractAddress.toLowerCase();
-    if (!this.iconCache.has(key)) {
+    const cached = this.iconCache.get(key);
+    if (!cached) {
       return undefined; // Not in cache yet
     }
-    return this.iconCache.get(key) || null; // Return cached value (could be null)
+    // Check if expired
+    if (Date.now() - cached.timestamp > this.ICON_CACHE_TTL) {
+      this.iconCache.delete(key);
+      return undefined;
+    }
+    return cached.data;
   }
 
   /**
@@ -208,7 +217,10 @@ export class CdpTransactionManager {
       return;
     }
     // Store even if icon is null/undefined to prevent refetching
-    this.iconCache.set(contractAddress.toLowerCase(), icon || null);
+    this.iconCache.set(contractAddress.toLowerCase(), {
+      data: icon || null,
+      timestamp: Date.now(),
+    });
   }
 
   /**
@@ -244,6 +256,76 @@ export class CdpTransactionManager {
   }
 
   // ============================================================================
+  // Cache Management
+  // ============================================================================
+
+  /**
+   * Start periodic cache cleanup to prevent memory leaks
+   */
+  private startCacheCleanup(): void {
+    // Clean cache every 5 minutes
+    this.cleanupInterval = setInterval(() => {
+      this.cleanExpiredCache();
+    }, this.CACHE_TTL);
+
+    // Also clean on first start after 1 minute
+    setTimeout(() => {
+      this.cleanExpiredCache();
+    }, 60_000);
+  }
+
+  /**
+   * Clean expired entries from all caches
+   */
+  private cleanExpiredCache(): void {
+    const now = Date.now();
+    let tokensRemoved = 0;
+    let nftsRemoved = 0;
+    let iconsRemoved = 0;
+
+    // Clean tokens cache
+    for (const [key, entry] of this.tokensCache.entries()) {
+      if (now - entry.timestamp > this.CACHE_TTL) {
+        this.tokensCache.delete(key);
+        tokensRemoved++;
+      }
+    }
+
+    // Clean NFTs cache
+    for (const [key, entry] of this.nftsCache.entries()) {
+      if (now - entry.timestamp > this.CACHE_TTL) {
+        this.nftsCache.delete(key);
+        nftsRemoved++;
+      }
+    }
+
+    // Clean icon cache
+    for (const [key, entry] of this.iconCache.entries()) {
+      if (now - entry.timestamp > this.ICON_CACHE_TTL) {
+        this.iconCache.delete(key);
+        iconsRemoved++;
+      }
+    }
+
+    if (tokensRemoved > 0 || nftsRemoved > 0 || iconsRemoved > 0) {
+      logger.debug(
+        `[CdpTransactionManager] Cache cleanup: removed ${tokensRemoved} tokens, ${nftsRemoved} NFTs, ${iconsRemoved} icons. ` +
+        `Remaining: ${this.tokensCache.size} tokens, ${this.nftsCache.size} NFTs, ${this.iconCache.size} icons`
+      );
+    }
+  }
+
+  /**
+   * Stop cache cleanup interval (for cleanup/testing)
+   */
+  public stopCacheCleanup(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+  }
+
+  // ============================================================================
   // Wallet Operations
   // ============================================================================
 
@@ -259,6 +341,32 @@ export class CdpTransactionManager {
       address: account.address,
       accountName: userId,
     };
+  }
+
+  /**
+   * Get a public client for a given network
+   * Helper method to reduce code duplication
+   */
+  private async getPublicClient(network: string): Promise<PublicClient> {
+    const chain = getViemChain(network);
+    if (!chain) {
+      throw new Error(`Unsupported network: ${network}`);
+    }
+
+    const alchemyKey = process.env.ALCHEMY_API_KEY;
+    if (!alchemyKey) {
+      throw new Error('Alchemy API key not configured');
+    }
+
+    const rpcUrl = getRpcUrl(network, alchemyKey);
+    if (!rpcUrl) {
+      throw new Error(`Could not get RPC URL for network: ${network}`);
+    }
+
+    return createPublicClient({
+      chain,
+      transport: http(rpcUrl),
+    }) as PublicClient;
   }
 
   /**
@@ -1700,82 +1808,52 @@ export class CdpTransactionManager {
         );
         
         if (isNonceError) {
-          logger.info(`[CdpTransactionManager] Nonce issue detected, waiting for pending transactions...`);
+          logger.info(`[CdpTransactionManager] Nonce issue detected, attempting to resolve...`);
           try {
-            const chain = getViemChain(network);
-            if (chain) {
-              const alchemyKey = process.env.ALCHEMY_API_KEY;
-              if (alchemyKey) {
-                const rpcUrl = getRpcUrl(network, alchemyKey);
-                if (rpcUrl) {
-                  const publicClient = createPublicClient({
-                    chain,
-                    transport: http(rpcUrl),
-                  });
-                  
-                  const currentNonce = await publicClient.getTransactionCount({
-                    address: account.address as `0x${string}`,
-                  });
-                  
-                  // Wait up to 30 seconds for pending transactions to be mined
-                  const maxWait = 30_000;
-                  const checkInterval = 2_000;
-                  const startTime = Date.now();
-                  
-                  while (Date.now() - startTime < maxWait) {
-                    await new Promise(resolve => setTimeout(resolve, checkInterval));
-                    const newNonce = await publicClient.getTransactionCount({
-                      address: account.address as `0x${string}`,
-                      blockTag: 'pending',
-                    });
-                    
-                    if (newNonce > currentNonce) {
-                      break;
-                    }
-                  }
-                  
-                  // Wait for CDP SDK nonce cache to sync
-                  await new Promise(resolve => setTimeout(resolve, 5000));
-                  
-                  // Retry CDP SDK swap after nonce cleared
-                  try {
-                    const networkAccount = await account.useNetwork(network);
-                    const swapResult = await (networkAccount as any).swap({
-                      fromToken: normalizedFromToken as `0x${string}`,
-                      toToken: normalizedToToken as `0x${string}`,
-                      fromAmount: BigInt(fromAmount),
-                      slippageBps: slippageBps,
-                    });
+            // Wait for pending transactions to clear
+            await this.waitForNonceClear(account.address, network, 30_000);
+            
+            // Wait for CDP SDK nonce cache to sync with on-chain state
+            logger.info(`[CdpTransactionManager] Waiting 5 seconds for CDP SDK nonce cache to sync...`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            // Retry CDP SDK swap after nonce cleared
+            logger.info(`[CdpTransactionManager] Retrying CDP SDK swap after nonce resolution...`);
+            const networkAccount = await account.useNetwork(network);
+            const swapResult = await (networkAccount as any).swap({
+              fromToken: normalizedFromToken as `0x${string}`,
+              toToken: normalizedToToken as `0x${string}`,
+              fromAmount: BigInt(fromAmount),
+              slippageBps: slippageBps,
+            });
 
-                    transactionHash = swapResult.transactionHash;
-                    toAmount = swapResult.toAmount?.toString() || '0';
-                    method = 'cdp-sdk-retry';
-                    
-                    if (!transactionHash) {
-                      throw new Error('CDP SDK swap did not return a transaction hash');
-                    }
-                    
-                    logger.info(`[CdpTransactionManager] CDP SDK swap retry submitted: ${transactionHash}`);
-                    await this.waitForTransactionConfirmation(transactionHash, network, 'CDP SDK swap');
-                    
-                    return {
-                      transactionHash,
-                      from: account.address,
-                      fromToken,
-                      toToken,
-                      fromAmount: fromAmount.toString(),
-                      toAmount,
-                      network,
-                      method,
-                    };
-                  } catch (retryError) {
-                    logger.warn(`[CdpTransactionManager] CDP SDK swap retry failed, falling back to 0x API`);
-                  }
-                }
-              }
+            transactionHash = swapResult.transactionHash;
+            toAmount = swapResult.toAmount?.toString() || '0';
+            method = 'cdp-sdk-retry';
+            
+            if (!transactionHash) {
+              throw new Error('CDP SDK swap did not return a transaction hash');
             }
+            
+            logger.info(`[CdpTransactionManager] CDP SDK swap retry submitted: ${transactionHash}`);
+            await this.waitForTransactionConfirmation(transactionHash, network, 'CDP SDK swap');
+            
+            return {
+              transactionHash,
+              from: account.address,
+              fromToken,
+              toToken,
+              fromAmount: fromAmount.toString(),
+              toAmount,
+              network,
+              method,
+            };
           } catch (nonceError) {
-            logger.warn(`[CdpTransactionManager] Nonce handling failed, falling back to 0x API`);
+            logger.warn(
+              `[CdpTransactionManager] Nonce resolution failed, falling back to 0x API:`,
+              nonceError instanceof Error ? nonceError.message : String(nonceError)
+            );
+            // Continue to 0x API fallback
           }
         }
 
@@ -1964,6 +2042,68 @@ export class CdpTransactionManager {
   // ============================================================================
   // Private Helper Methods - Transaction Confirmation
   // ============================================================================
+
+  /**
+   * Wait for pending transactions to clear (nonce issue resolution)
+   * Compares pending vs latest nonce to detect stuck transactions
+   * @param address Wallet address
+   * @param network Network name
+   * @param timeout Maximum wait time in milliseconds (default 30s)
+   */
+  private async waitForNonceClear(
+    address: string,
+    network: string,
+    timeout: number = 30_000
+  ): Promise<void> {
+    logger.info(`[CdpTransactionManager] Checking for stuck transactions on ${network}...`);
+    
+    const publicClient = await this.getPublicClient(network);
+    
+    const latestNonce = await publicClient.getTransactionCount({
+      address: address as `0x${string}`,
+      blockTag: 'latest',
+    });
+    
+    const pendingNonce = await publicClient.getTransactionCount({
+      address: address as `0x${string}`,
+      blockTag: 'pending',
+    });
+    
+    // If pending === latest, no stuck transactions
+    if (pendingNonce === latestNonce) {
+      logger.info(`[CdpTransactionManager] No stuck transactions (nonce: ${latestNonce})`);
+      return;
+    }
+    
+    logger.info(`[CdpTransactionManager] Stuck transactions detected. Latest: ${latestNonce}, Pending: ${pendingNonce}`);
+    
+    // Wait for pending to catch up to latest
+    const interval = 2_000;
+    const startTime = Date.now();
+    
+    while (Date.now() - startTime < timeout) {
+      await new Promise(resolve => setTimeout(resolve, interval));
+      
+      const newPending = await publicClient.getTransactionCount({
+        address: address as `0x${string}`,
+        blockTag: 'pending',
+      });
+      
+      const newLatest = await publicClient.getTransactionCount({
+        address: address as `0x${string}`,
+        blockTag: 'latest',
+      });
+      
+      if (newPending === newLatest) {
+        logger.info(`[CdpTransactionManager] Nonce cleared: ${newLatest}`);
+        return;
+      }
+      
+      logger.debug(`[CdpTransactionManager] Still waiting for nonce to clear... Latest: ${newLatest}, Pending: ${newPending}`);
+    }
+    
+    throw new Error(`Timeout waiting for pending transactions to clear after ${timeout}ms`);
+  }
 
   /**
    * Wait for transaction receipt and verify it didn't revert
@@ -2672,12 +2812,27 @@ export class CdpTransactionManager {
   
     logger.info(`[CDP API] Executing 0x v2 swap transaction`);
     
-    // Double-check quote hasn't expired right before execution
+    // CRITICAL: Double-check quote hasn't expired right before execution
+    // This is the final check after approval which can take 15+ seconds
     if (quote.expirationTimeSeconds) {
       const expirationTime = BigInt(quote.expirationTimeSeconds) * 1000n;
       const currentTime = BigInt(Date.now());
-      if (expirationTime < currentTime) {
-        throw new Error('0x API quote expired during execution. Please retry the swap.');
+      const timeUntilExpiry = expirationTime - currentTime;
+      
+      if (timeUntilExpiry < 0n) {
+        throw new Error(
+          `0x API quote expired during execution (approval took too long). ` +
+          `Quote expired ${Math.abs(Number(timeUntilExpiry) / 1000)} seconds ago. ` +
+          `Please retry the swap for a fresh quote.`
+        );
+      }
+      
+      // Warn if very close to expiration (less than 3 seconds)
+      if (timeUntilExpiry < 3_000n) {
+        logger.warn(
+          `[CdpTransactionManager] 0x quote expires in ${Number(timeUntilExpiry) / 1000}s - ` +
+          `executing immediately but may fail if submitted too late`
+        );
       }
     }
     
@@ -3094,6 +3249,7 @@ export class CdpTransactionManager {
       buyToken: normalizedToToken,
       sellAmount: fromAmount.toString(),
       taker: account.address,
+      slippageBps: slippageBps.toString(), // Add slippage protection
     });
 
     // Add fee parameters
