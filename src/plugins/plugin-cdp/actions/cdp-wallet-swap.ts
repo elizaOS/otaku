@@ -650,12 +650,26 @@ export const cdpWalletSwap: Action = {
       let errorMessage = "Failed to execute swap.";
       if (error instanceof Error) {
         logger.debug(`[USER_WALLET_SWAP] Processing error message: ${error.message}`);
-        if (error.message.includes("insufficient")) {
-          errorMessage = "Insufficient balance for this swap.";
-        } else if (error.message.includes("slippage")) {
+        const errorLower = error.message.toLowerCase();
+        
+        // Check for specific error types to provide accurate messages
+        if (errorLower.includes("insufficient token balance")) {
+          // This is a true token balance issue (from our pre-flight check)
+          errorMessage = "Insufficient token balance for this swap.";
+        } else if (errorLower.includes("insufficient balance to execute") || 
+                   errorLower.includes("insufficient funds for gas")) {
+          // This is a gas issue, not token balance
+          errorMessage = "Insufficient gas (ETH) to execute the swap. You need a small amount of ETH to pay for transaction fees. Try using a gasless swap or adding ETH for gas.";
+        } else if (errorLower.includes("no route") || errorLower.includes("no liquidity") || 
+                   errorLower.includes("liquidity pool")) {
+          // Routing/liquidity issue
+          errorMessage = "No swap route found for this token pair. The token may only be tradeable on specific DEXes not supported by our swap providers. Try swapping to ETH/WETH first.";
+        } else if (errorLower.includes("slippage")) {
           errorMessage = "Swap failed due to price movement. Try increasing slippage tolerance.";
-        } else if (error.message.includes("not authenticated")) {
+        } else if (errorLower.includes("not authenticated")) {
           errorMessage = "CDP service is not authenticated. Please check your API credentials.";
+        } else if (errorLower.includes("gasless") && errorLower.includes("failed")) {
+          errorMessage = "Gasless swap failed. You may need a small amount of ETH for gas, or the token may not support gasless swaps.";
         } else {
           errorMessage = `Swap failed: ${error.message}`;
         }

@@ -3119,6 +3119,30 @@ export class CdpTransactionManager {
       network,
     });
 
+    // Helper to parse EIP-712 signature string to object format
+    // 0x API expects { v, r, s, signatureType } object, not hex string
+    const parseSignatureToObject = (sig: string) => {
+      // Remove 0x prefix if present
+      const sigHex = sig.startsWith('0x') ? sig.slice(2) : sig;
+      
+      // EIP-712 signature is 65 bytes: r (32 bytes) + s (32 bytes) + v (1 byte)
+      const r = `0x${sigHex.slice(0, 64)}`;
+      const s = `0x${sigHex.slice(64, 128)}`;
+      let v = parseInt(sigHex.slice(128, 130), 16);
+      
+      // Normalize v value (27/28 or 0/1)
+      if (v < 27) {
+        v += 27;
+      }
+      
+      return {
+        signatureType: 2, // EIP-712 signature type
+        v,
+        r,
+        s,
+      };
+    };
+
     // Step 3: Sign approval if needed (gasless approval via Permit)
     let signedApproval = null;
     if (quote.approval && quote.approval.eip712) {
@@ -3133,7 +3157,7 @@ export class CdpTransactionManager {
 
       signedApproval = {
         ...quote.approval,
-        signature: approvalSignature,
+        signature: parseSignatureToObject(approvalSignature),
       };
       
       logger.info(`[CdpTransactionManager] Gasless approval signed`);
@@ -3151,7 +3175,7 @@ export class CdpTransactionManager {
 
     const signedTrade = {
       ...quote.trade,
-      signature: tradeSignature,
+      signature: parseSignatureToObject(tradeSignature),
     };
 
     logger.info(`[CdpTransactionManager] Gasless trade signed`);
