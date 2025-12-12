@@ -379,12 +379,19 @@ export class MessageBusService extends Service {
   }
 
   private async ensureAuthorEntityExists(message: MessageServiceMessage): Promise<UUID> {
-    const agentAuthorEntityId = createUniqueUuid(this.runtime, message.author_id);
+    // IMPORTANT: Use the raw author_id directly, not a namespaced UUID.
+    // The frontend creates entities with the raw userId via REST API,
+    // so we must use the same ID to avoid creating duplicate entities.
+    const authorEntityId = message.author_id as UUID;
 
-    const authorEntity = await this.runtime.getEntityById(agentAuthorEntityId);
+    // First, check if entity already exists with the raw author_id
+    // (created by frontend via REST API with full user metadata)
+    const authorEntity = await this.runtime.getEntityById(authorEntityId);
     if (!authorEntity) {
+      // Entity doesn't exist yet - create it with minimal info
+      // (frontend may create a richer entity later)
       await this.runtime.createEntity({
-        id: agentAuthorEntityId,
+        id: authorEntityId,
         names: [message.author_display_name || `User-${message.author_id.substring(0, 8)}`],
         agentId: this.runtime.agentId,
         metadata: {
@@ -392,9 +399,12 @@ export class MessageBusService extends Service {
           source: message.source_type,
         },
       });
+      logger.info(
+        `[${this.runtime.character.name}] MessageBusService: Created entity ${authorEntityId} for author ${message.author_display_name || message.author_id.substring(0, 8)}`
+      );
     }
 
-    return agentAuthorEntityId;
+    return authorEntityId;
   }
 
   private createAgentMemory(

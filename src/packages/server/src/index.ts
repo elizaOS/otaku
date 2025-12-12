@@ -1431,12 +1431,16 @@ export class AgentServer {
     // Get the channel details to find the server ID
     const channel = await this.getChannelDetails(createdMessage.channelId);
     if (channel) {
+      // Extract author display name from metadata (set by socketio handler as user_display_name)
+      const authorDisplayName = createdMessage.metadata?.user_display_name as string | undefined;
+      
       // Emit to internal message bus for agent consumption
       const messageForBus: MessageServiceStructure = {
         id: createdMessage.id,
         channel_id: createdMessage.channelId,
         server_id: channel.messageServerId,
         author_id: createdMessage.authorId,
+        author_display_name: authorDisplayName, // Pass display name for entity creation
         content: createdMessage.content,
         raw_message: createdMessage.rawMessage,
         source_id: createdMessage.sourceId,

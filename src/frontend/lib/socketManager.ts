@@ -13,15 +13,21 @@ const SOCKET_MESSAGE_TYPE = {
 class SocketManager {
   private socket: Socket | null = null;
   private userId: string | null = null;
+  private userName: string | null = null;
   private activeChannels: Set<string> = new Set();
 
-  connect(userId: string) {
+  connect(userId: string, userName?: string) {
     if (this.socket?.connected) {
       console.log('Socket already connected');
+      // Update username if provided (allows updating after initial connect)
+      if (userName) {
+        this.userName = userName;
+      }
       return this.socket;
     }
     
     this.userId = userId;
+    this.userName = userName || null;
     this.socket = io(window.location.origin + '/', {
       autoConnect: true,
       reconnection: true,
@@ -42,6 +48,13 @@ class SocketManager {
     });
 
     return this.socket;
+  }
+
+  /**
+   * Update the stored username (useful when user profile loads after socket connects)
+   */
+  setUserName(userName: string) {
+    this.userName = userName;
   }
 
   joinChannel(channelId: string, serverId: string, metadata?: Record<string, any>) {
@@ -73,9 +86,12 @@ class SocketManager {
       throw new Error('Socket not connected');
     }
     
+    // Use stored username or fallback to a short-form identifier
+    const senderName = this.userName || `User-${this.userId?.substring(0, 8) || 'Unknown'}`;
+    
     const payload = {
       senderId: this.userId,
-      senderName: 'User',
+      senderName,
       message,
       channelId,
       serverId,

@@ -393,7 +393,8 @@ function App() {
     if (!userId) return; // Wait for userId to be initialized
     
     console.log(' Connecting socket with userId:', userId);
-    const socket = socketManager.connect(userId);
+    // Pass username if available from userProfile
+    const socket = socketManager.connect(userId, userProfile?.displayName);
     
     socket.on('connect', () => {
       setConnected(true);
@@ -411,6 +412,13 @@ function App() {
       socketManager.disconnect();
     };
   }, [userId]); // Re-connect when userId changes
+
+  // Update socket username when userProfile loads (after initial socket connection)
+  useEffect(() => {
+    if (userProfile?.displayName) {
+      socketManager.setUserName(userProfile.displayName);
+    }
+  }, [userProfile?.displayName]);
 
   // Join active channel when it changes (this creates the user-specific server via Socket.IO)
   useEffect(() => {
