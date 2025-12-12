@@ -389,3 +389,27 @@ export function get0xChainId(network: string): number | null {
  * Default: 0.001 ETH worth of gas (~$3 at current prices, enough for 1-2 swaps)
  */
 export const MIN_GAS_FOR_SWAP = BigInt('1000000000000000'); // 0.001 ETH
+
+// ============================================================================
+// 0x Gasless API Polling Configuration
+// ============================================================================
+
+/**
+ * Maximum number of polling attempts for gasless swap status
+ */
+export const GASLESS_POLL_MAX_ATTEMPTS = 40;
+
+/**
+ * Initial polling interval in milliseconds (uses exponential backoff)
+ */
+export const GASLESS_POLL_INITIAL_INTERVAL_MS = 500;
+
+/**
+ * Maximum polling interval in milliseconds (cap for exponential backoff)
+ */
+export const GASLESS_POLL_MAX_INTERVAL_MS = 5000;
+
+/**
+ * Backoff multiplier for exponential backoff
+ */
+export const GASLESS_POLL_BACKOFF_MULTIPLIER = 1.5;

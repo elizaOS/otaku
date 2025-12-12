@@ -18,6 +18,10 @@ import {
   isGaslessSupported,
   get0xChainId,
   MIN_GAS_FOR_SWAP,
+  GASLESS_POLL_MAX_ATTEMPTS,
+  GASLESS_POLL_INITIAL_INTERVAL_MS,
+  GASLESS_POLL_MAX_INTERVAL_MS,
+  GASLESS_POLL_BACKOFF_MULTIPLIER,
 } from '@/constants/chains';
 
 // ============================================================================
@@ -88,6 +92,8 @@ interface SwapResult {
   toAmount: string;
   network: string;
   method: string;
+  /** For gasless swaps that are still pending confirmation, this contains the 0x zid for tracking */
+  pendingId?: string;
 }
 
 interface SendResult {
@@ -1594,6 +1600,7 @@ export class CdpTransactionManager {
     let transactionHash: string | undefined;
     let method: string = 'unknown';
     let toAmount: string = '0';
+    let pendingId: string | undefined;
 
     // =========================================================================
     // GASLESS SWAP: Try gasless first if user lacks gas (ERC20 tokens only)
@@ -1630,6 +1637,7 @@ export class CdpTransactionManager {
             toAmount: gaslessResult.toAmount,
             network,
             method: gaslessResult.method,
+            pendingId: gaslessResult.pendingId,
           };
         } catch (gaslessError) {
           const errorMsg = gaslessError instanceof Error ? gaslessError.message : String(gaslessError);
@@ -1912,6 +1920,7 @@ export class CdpTransactionManager {
             transactionHash = gaslessResult.transactionHash;
             toAmount = gaslessResult.toAmount;
             method = `${gaslessResult.method}-fallback`;
+            pendingId = gaslessResult.pendingId;
             logger.info(`[CdpTransactionManager] Gasless fallback successful: ${transactionHash}`);
           } catch (gaslessFallbackError) {
             // Both regular and gasless failed - throw the original error
@@ -1936,6 +1945,7 @@ export class CdpTransactionManager {
       toAmount,
       network,
       method,
+      pendingId,
     };
   }
 
@@ -2688,6 +2698,10 @@ export class CdpTransactionManager {
   /**
    * Check if user has enough gas to execute a regular swap
    * @returns true if user has sufficient gas, false if gasless should be used
+   * 
+   * IMPORTANT: Returns false on errors to prefer gasless path when uncertain.
+   * This is safer because gasless will gracefully fall back to regular swap if it fails,
+   * but assuming user has gas when they don't leads to failed transactions.
    */
   private async checkHasGasForSwap(
     userId: string,
@@ -2697,17 +2711,20 @@ export class CdpTransactionManager {
     try {
       const chain = getViemChain(network);
       if (!chain) {
-        return true; // Assume has gas if we can't check
+        logger.debug(`[CdpTransactionManager] Unknown chain ${network}, defaulting to gasless check`);
+        return false; // Prefer gasless when uncertain
       }
 
       const alchemyKey = process.env.ALCHEMY_API_KEY;
       if (!alchemyKey) {
-        return true; // Assume has gas if we can't check
+        logger.debug(`[CdpTransactionManager] No Alchemy API key, defaulting to gasless check`);
+        return false; // Prefer gasless when uncertain
       }
 
       const rpcUrl = getRpcUrl(network, alchemyKey);
       if (!rpcUrl) {
-        return true; // Assume has gas if we can't check
+        logger.debug(`[CdpTransactionManager] No RPC URL for ${network}, defaulting to gasless check`);
+        return false; // Prefer gasless when uncertain
       }
 
       // Get user's address
@@ -2732,8 +2749,10 @@ export class CdpTransactionManager {
       
       return hasEnoughGas;
     } catch (error) {
-      logger.warn(`[CdpTransactionManager] Failed to check gas balance:`, error instanceof Error ? error.message : String(error));
-      return true; // Assume has gas if check fails
+      // IMPORTANT: Return false on errors to prefer gasless path when uncertain
+      // Gasless will gracefully fall back to regular swap if it fails
+      logger.warn(`[CdpTransactionManager] Failed to check gas balance, preferring gasless:`, error instanceof Error ? error.message : String(error));
+      return false;
     }
   }
 
@@ -2832,19 +2851,30 @@ export class CdpTransactionManager {
   }
 
   /**
-   * Poll for gasless swap transaction status
+   * Poll for gasless swap transaction status with exponential backoff
+   * 
+   * Uses exponential backoff starting at GASLESS_POLL_INITIAL_INTERVAL_MS,
+   * multiplying by GASLESS_POLL_BACKOFF_MULTIPLIER each attempt,
+   * capped at GASLESS_POLL_MAX_INTERVAL_MS.
+   * 
+   * @param zid - The 0x transaction ID to poll
+   * @param apiKey - The 0x API key
+   * @returns Status object with transactionHash on success, reason on failure
    */
   private async pollGaslessSwapStatus(
     zid: string,
-    apiKey: string,
-    maxAttempts: number = 60,
-    intervalMs: number = 2000
+    apiKey: string
   ): Promise<{
     status: 'pending' | 'confirmed' | 'failed';
     transactionHash?: string;
     reason?: string;
+    zid: string;
   }> {
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let currentInterval = GASLESS_POLL_INITIAL_INTERVAL_MS;
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 5;
+
+    for (let attempt = 0; attempt < GASLESS_POLL_MAX_ATTEMPTS; attempt++) {
       try {
         const response = await fetch(`https://api.0x.org/gasless/status/${zid}`, {
           headers: {
@@ -2854,38 +2884,70 @@ export class CdpTransactionManager {
         });
 
         if (!response.ok) {
-          logger.warn(`[CdpTransactionManager] Gasless status check failed: ${response.status}`);
-          await new Promise(resolve => setTimeout(resolve, intervalMs));
+          consecutiveErrors++;
+          logger.warn(`[CdpTransactionManager] Gasless status check failed (attempt ${attempt + 1}/${GASLESS_POLL_MAX_ATTEMPTS}): HTTP ${response.status}`);
+          
+          // If we've had too many consecutive errors, give up
+          if (consecutiveErrors >= maxConsecutiveErrors) {
+            return {
+              status: 'failed',
+              reason: `API unresponsive after ${consecutiveErrors} consecutive errors (HTTP ${response.status})`,
+              zid,
+            };
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, currentInterval));
+          currentInterval = Math.min(currentInterval * GASLESS_POLL_BACKOFF_MULTIPLIER, GASLESS_POLL_MAX_INTERVAL_MS);
           continue;
         }
 
+        // Reset consecutive errors on success
+        consecutiveErrors = 0;
         const data = await response.json();
 
         if (data.status === 'confirmed') {
+          logger.info(`[CdpTransactionManager] Gasless swap confirmed after ${attempt + 1} attempts`);
           return {
             status: 'confirmed',
             transactionHash: data.transactions?.[0]?.hash,
+            zid,
           };
         }
 
         if (data.status === 'failed') {
           return {
             status: 'failed',
-            reason: data.reason || 'Unknown error',
+            reason: data.reason || 'Unknown error from 0x API',
+            zid,
           };
         }
 
-        // Still pending, wait and retry
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
+        // Still pending, apply exponential backoff and retry
+        logger.debug(`[CdpTransactionManager] Gasless swap pending (attempt ${attempt + 1}/${GASLESS_POLL_MAX_ATTEMPTS}), waiting ${currentInterval}ms`);
+        await new Promise(resolve => setTimeout(resolve, currentInterval));
+        currentInterval = Math.min(currentInterval * GASLESS_POLL_BACKOFF_MULTIPLIER, GASLESS_POLL_MAX_INTERVAL_MS);
       } catch (error) {
-        logger.warn(`[CdpTransactionManager] Gasless status poll error:`, error instanceof Error ? error.message : String(error));
-        await new Promise(resolve => setTimeout(resolve, intervalMs));
+        consecutiveErrors++;
+        logger.warn(`[CdpTransactionManager] Gasless status poll error (attempt ${attempt + 1}):`, error instanceof Error ? error.message : String(error));
+        
+        // If we've had too many consecutive errors, give up
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          return {
+            status: 'failed',
+            reason: `Network error after ${consecutiveErrors} consecutive failures: ${error instanceof Error ? error.message : String(error)}`,
+            zid,
+          };
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, currentInterval));
+        currentInterval = Math.min(currentInterval * GASLESS_POLL_BACKOFF_MULTIPLIER, GASLESS_POLL_MAX_INTERVAL_MS);
       }
     }
 
     return {
       status: 'pending',
-      reason: 'Status check timed out - transaction may still complete',
+      reason: `Status check timed out after ${GASLESS_POLL_MAX_ATTEMPTS} attempts - transaction may still complete. Track with zid: ${zid}`,
+      zid,
     };
   }
 
@@ -2988,7 +3050,7 @@ export class CdpTransactionManager {
     toToken: string,
     fromAmount: bigint,
     slippageBps: number
-  ): Promise<{ transactionHash: string; toAmount: string; method: string }> {
+  ): Promise<{ transactionHash: string; toAmount: string; method: string; pendingId?: string }> {
     const apiKey = process.env.OX_API_KEY;
     if (!apiKey) {
       throw new Error('0x API key not configured for gasless swaps');
@@ -3135,12 +3197,21 @@ export class CdpTransactionManager {
 
     if (status.status === 'pending') {
       // Transaction is still processing but we have a zid
-      // Return with pending status - tx may complete later
-      logger.warn(`[CdpTransactionManager] Gasless swap still pending after timeout: zid=${submitResult.zid}`);
+      // Return with pendingId for tracking - caller should use this for status updates
+      logger.warn(`[CdpTransactionManager] Gasless swap still pending after timeout: zid=${status.zid}`);
+      
+      // Return a placeholder hash with pendingId for tracking
+      // The actual transaction may still complete - caller should inform user
+      return {
+        transactionHash: `pending:${status.zid}`,
+        toAmount: quote.buyAmount || '0',
+        method: '0x-gasless-pending',
+        pendingId: status.zid,
+      };
     }
 
-    const transactionHash = status.transactionHash || `gasless:${submitResult.zid}`;
-
+    // Transaction confirmed with real hash
+    const transactionHash = status.transactionHash!;
     logger.info(`[CdpTransactionManager] Gasless swap completed: ${transactionHash}`);
 
     return {
