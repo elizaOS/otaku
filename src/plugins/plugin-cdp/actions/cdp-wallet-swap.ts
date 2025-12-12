@@ -606,8 +606,10 @@ export const cdpWalletSwap: Action = {
       logger.info("[USER_WALLET_SWAP] CDP swap executed successfully");
       logger.debug(`[USER_WALLET_SWAP] Swap result: ${JSON.stringify(result)}`);
 
-      const successText = `Successfully swapped ${swapParams.fromToken} to ${swapParams.toToken} on ${swapParams.network}. ` +
-                         `Transaction: ${result.transactionHash}`;
+      const successText = ` Successfully swapped ${amountToSwap} tokens on ${swapParams.network}\n` +
+                         `Transaction Hash: ${result.transactionHash}\n` +
+                         `From: ${fromToken}\n` +
+                         `To: ${toToken}`;
 
       logger.debug("[USER_WALLET_SWAP] Sending success callback");
       callback?.({
@@ -648,72 +650,15 @@ export const cdpWalletSwap: Action = {
       let errorMessage = "Failed to execute swap.";
       if (error instanceof Error) {
         logger.debug(`[USER_WALLET_SWAP] Processing error message: ${error.message}`);
-        const errorLower = error.message.toLowerCase();
-        
-        // Map error patterns to conversational agent responses
-        const errorPatterns = [
-          { 
-            match: ["one-time approval"],
-            message: error.message, // Use detailed message from manager
-            context: "approval_required"
-          },
-          { 
-            match: ["insufficient token balance"],
-            message: "You don't have enough of this token to complete the swap.",
-            context: "insufficient_balance"
-          },
-          { 
-            match: ["insufficient balance to execute", "insufficient funds for gas"],
-            message: "You don't have enough ETH for gas. I tried a gasless swap, but this token needs a one-time approval first (which costs gas). After that approval, all future swaps will be gasless.",
-            context: "insufficient_gas"
-          },
-          { 
-            match: ["no route", "no liquidity", "liquidity pool"],
-            message: "This token doesn't have a direct swap route to your target. It only trades against WETH. Want me to swap it to WETH first, then WETH to your target token?",
-            context: "no_route"
-          },
-          { 
-            match: ["slippage"],
-            message: "The price moved too much while processing the swap. Try again - the market may have stabilized.",
-            context: "slippage_exceeded"
-          },
-          { 
-            match: ["not authenticated"],
-            message: "There's an authentication issue with the wallet service. This is a system error - please let the admin know.",
-            context: "auth_error"
-          },
-          {
-            match: ["reverted"],
-            message: "The swap transaction failed on-chain because there's no direct trading path. This token only trades against WETH. Should I route it through WETH instead (swap to WETH first, then to your target)?",
-            context: "tx_reverted"
-          },
-        ];
-        
-        let errorContext = "unknown";
-        for (const pattern of errorPatterns) {
-          if (pattern.match.some(term => errorLower.includes(term))) {
-            errorMessage = pattern.message;
-            errorContext = pattern.context;
-            break;
-          }
+        if (error.message.includes("insufficient")) {
+          errorMessage = "Insufficient balance for this swap.";
+        } else if (error.message.includes("slippage")) {
+          errorMessage = "Swap failed due to price movement. Try increasing slippage tolerance.";
+        } else if (error.message.includes("not authenticated")) {
+          errorMessage = "CDP service is not authenticated. Please check your API credentials.";
+        } else {
+          errorMessage = `Swap failed: ${error.message}`;
         }
-        
-        // Default to conversational error if no pattern matched
-        if (errorMessage === "Failed to execute swap.") {
-          // Make technical errors more readable
-          const technicalError = error.message.toLowerCase();
-          if (technicalError.includes("network") || technicalError.includes("timeout")) {
-            errorMessage = "Network connection issue. Try again in a moment.";
-            errorContext = "network_error";
-          } else if (technicalError.includes("rate limit")) {
-            errorMessage = "Too many requests. Wait a few seconds and try again.";
-            errorContext = "rate_limited";
-          } else {
-            errorMessage = `The swap couldn't complete: ${error.message}`;
-          }
-        }
-        
-        logger.info(`[USER_WALLET_SWAP] Error classified as: ${errorContext}`);
       }
       
       // Try to capture input params even in failure
