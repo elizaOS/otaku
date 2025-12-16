@@ -1,9 +1,9 @@
 /**
- * Test script for x402 payment integration with Jobs API (Base Mainnet)
+ * Test script for x402 v2 payment integration with Jobs API (Base Mainnet)
  * 
  * CONFIGURATION (aligned with jobs.ts):
  * - Price: $0.015 USDC per request
- * - Network: Base mainnet
+ * - Network: Base mainnet (eip155:8453)
  * - Default job timeout: 3 minutes (180000ms)
  * - Maximum job timeout: 5 minutes (300000ms)
  * - USDC Contract: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
@@ -11,7 +11,7 @@
  * 
  * This script demonstrates how to:
  * 1. Test the 402 Payment Required response
- * 2. Make a paid request using x402-fetch (working implementation)
+ * 2. Make a paid request using @x402/fetch v2 (working implementation)
  * 3. Poll for job completion (supports up to 200s polling for 180s job timeout)
  * 4. Verify job listing protection (expected 402)
  * 5. Check API health status
@@ -23,10 +23,9 @@
  *   - EVM_PRIVATE_KEY, TEST_WALLET_PRIVATE_KEY, or CDP_API_KEY_PRIVATE_KEY environment variable
  * 
  * IMPORTANT NOTES:
- * - This script uses x402-fetch, NOT x402-axios
- * - x402-axios does NOT work (withPaymentInterceptor fails to send X-PAYMENT header)
- * - x402-fetch is the proven working implementation (used in plugin-cdp)
+ * - This script uses @x402/fetch v2 SDK
  * - This tests BASE MAINNET payments - you need real USDC on Base
+ * - For testnet, set X402_TESTNET=true on the server
  * - For testing without real funds, skip Test 2 by not setting a private key
  * - Script auto-detects available server: local first, then falls back to otaku.so
  * 
@@ -37,9 +36,10 @@
  */
 
 import { createWalletClient, createPublicClient, http, type Address } from 'viem';
-import { base } from 'viem/chains';
+import { base, baseSepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
-import { wrapFetchWithPayment, decodeXPaymentResponse } from 'x402-fetch';
+import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from '@x402/fetch';
+import { ExactEvmScheme } from '@x402/evm/exact/client';
 
 /**
  * Check if a server is available
@@ -161,6 +161,10 @@ interface X402ErrorResponse {
     extra?: Record<string, unknown>;
   }>;
 }
+
+// Network constants (CAIP-2 format)
+const BASE_MAINNET = 'eip155:8453';
+const BASE_SEPOLIA = 'eip155:84532';
 
 /**
  * Check USDC balance on Base mainnet
@@ -299,22 +303,21 @@ async function testPaidRequest(jobsEndpoint: string, prompt: string): Promise<vo
       }
     }
 
-    // Wrap fetch with x402 payment capability (same as working implementation in plugin-cdp)
-    // Convert max payment from USDC to base units (USDC has 6 decimals)
-    const maxPaymentInBaseUnits = BigInt(Math.floor(MAX_PAYMENT_USDC * 1_000_000));
+    // Create x402 v2 client with EVM payment scheme
+    console.log(`Setting up x402 v2 client with EVM payment capability...\n`);
     
-    console.log(`Setting up x402-fetch with payment capability (max: ${MAX_PAYMENT_USDC} USDC)...\n`);
-    const fetchWithPayment = wrapFetchWithPayment(
-      fetch,
-      walletClient as never,
-      maxPaymentInBaseUnits
-    );
+    // Create x402 client and register EVM scheme for Base mainnet
+    const client = new x402Client()
+      .register(BASE_MAINNET, new ExactEvmScheme(walletClient as never));
+    
+    // Wrap fetch with x402 payment capability
+    const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
     console.log(`Sending request to: ${jobsEndpoint}`);
     console.log(`Prompt: "${prompt}"\n`);
 
     // Make paid request
-    console.log('💳 Making request with x402-fetch (will pay if required)...');
+    console.log('💳 Making request with @x402/fetch v2 (will pay if required)...');
     const response = await fetchWithPayment(jobsEndpoint, {
       method: 'POST',
       headers: {
@@ -341,7 +344,7 @@ async function testPaidRequest(jobsEndpoint: string, prompt: string): Promise<vo
     if (paymentResponseHeader) {
       console.log('\n💳 Payment response received!');
       try {
-        paymentInfo = decodeXPaymentResponse(paymentResponseHeader);
+        paymentInfo = decodePaymentResponseHeader(paymentResponseHeader) as { success: boolean; transaction: string; network: string; payer: string };
         console.log('Payment data:', JSON.stringify(paymentInfo, null, 2));
         
         if (paymentInfo.transaction) {
@@ -533,7 +536,7 @@ async function testHealthCheck(jobsEndpoint: string): Promise<void> {
  */
 async function main(): Promise<void> {
   console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║  x402 Payment Integration Test Suite for Jobs API         ║');
+  console.log('║  x402 v2 Payment Integration Test Suite for Jobs API      ║');
   console.log('║              BASE MAINNET - Real USDC Required             ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
   
@@ -543,7 +546,7 @@ async function main(): Promise<void> {
   console.log(`\nConfiguration:`);
   console.log(`  API URL: ${API_BASE_URL}`);
   console.log(`  Endpoint: ${JOBS_ENDPOINT}`);
-  console.log(`  Network: Base Mainnet`);
+  console.log(`  Network: Base Mainnet (${BASE_MAINNET})`);
   console.log(`  Price: $0.015 USDC per request`);
   console.log(`  Job Timeout: 3 minutes (default), 5 minutes (max)`);
   console.log(`  Poll Timeout: ${(MAX_POLL_ATTEMPTS * POLL_INTERVAL_MS) / 1000}s (${MAX_POLL_ATTEMPTS} attempts × ${POLL_INTERVAL_MS / 1000}s)`);

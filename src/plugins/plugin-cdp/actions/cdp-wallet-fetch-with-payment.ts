@@ -3,7 +3,7 @@
  * 
  * Makes HTTP requests to x402-enabled paid APIs with automatic payment handling.
  * 
- * This action integrates Coinbase's x402 payment protocol to enable agents to:
+ * This action integrates Coinbase's x402 v2 payment protocol to enable agents to:
  * - Make requests to APIs that require onchain payment (HTTP 402)
  * - Automatically detect payment requirements from API responses
  * - Sign and submit USDC payment transactions on Base network
@@ -27,7 +27,7 @@
  * 
  * @requires CDP Service - Must be configured with API credentials
  * @requires CDP Wallet - User must have wallet with USDC balance on Base
- * @requires x402-fetch - Payment wrapper library (installed via package.json)
+ * @requires @x402/fetch v2 - Payment wrapper library (installed via package.json)
  */
 
 import {
@@ -42,8 +42,12 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
-import { wrapFetchWithPayment, decodeXPaymentResponse } from "x402-fetch";
+import { wrapFetchWithPayment, x402Client, decodePaymentResponseHeader } from "@x402/fetch";
+import { ExactEvmScheme } from "@x402/evm/exact/client";
 import type { CdpNetwork } from "../types";
+
+// Network constant (CAIP-2 format)
+const BASE_MAINNET = 'eip155:8453';
 
 /**
  * Helper function to create standardized error results and invoke callback
@@ -298,12 +302,12 @@ export const cdpWalletFetchWithPayment: Action = {
       logger.info(`[FETCH_WITH_PAYMENT] Making ${method} request to ${url} with max payment ${maxPayment} USDC`);
       callback?.({ text: ` Making request to ${url}... (will handle payment if required)` });
 
-      // Convert maxPayment from USDC to base units (USDC has 6 decimals)
-      const maxPaymentInBaseUnits = BigInt(Math.floor(maxPayment * 1_000_000));
+      // Create x402 v2 client with EVM payment scheme for Base mainnet
+      const client = new x402Client()
+        .register(BASE_MAINNET, new ExactEvmScheme(walletClient as never));
 
       // Wrap fetch with payment capability
-      // Cast to any to bypass type incompatibility - walletClient is a valid SignerWallet
-      const fetchWithPayment = wrapFetchWithPayment(fetch, walletClient as never, maxPaymentInBaseUnits);
+      const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
       // Prepare fetch options
       const fetchOptions: RequestInit = {
@@ -332,13 +336,13 @@ export const cdpWalletFetchWithPayment: Action = {
         responseData = await response.text();
       }
 
-      // Decode payment response if present
+      // Decode payment response if present (x402 v2)
       const paymentResponseHeader = response.headers.get("x-payment-response");
       let paymentInfo: { success: boolean; transaction: string; network: string; payer: string } | null = null;
       
       if (paymentResponseHeader) {
         try {
-          paymentInfo = decodeXPaymentResponse(paymentResponseHeader);
+          paymentInfo = decodePaymentResponseHeader(paymentResponseHeader) as { success: boolean; transaction: string; network: string; payer: string };
           logger.info(`[FETCH_WITH_PAYMENT] Payment completed:`, JSON.stringify(paymentInfo));
         } catch (err) {
           logger.warn(`[FETCH_WITH_PAYMENT] Failed to decode payment response:`, err instanceof Error ? err.message : String(err));

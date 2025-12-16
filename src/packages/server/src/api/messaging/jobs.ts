@@ -8,7 +8,9 @@ import {
 } from '@elizaos/core';
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { paymentMiddleware } from 'x402-express';
+import { paymentMiddleware, x402ResourceServer } from '@x402/express';
+import { ExactEvmScheme } from '@x402/evm/exact/server';
+import { HTTPFacilitatorClient } from '@x402/core/server';
 import type { AgentServer } from '../../index';
 import {
   JobStatus,
@@ -19,8 +21,9 @@ import {
 } from '../../types/jobs';
 import internalMessageBus from '../../bus';
 
-// Import Coinbase facilitator for mainnet
-import { facilitator } from '@coinbase/x402';
+// Network constants (CAIP-2 format)
+const BASE_MAINNET = 'eip155:8453';
+const BASE_SEPOLIA = 'eip155:84532';
 
 const DEFAULT_SERVER_ID = '00000000-0000-0000-0000-000000000000' as UUID;
 const DEFAULT_JOB_TIMEOUT_MS = 180000; // 3 minutes
@@ -172,28 +175,38 @@ export function createJobsRouter(
   // Start cleanup interval when router is created
   startCleanupInterval();
 
-  // Configure x402 facilitator
-  // Default: Coinbase facilitator (automatically uses CDP_API_KEY_ID/CDP_API_KEY_SECRET if set)
+  // Configure x402 v2 facilitator client
   // For testnet: set X402_FACILITATOR_URL to https://x402.org/facilitator
-  const facilitatorUrl = process.env.X402_FACILITATOR_URL;
-  const hasCdpKeys = !!(process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET);
-  const facilitatorConfig = facilitatorUrl 
-    ? { url: facilitatorUrl as `${string}://${string}` } // Custom facilitator (testnet)
-    : facilitator; // Coinbase facilitator (mainnet) - uses CDP keys from env if available
+  // For mainnet: uses CDP facilitator at https://api.cdp.coinbase.com/platform/v2/x402
+  const isTestnet = process.env.X402_TESTNET === 'true';
+  const facilitatorUrl = process.env.X402_FACILITATOR_URL || (
+    isTestnet 
+      ? 'https://x402.org/facilitator' 
+      : 'https://api.cdp.coinbase.com/platform/v2/x402'
+  );
+  const network = isTestnet ? BASE_SEPOLIA : BASE_MAINNET;
   
-  if (facilitatorUrl) {
-    logger.info(`[Jobs API] Using custom x402 facilitator: ${facilitatorUrl}`);
-  } else {
-    logger.info(
-      `[Jobs API] Using Coinbase x402 facilitator (mainnet)` +
-      (hasCdpKeys ? ' with CDP API keys configured' : ' - WARNING: CDP_API_KEY_ID and CDP_API_KEY_SECRET not set')
+  // Create facilitator client (x402 v2)
+  const facilitatorClient = new HTTPFacilitatorClient({
+    url: facilitatorUrl as `${string}://${string}`,
+  });
+  
+  // Create resource server and register EVM scheme for the target network
+  const resourceServer = new x402ResourceServer(facilitatorClient)
+    .register(network, new ExactEvmScheme());
+  
+  const hasCdpKeys = !!(process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET);
+  
+  logger.info(
+    `[Jobs API] x402 v2 configured - Network: ${network}, Facilitator: ${facilitatorUrl}` +
+    (isTestnet ? ' (TESTNET)' : hasCdpKeys ? ' with CDP API keys' : ' - WARNING: CDP keys not set for mainnet')
+  );
+  
+  if (!isTestnet && !hasCdpKeys) {
+    logger.warn(
+      '[Jobs API] CDP_API_KEY_ID and CDP_API_KEY_SECRET are recommended for CDP facilitator on mainnet. ' +
+      'Set these environment variables for production, or set X402_TESTNET=true for testing.'
     );
-    if (!hasCdpKeys) {
-      logger.warn(
-        '[Jobs API] CDP_API_KEY_ID and CDP_API_KEY_SECRET are required for Coinbase facilitator on mainnet. ' +
-        'Payment verification may fail. Set these environment variables for production.'
-      );
-    }
   }
 
   // Cleanup function for the router
@@ -203,8 +216,8 @@ export function createJobsRouter(
     logger.info('[Jobs API] Router cleanup completed');
   };
 
-  // Setup x402 payment middleware for jobs endpoint
-  // Supports both Base and Polygon networks
+  // Setup x402 v2 payment middleware for jobs endpoint
+  // Uses CAIP-2 network identifiers (eip155:8453 for Base mainnet)
   const receivingWallet = process.env.X402_RECEIVING_WALLET || '';
   if (!receivingWallet) {
     throw new Error(
@@ -214,103 +227,36 @@ export function createJobsRouter(
   }
 
   try {
-    // Apply x402 payment middleware to POST /jobs endpoint only
+    // Apply x402 v2 payment middleware to POST /jobs endpoint only
     // Price: $0.015 per request
-    // Network: Base mainnet with CDP facilitator  
-    // Determine resource URL based on environment variable or fallback to NODE_ENV
-    // Priority: X402_PUBLIC_URL > NODE_ENV > localhost
-    const publicUrl = process.env.X402_PUBLIC_URL || process.env.PUBLIC_URL;
-    let resourceUrl: `${string}://${string}`;
-    
-    if (publicUrl) {
-      // Remove trailing slash if present, then append the endpoint path
-      const baseUrl = publicUrl.replace(/\/$/, '');
-      resourceUrl = `${baseUrl}/api/messaging/jobs` as `${string}://${string}`;
-      logger.info(`[Jobs API] Using X402_PUBLIC_URL for resource: ${resourceUrl}`);
-    } else {
-      // Fallback to NODE_ENV detection (less reliable, warns if production)
-      const isProduction = process.env.NODE_ENV === 'production';
-      resourceUrl = (isProduction
-        ? 'https://otaku.so/api/messaging/jobs'
-        : `http://localhost:${process.env.SERVER_PORT || '3000'}/api/messaging/jobs`) as `${string}://${string}`;
-      
-      if (isProduction) {
-        logger.warn(
-          `[Jobs API] X402_PUBLIC_URL not set, using hardcoded production URL: ${resourceUrl}. ` +
-          `If your server is behind a proxy/CDN, set X402_PUBLIC_URL to match your actual domain.`
-        );
-      } else {
-        logger.info(`[Jobs API] Using NODE_ENV=${process.env.NODE_ENV || 'undefined'} for resource: ${resourceUrl}`);
-      }
-    }
-    
+    // Network: Base mainnet (eip155:8453) or Base Sepolia (eip155:84532) for testnet
     router.use(
-      paymentMiddleware(receivingWallet as `0x${string}`, {
-        'POST /jobs': {
-          price: '$0.015',
-          network: 'base',
-            config: {
-              resource: resourceUrl,
-              description:
-                'Access AI-powered research and news processing capabilities. ' +
-                'Submit queries for research analysis, news summarization, and information processing. ' +
-                'Agents can perform deep research, fetch current news, analyze trends, and synthesize information from multiple sources. ' +
-                'Each request costs $0.015 USDC and supports payments on Base network via Coinbase facilitator.',
-              inputSchema: {
-                bodyFields: {
-                  userId: {
-                    type: 'string',
-                    description:
-                      'Optional user identifier (UUID). If not provided, a random one will be generated for this session.',
-                  },
-                  prompt: {
-                    type: 'string',
-                    description:
-                      'Query or prompt for research, news, or information processing',
-                    required: true,
-                  },
-                  agentId: {
-                    type: 'string',
-                    description: 'Optional agent identifier (UUID). Uses first available agent if not provided.',
-                  },
-                  timeoutMs: {
-                    type: 'number',
-                    description: 'Optional timeout in milliseconds (default: 180000ms, max: 300000ms)',
-                  },
-                  metadata: {
-                    type: 'object',
-                    description: 'Optional metadata to attach to the job',
-                  },
-                },
+      paymentMiddleware(
+        {
+          'POST /jobs': {
+            accepts: [
+              {
+                scheme: 'exact',
+                price: '$0.015',
+                network,
+                payTo: receivingWallet as `0x${string}`,
               },
-              outputSchema: {
-                jobId: {
-                  type: 'string',
-                  description: 'Unique job identifier',
-                },
-                status: {
-                  type: 'string',
-                  enum: ['pending', 'processing', 'completed', 'failed', 'timeout'],
-                  description: 'Current job status',
-                },
-                createdAt: {
-                  type: 'number',
-                  description: 'Timestamp when job was created',
-                },
-                expiresAt: {
-                  type: 'number',
-                  description: 'Timestamp when job will expire',
-                },
-              },
-            },
+            ],
+            description:
+              'Access AI-powered research and news processing capabilities. ' +
+              'Submit queries for research analysis, news summarization, and information processing. ' +
+              'Agents can perform deep research, fetch current news, analyze trends, and synthesize information from multiple sources. ' +
+              'Each request costs $0.015 USDC and supports payments on Base network via Coinbase facilitator.',
+            mimeType: 'application/json',
           },
         },
-        facilitatorConfig as never
+        resourceServer
       )
     );
     
     logger.info(
-      `[Jobs API] x402 payment middleware enabled on POST /jobs. Receiving wallet: ${receivingWallet.substring(0, 10)}...`
+      `[Jobs API] x402 v2 payment middleware enabled on POST /jobs. ` +
+      `Network: ${network}, Receiving wallet: ${receivingWallet.substring(0, 10)}...`
     );
   } catch (error) {
     logger.error(
@@ -320,7 +266,8 @@ export function createJobsRouter(
     throw new Error(
       'x402 payment middleware setup failed. Server cannot start without payment protection. ' +
       'Set X402_RECEIVING_WALLET environment variable to your wallet address. ' +
-      'For mainnet, also set CDP_API_KEY_ID and CDP_API_KEY_SECRET (optional for testnet).'
+      'For mainnet, set CDP_API_KEY_ID and CDP_API_KEY_SECRET. ' +
+      'For testnet, set X402_TESTNET=true.'
     );
   }
 
