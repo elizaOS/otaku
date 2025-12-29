@@ -138,6 +138,12 @@ export class PolymarketService extends Service {
     logger.info(`[PolymarketService] Initialized with Gamma API: ${this.gammaApiUrl}, CLOB API: ${this.clobApiUrl}`);
   }
 
+  static async start(runtime: IAgentRuntime): Promise<PolymarketService> {
+    const service = new PolymarketService(runtime);
+    await service.initialize(runtime);
+    return service;
+  }
+
   async stop(): Promise<void> {
     this.clearCache();
   }

@@ -78,61 +78,70 @@ export class LeaderboardService extends Service {
       return;
     }
 
-    // Aggregate all-time leaderboard (excluding agents)
-    const allTimeBalancesRaw = await db
-      .select({
-        userId: pointBalancesTable.userId,
-        points: pointBalancesTable.allTimePoints,
-      })
-      .from(pointBalancesTable)
-      .orderBy(desc(pointBalancesTable.allTimePoints));
+    try {
+      // Aggregate all-time leaderboard (excluding agents)
+      const allTimeBalancesRaw = await db
+        .select({
+          userId: pointBalancesTable.userId,
+          points: pointBalancesTable.allTimePoints,
+        })
+        .from(pointBalancesTable)
+        .orderBy(desc(pointBalancesTable.allTimePoints));
 
-    // Filter out agents and limit to top 100
-    const allTimeBalances = allTimeBalancesRaw
-      .filter((balance) => !this.isAgent(balance.userId))
-      .slice(0, 100);
+      // Filter out agents and limit to top 100
+      const allTimeBalances = allTimeBalancesRaw
+        .filter((balance) => !this.isAgent(balance.userId))
+        .slice(0, 100);
 
-    // Clear old snapshots
-    await db.delete(leaderboardSnapshotsTable).where(eq(leaderboardSnapshotsTable.scope, 'all_time'));
+      // Aggregate weekly leaderboard (excluding agents)
+      const weeklyBalancesRaw = await db
+        .select({
+          userId: pointBalancesTable.userId,
+          points: pointBalancesTable.weeklyPoints,
+        })
+        .from(pointBalancesTable)
+        .orderBy(desc(pointBalancesTable.weeklyPoints));
 
-    // Insert new snapshots
-    for (let i = 0; i < allTimeBalances.length; i++) {
-      await db.insert(leaderboardSnapshotsTable).values({
-        scope: 'all_time',
+      // Filter out agents and limit to top 100
+      const weeklyBalances = weeklyBalancesRaw
+        .filter((balance) => !this.isAgent(balance.userId))
+        .slice(0, 100);
+
+      // Prepare batch inserts
+      const allTimeSnapshots = allTimeBalances.map((balance, i) => ({
+        scope: 'all_time' as const,
         rank: i + 1,
-        userId: allTimeBalances[i].userId,
-        points: allTimeBalances[i].points,
-      });
-    }
+        userId: balance.userId,
+        points: balance.points,
+      }));
 
-    // Aggregate weekly leaderboard (excluding agents)
-    const weeklyBalancesRaw = await db
-      .select({
-        userId: pointBalancesTable.userId,
-        points: pointBalancesTable.weeklyPoints,
-      })
-      .from(pointBalancesTable)
-      .orderBy(desc(pointBalancesTable.weeklyPoints));
-
-    // Filter out agents and limit to top 100
-    const weeklyBalances = weeklyBalancesRaw
-      .filter((balance) => !this.isAgent(balance.userId))
-      .slice(0, 100);
-
-    // Clear old snapshots
-    await db.delete(leaderboardSnapshotsTable).where(eq(leaderboardSnapshotsTable.scope, 'weekly'));
-
-    // Insert new snapshots
-    for (let i = 0; i < weeklyBalances.length; i++) {
-      await db.insert(leaderboardSnapshotsTable).values({
-        scope: 'weekly',
+      const weeklySnapshots = weeklyBalances.map((balance, i) => ({
+        scope: 'weekly' as const,
         rank: i + 1,
-        userId: weeklyBalances[i].userId,
-        points: weeklyBalances[i].points,
-      });
-    }
+        userId: balance.userId,
+        points: balance.points,
+      }));
 
-    logger.debug('[LeaderboardService] Snapshots aggregated');
+      // Use transaction to ensure atomicity and prevent connection issues
+      await db.transaction(async (tx) => {
+        // Clear old snapshots
+        await tx.delete(leaderboardSnapshotsTable).where(eq(leaderboardSnapshotsTable.scope, 'all_time'));
+        await tx.delete(leaderboardSnapshotsTable).where(eq(leaderboardSnapshotsTable.scope, 'weekly'));
+
+        // Batch insert all records at once (more efficient and prevents connection timeouts)
+        if (allTimeSnapshots.length > 0) {
+          await tx.insert(leaderboardSnapshotsTable).values(allTimeSnapshots);
+        }
+        if (weeklySnapshots.length > 0) {
+          await tx.insert(leaderboardSnapshotsTable).values(weeklySnapshots);
+        }
+      });
+
+      logger.debug('[LeaderboardService] Snapshots aggregated');
+    } catch (error) {
+      logger.error({ error }, '[LeaderboardService] Error in aggregateSnapshots');
+      throw error; // Re-throw to be caught by runSnapshotLoop error handler
+    }
   }
 
   /**
