@@ -22,11 +22,11 @@ import {
 } from "../utils/actionHelpers";
 
 interface GetTopHoldersParams {
-  marketId?: string;
+  conditionId?: string;
 }
 
 type GetTopHoldersInput = {
-  marketId?: string;
+  conditionId?: string;
 };
 
 type GetTopHoldersActionResult = ActionResult & { input: GetTopHoldersInput };
@@ -45,9 +45,9 @@ export const getTopHoldersAction: Action = {
     "Get top holders (major participants) in a Polymarket prediction market. Shows largest positions by wallet.",
 
   parameters: {
-    marketId: {
+    conditionId: {
       type: "string",
-      description: "Market condition ID to check top holders for",
+      description: "Market condition ID (hex string starting with 0x) to check top holders for",
       required: false,
     },
   },
@@ -69,26 +69,26 @@ export const getTopHoldersAction: Action = {
       // Read parameters from state
       const params = await extractActionParams<GetTopHoldersParams>(runtime, message);
 
-      // Extract market ID
-      const marketId = params.marketId?.trim();
+      // Extract condition ID
+      const conditionId = params.conditionId?.trim();
 
-      if (!marketId) {
-        const errorMsg = "Market ID is required";
+      if (!conditionId) {
+        const errorMsg = "Condition ID is required";
         logger.error(`[GET_POLYMARKET_TOP_HOLDERS] ${errorMsg}`);
         const errorResult: GetTopHoldersActionResult = {
-          text: ` ${errorMsg}. Please provide a market condition ID to check top holders.`,
+          text: ` ${errorMsg}. Please provide a market condition ID (hex string starting with 0x) to check top holders.`,
           success: false,
-          error: "missing_market_id",
-          input: { marketId },
+          error: "missing_condition_id",
+          input: { conditionId },
         };
         callback?.({
           text: errorResult.text,
-          content: { error: "missing_market_id", details: errorMsg },
+          content: { error: "missing_condition_id", details: errorMsg },
         });
         return errorResult;
       }
 
-      const inputParams: GetTopHoldersInput = { marketId };
+      const inputParams: GetTopHoldersInput = { conditionId };
 
       // Get service
       const service = getPolymarketService(runtime);
@@ -110,12 +110,12 @@ export const getTopHoldersAction: Action = {
       }
 
       // Fetch top holders
-      logger.info(`[GET_POLYMARKET_TOP_HOLDERS] Fetching top holders for market ${marketId}`);
-      const holders = await service.getTopHolders(marketId);
+      logger.info(`[GET_POLYMARKET_TOP_HOLDERS] Fetching top holders for market ${conditionId}`);
+      const holders = await service.getTopHolders(conditionId);
 
       if (holders.length === 0) {
         const result: GetTopHoldersActionResult = {
-          text: ` No top holders found for market ${marketId}.`,
+          text: ` No top holders found for market ${conditionId}.`,
           success: true,
           data: { holders: [], count: 0 },
           input: inputParams,
@@ -124,7 +124,7 @@ export const getTopHoldersAction: Action = {
       }
 
       // Format response
-      let text = ` **Top Holders for Market ${marketId.slice(0, 10)}...${marketId.slice(-8)}**\n\n`;
+      let text = ` **Top Holders for Market ${conditionId.slice(0, 10)}...${conditionId.slice(-8)}**\n\n`;
       text += `Found ${holders.length} top holder${holders.length > 1 ? "s" : ""}:\n\n`;
 
       // Group by outcome
@@ -222,7 +222,7 @@ export const getTopHoldersAction: Action = {
         content: {
           text: " Getting top holders for this market...",
           action: "GET_POLYMARKET_TOP_HOLDERS",
-          marketId: "0x1234567890123456789012345678901234567890",
+          conditionId: "0x1234567890123456789012345678901234567890",
         },
       },
     ],
@@ -236,7 +236,7 @@ export const getTopHoldersAction: Action = {
         content: {
           text: " Checking major participants...",
           action: "GET_POLYMARKET_TOP_HOLDERS",
-          marketId: "0x1234567890123456789012345678901234567890",
+          conditionId: "0x1234567890123456789012345678901234567890",
         },
       },
     ],

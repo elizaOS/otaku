@@ -274,6 +274,32 @@ export class PolymarketService extends Service {
   }
 
   /**
+   * Parse clobTokenIds JSON string into tokens array
+   *
+   * Transforms API response from:
+   *   { clobTokenIds: "[\"123\", \"456\"]", outcomes: "[\"Yes\", \"No\"]", outcomePrices: "[\"0.5\", \"0.5\"]" }
+   * Into:
+   *   { tokens: [{ token_id: "123", outcome: "Yes", price: 0.5 }, { token_id: "456", outcome: "No", price: 0.5 }] }
+   */
+  private parseTokens(market: any): any {
+    if (!market.clobTokenIds) return market;
+    try {
+      const tokenIds = JSON.parse(market.clobTokenIds);
+      const outcomes = market.outcomes ? JSON.parse(market.outcomes) : [];
+      const prices = market.outcomePrices ? JSON.parse(market.outcomePrices) : [];
+
+      market.tokens = tokenIds.map((id: string, i: number) => ({
+        token_id: id,
+        outcome: outcomes[i],
+        price: prices[i] ? parseFloat(prices[i]) : undefined
+      }));
+    } catch (e) {
+      logger.warn(`[PolymarketService] Failed to parse tokens for market ${market.conditionId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return market;
+  }
+
+  /**
    * Get active/trending markets from Gamma API
    */
   async getActiveMarkets(limit: number = 20): Promise<PolymarketMarket[]> {
@@ -298,14 +324,17 @@ export class PolymarketService extends Service {
 
       const data = await response.json() as PolymarketMarket[];
 
+      // Parse tokens from JSON strings
+      const marketsWithTokens = data.map(market => this.parseTokens(market));
+
       // Update cache
       this.marketsListCache = {
-        data,
+        data: marketsWithTokens,
         timestamp: Date.now(),
       };
 
-      logger.info(`[PolymarketService] Fetched ${data.length} active markets`);
-      return data;
+      logger.info(`[PolymarketService] Fetched ${marketsWithTokens.length} active markets`);
+      return marketsWithTokens;
     });
   }
 
@@ -347,6 +376,9 @@ export class PolymarketService extends Service {
       }
 
       let markets = await response.json() as PolymarketMarket[];
+
+      // Parse tokens from JSON strings
+      markets = markets.map(market => this.parseTokens(market));
 
       // Client-side filtering by query text
       if (query) {
@@ -420,11 +452,14 @@ export class PolymarketService extends Service {
         throw new Error(`Market not found: ${conditionId}`);
       }
 
+      // Parse tokens from JSON strings
+      const marketWithTokens = this.parseTokens(market);
+
       // Update LRU cache
       this.setCached(
         conditionId,
         {
-          data: market,
+          data: marketWithTokens,
           timestamp: Date.now(),
           ttl: this.marketCacheTtl,
         },
@@ -433,8 +468,8 @@ export class PolymarketService extends Service {
         this.maxMarketCacheSize
       );
 
-      logger.info(`[PolymarketService] Fetched market: ${market.question}`);
-      return market;
+      logger.info(`[PolymarketService] Fetched market: ${marketWithTokens.question}`);
+      return marketWithTokens;
     });
   }
 
@@ -1097,7 +1132,15 @@ export class PolymarketService extends Service {
         throw new Error(`Data API error: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json() as OpenInterestData;
+      // API returns array format: [{"market": "GLOBAL", "value": 344230134.862965}]
+      const responseData = await response.json() as Array<{market: string, value: number}>;
+      const rawData = responseData[0] || {market: "GLOBAL", value: 0};
+
+      // Transform to expected format
+      const data: OpenInterestData = {
+        total_value: rawData.value.toString(),
+        timestamp: Date.now()
+      };
 
       // Update cache
       this.openInterestCache = {
@@ -1173,7 +1216,7 @@ export class PolymarketService extends Service {
    * @returns Array of spread data for markets
    */
   async getSpreads(limit: number = 20): Promise<SpreadData[]> {
-    logger.info(`[PolymarketService] Calculating spreads for top ${limit} markets`);
+    logger.info(`[PolymarketService] Fetching spreads for top ${limit} markets`);
 
     // Check cache
     if (this.spreadsCache) {
@@ -1193,7 +1236,7 @@ export class PolymarketService extends Service {
         return [];
       }
 
-      // Calculate spreads for each market in parallel
+      // Fetch spreads for each market in parallel using the CLOB API
       const spreadPromises = markets.map(async (market) => {
         try {
           // Parse clobTokenIds if available
@@ -1207,36 +1250,44 @@ export class PolymarketService extends Service {
             }
           }
 
-          if (tokenIds.length < 2) {
-            logger.debug(`[PolymarketService] Insufficient token IDs for ${market.conditionId}`);
+          if (tokenIds.length === 0) {
+            logger.debug(`[PolymarketService] No token IDs for ${market.conditionId}`);
             return null;
           }
 
-          // Fetch orderbooks for both YES and NO tokens
-          const [yesBook, noBook] = await Promise.all([
-            this.getOrderBook(tokenIds[0]),
-            this.getOrderBook(tokenIds[1]),
-          ]);
+          // Use the first token ID (YES token) to get spread
+          const tokenId = tokenIds[0];
+          const spreadUrl = `${this.clobApiUrl}/spread?token_id=${tokenId}`;
 
-          // Get best bid and ask from orderbooks
-          const yesBestBid = yesBook.bids[0]?.price;
-          const yesBestAsk = yesBook.asks[0]?.price;
-          const noBestBid = noBook.bids[0]?.price;
-          const noBestAsk = noBook.asks[0]?.price;
+          const response = await fetch(spreadUrl, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          });
+
+          if (!response.ok) {
+            logger.debug(`[PolymarketService] Failed to fetch spread for ${market.question}: ${response.status}`);
+            return null;
+          }
+
+          const spreadResponse = await response.json() as { spread: string };
+          const spread = parseFloat(spreadResponse.spread);
+
+          // Fetch orderbook to get best bid/ask prices for additional context
+          const orderbook = await this.getOrderBook(tokenId);
+          const bestBid = orderbook.bids[0]?.price ? parseFloat(orderbook.bids[0].price) : 0;
+          const bestAsk = orderbook.asks[0]?.price ? parseFloat(orderbook.asks[0].price) : 0;
 
           // Skip if no liquidity
-          if (!yesBestBid || !yesBestAsk || !noBestBid || !noBestAsk) {
+          if (bestBid === 0 || bestAsk === 0) {
             logger.debug(`[PolymarketService] No liquidity for ${market.question}`);
             return null;
           }
 
-          // Calculate spread (difference between best ask and best bid for YES token)
-          const bestBid = parseFloat(yesBestBid);
-          const bestAsk = parseFloat(yesBestAsk);
-          const spread = bestAsk - bestBid;
           const spreadPercentage = ((spread / bestAsk) * 100).toFixed(2);
 
-          // Calculate liquidity score based on spread and volume
+          // Calculate liquidity score based on spread
           let liquidityScore = 0;
           if (spread < 0.01) liquidityScore = 90 + (1 - spread / 0.01) * 10; // 90-100 for <1% spread
           else if (spread < 0.05) liquidityScore = 70 + (1 - spread / 0.05) * 20; // 70-90 for 1-5%
@@ -1256,7 +1307,7 @@ export class PolymarketService extends Service {
           return spreadData;
         } catch (error) {
           logger.debug(
-            `[PolymarketService] Failed to calculate spread for ${market.question}: ${error instanceof Error ? error.message : String(error)}`
+            `[PolymarketService] Failed to fetch spread for ${market.question}: ${error instanceof Error ? error.message : String(error)}`
           );
           return null;
         }
@@ -1271,7 +1322,7 @@ export class PolymarketService extends Service {
         timestamp: Date.now(),
       };
 
-      logger.info(`[PolymarketService] Calculated spreads for ${spreads.length}/${markets.length} markets`);
+      logger.info(`[PolymarketService] Fetched spreads for ${spreads.length}/${markets.length} markets`);
       return spreads;
     });
   }
@@ -1575,27 +1626,30 @@ export class PolymarketService extends Service {
    * Fetches major participants by position size.
    * Results are cached for 60s as holder data changes gradually.
    *
-   * @param marketId - Market condition ID
+   * IMPORTANT: This endpoint requires the condition ID (hex string starting with 0x),
+   * NOT the numeric market ID. Use the market's conditionId field.
+   *
+   * @param conditionId - Market condition ID (hex string, e.g., "0xfa48...")
    * @returns Array of top holders with position sizes
    */
-  async getTopHolders(marketId: string): Promise<TopHolder[]> {
-    logger.info(`[PolymarketService] Fetching top holders for market: ${marketId}`);
+  async getTopHolders(conditionId: string): Promise<TopHolder[]> {
+    logger.info(`[PolymarketService] Fetching top holders for market: ${conditionId}`);
 
     // Check LRU cache
     const cached = this.getCached(
-      marketId,
+      conditionId,
       this.topHoldersCache,
       this.topHoldersCacheOrder,
       this.topHoldersCacheTtl
     );
 
     if (cached) {
-      logger.debug(`[PolymarketService] Returning cached top holders (market: ${marketId})`);
+      logger.debug(`[PolymarketService] Returning cached top holders (market: ${conditionId})`);
       return cached.data;
     }
 
     return this.retryFetch(async () => {
-      const url = `${this.dataApiUrl}/holders?market=${marketId}`;
+      const url = `${this.dataApiUrl}/holders?market=${conditionId}`;
       const response = await this.fetchWithTimeout(url);
 
       if (!response.ok) {
@@ -1619,7 +1673,7 @@ export class PolymarketService extends Service {
 
       // Update LRU cache
       this.setCached(
-        marketId,
+        conditionId,
         {
           data: holders,
           timestamp: Date.now(),
@@ -1629,7 +1683,7 @@ export class PolymarketService extends Service {
         100 // Max 100 markets cached
       );
 
-      logger.info(`[PolymarketService] Fetched ${holders.length} top holders for market: ${marketId}`);
+      logger.info(`[PolymarketService] Fetched ${holders.length} top holders for market: ${conditionId}`);
       return holders;
     });
   }
