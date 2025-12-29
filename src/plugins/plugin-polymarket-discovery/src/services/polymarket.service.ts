@@ -667,22 +667,65 @@ export class PolymarketService extends Service {
    */
 
   /**
-   * Derive proxy wallet address from EOA address
+   * Check if address is a contract (proxy) or EOA
    *
-   * Uses @polymarket/sdk's getProxyWalletAddress to compute the deterministic
-   * proxy address for a user's EOA. Polymarket uses Gnosis Safe proxy wallets
-   * for trading to enable gasless orders via meta-transactions.
+   * Makes a simple RPC call to check if the address has bytecode.
+   * EOAs have no code, contracts/proxies do.
    *
-   * @param eoaAddress - User's externally owned account address
+   * @param address - Address to check
+   * @returns True if address is a contract (proxy), false if EOA
+   */
+  private async isContract(address: string): Promise<boolean> {
+    try {
+      // Use Polygon RPC to check for bytecode
+      const rpcUrl = "https://polygon-rpc.com";
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_getCode",
+          params: [address, "latest"],
+          id: 1,
+        }),
+      });
+
+      const data = await response.json() as { result: string };
+      // '0x' means no code (EOA), anything else means contract
+      return data.result !== "0x";
+    } catch (error) {
+      logger.warn(
+        `[PolymarketService] Failed to check if address is contract: ${error instanceof Error ? error.message : String(error)}. Assuming EOA.`
+      );
+      return false; // Default to treating as EOA on error
+    }
+  }
+
+  /**
+   * Get proxy wallet address from EOA or pass through if already proxy
+   *
+   * If the input is an EOA, derives the Gnosis Safe proxy address.
+   * If the input is already a proxy/contract address, returns it as-is.
+   * Polymarket uses Gnosis Safe proxy wallets for trading to enable
+   * gasless orders via meta-transactions.
+   *
+   * @param walletAddress - User's EOA or proxy wallet address
    * @returns Proxy wallet address (checksum format)
    */
-  deriveProxyAddress(eoaAddress: string): string {
-    logger.debug(`[PolymarketService] Deriving proxy address for EOA: ${eoaAddress}`);
+  async getOrDeriveProxyAddress(walletAddress: string): Promise<string> {
+    logger.debug(`[PolymarketService] Getting or deriving proxy for: ${walletAddress}`);
 
-    // Use @polymarket/sdk to derive proxy wallet address
-    // getProxyWalletAddress(factory, user) computes the deterministic CREATE2 address
-    const proxyAddress = getProxyWalletAddress(this.GNOSIS_PROXY_FACTORY, eoaAddress);
-    logger.info(`[PolymarketService] Derived proxy: ${proxyAddress} for EOA: ${eoaAddress}`);
+    // Check if address is already a contract (proxy)
+    const isProxy = await this.isContract(walletAddress);
+
+    if (isProxy) {
+      logger.info(`[PolymarketService] Address ${walletAddress} is already a proxy, using as-is`);
+      return walletAddress;
+    }
+
+    // It's an EOA, derive the proxy
+    const proxyAddress = getProxyWalletAddress(this.GNOSIS_PROXY_FACTORY, walletAddress);
+    logger.info(`[PolymarketService] Derived proxy: ${proxyAddress} from EOA: ${walletAddress}`);
     return proxyAddress;
   }
 
@@ -698,8 +741,8 @@ export class PolymarketService extends Service {
   async getUserPositions(walletAddress: string): Promise<Position[]> {
     logger.info(`[PolymarketService] Fetching positions for wallet: ${walletAddress}`);
 
-    // Derive proxy address if this is an EOA
-    const proxyAddress = this.deriveProxyAddress(walletAddress);
+    // Get proxy address (derive if EOA, pass through if already proxy)
+    const proxyAddress = await this.getOrDeriveProxyAddress(walletAddress);
 
     // Check LRU cache
     const cached = this.getCached(
@@ -753,8 +796,8 @@ export class PolymarketService extends Service {
   async getUserBalance(walletAddress: string): Promise<Balance> {
     logger.info(`[PolymarketService] Fetching balance for wallet: ${walletAddress}`);
 
-    // Derive proxy address if this is an EOA
-    const proxyAddress = this.deriveProxyAddress(walletAddress);
+    // Get proxy address (derive if EOA, pass through if already proxy)
+    const proxyAddress = await this.getOrDeriveProxyAddress(walletAddress);
 
     return this.retryFetch(async () => {
       const url = `${this.dataApiUrl}/value?user=${proxyAddress}`;
@@ -786,8 +829,8 @@ export class PolymarketService extends Service {
   async getUserTrades(walletAddress: string, limit: number = 100): Promise<Trade[]> {
     logger.info(`[PolymarketService] Fetching trades for wallet: ${walletAddress}, limit: ${limit}`);
 
-    // Derive proxy address if this is an EOA
-    const proxyAddress = this.deriveProxyAddress(walletAddress);
+    // Get proxy address (derive if EOA, pass through if already proxy)
+    const proxyAddress = await this.getOrDeriveProxyAddress(walletAddress);
 
     // Create cache key with limit
     const cacheKey = `${proxyAddress}-${limit}`;
