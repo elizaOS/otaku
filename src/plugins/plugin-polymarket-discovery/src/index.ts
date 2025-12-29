@@ -22,6 +22,7 @@ import { searchMarketsAction } from "./actions/searchMarkets.action";
 import { getMarketDetailAction } from "./actions/getMarketDetail.action";
 import { getMarketPriceAction } from "./actions/getMarketPrice.action";
 import { getMarketCategoriesAction } from "./actions/getMarketCategories.action";
+import { getMarketPriceHistoryAction } from "./actions/getMarketPriceHistory.action";
 
 // Types
 export type * from "./types";
@@ -34,6 +35,7 @@ export type * from "./types";
  * - SEARCH_POLYMARKETS: Search by keyword/category
  * - GET_POLYMARKET_DETAIL: Detailed market info
  * - GET_POLYMARKET_PRICE: Real-time pricing
+ * - GET_POLYMARKET_PRICE_HISTORY: Historical price charts
  * - GET_POLYMARKET_CATEGORIES: List categories
  *
  * Configuration:
@@ -55,6 +57,7 @@ export const polymarketDiscoveryPlugin: Plugin = {
     searchMarketsAction,
     getMarketDetailAction,
     getMarketPriceAction,
+    getMarketPriceHistoryAction,
     getMarketCategoriesAction,
   ],
   services: [PolymarketService],

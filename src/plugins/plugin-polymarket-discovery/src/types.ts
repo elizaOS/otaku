@@ -171,6 +171,37 @@ export interface FormattedMarket {
 }
 
 /**
+ * Historical price data point
+ */
+export interface PriceHistoryPoint {
+  t: number;  // Unix timestamp
+  p: string;  // Price as string (0.01 - 0.99)
+}
+
+/**
+ * Price history response from CLOB API
+ */
+export interface PriceHistoryResponse {
+  history: PriceHistoryPoint[];
+}
+
+/**
+ * Formatted price history for charting
+ */
+export interface MarketPriceHistory {
+  condition_id: string;
+  outcome: "YES" | "NO";
+  token_id: string;
+  interval: string;
+  data_points: Array<{
+    timestamp: number;
+    price: number;
+  }>;
+  current_price?: number;
+  market_question?: string;
+}
+
+/**
  * API error response
  */
 export interface PolymarketError {
