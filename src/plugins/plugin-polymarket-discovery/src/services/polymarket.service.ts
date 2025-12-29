@@ -13,6 +13,7 @@
  */
 
 import { type IAgentRuntime, Service, ServiceType, logger } from "@elizaos/core";
+import { getProxyWalletAddress } from "@polymarket/sdk";
 import type {
   PolymarketMarket,
   MarketsResponse,
@@ -25,6 +26,9 @@ import type {
   PolymarketServiceConfig,
   PriceHistoryResponse,
   MarketPriceHistory,
+  Position,
+  Balance,
+  Trade,
 } from "../types";
 
 export class PolymarketService extends Service {
@@ -34,11 +38,18 @@ export class PolymarketService extends Service {
   // API endpoints
   private gammaApiUrl: string = "https://gamma-api.polymarket.com";
   private clobApiUrl: string = "https://clob.polymarket.com";
+  private dataApiUrl: string = "https://data-api.polymarket.com";
+
+  // Proxy wallet constants
+  private readonly GNOSIS_PROXY_FACTORY = "0xaB45c5A4B0c941a2F231C04C3f49182e1A254052";
+  private readonly POLYGON_CHAIN_ID = 137;
 
   // Cache configuration
   private marketCacheTtl: number = 60000; // 1 minute
   private priceCacheTtl: number = 15000; // 15 seconds
   private priceHistoryCacheTtl: number = 300000; // 5 minutes (historical data changes less frequently)
+  private positionsCacheTtl: number = 60000; // 1 minute
+  private tradesCacheTtl: number = 30000; // 30 seconds
   private maxRetries: number = 3;
   private requestTimeout: number = 10000; // 10 seconds
   private maxMarketCacheSize: number = 100; // Max markets in cache
@@ -52,6 +63,10 @@ export class PolymarketService extends Service {
   private priceCacheOrder: string[] = []; // Track access order for LRU
   private priceHistoryCache: Map<string, { data: MarketPriceHistory; timestamp: number }> = new Map();
   private priceHistoryCacheOrder: string[] = []; // Track access order for LRU
+  private positionsCache: Map<string, { data: Position[]; timestamp: number }> = new Map();
+  private positionsCacheOrder: string[] = []; // Track access order for LRU
+  private tradesCache: Map<string, { data: Trade[]; timestamp: number }> = new Map();
+  private tradesCacheOrder: string[] = []; // Track access order for LRU
   private marketsListCache: { data: PolymarketMarket[]; timestamp: number } | null = null;
 
   constructor(runtime: IAgentRuntime) {
@@ -643,6 +658,176 @@ export class PolymarketService extends Service {
   }
 
   /**
+   * Phase 2: Portfolio Tracking Methods
+   */
+
+  /**
+   * Derive proxy wallet address from EOA address
+   *
+   * Uses @polymarket/sdk's getProxyWalletAddress to compute the deterministic
+   * proxy address for a user's EOA. Polymarket uses Gnosis Safe proxy wallets
+   * for trading to enable gasless orders via meta-transactions.
+   *
+   * @param eoaAddress - User's externally owned account address
+   * @returns Proxy wallet address (checksum format)
+   */
+  deriveProxyAddress(eoaAddress: string): string {
+    logger.debug(`[PolymarketService] Deriving proxy address for EOA: ${eoaAddress}`);
+
+    // Use @polymarket/sdk to derive proxy wallet address
+    // getProxyWalletAddress(factory, user) computes the deterministic CREATE2 address
+    const proxyAddress = getProxyWalletAddress(this.GNOSIS_PROXY_FACTORY, eoaAddress);
+    logger.info(`[PolymarketService] Derived proxy: ${proxyAddress} for EOA: ${eoaAddress}`);
+    return proxyAddress;
+  }
+
+  /**
+   * Get user positions across all markets
+   *
+   * Fetches active positions from Data API with automatic proxy address derivation.
+   * Results are cached for 60s to reduce API load.
+   *
+   * @param walletAddress - User's EOA or proxy wallet address
+   * @returns Array of positions with current values and P&L
+   */
+  async getUserPositions(walletAddress: string): Promise<Position[]> {
+    logger.info(`[PolymarketService] Fetching positions for wallet: ${walletAddress}`);
+
+    // Derive proxy address if this is an EOA
+    const proxyAddress = this.deriveProxyAddress(walletAddress);
+
+    // Check LRU cache
+    const cached = this.getCached(
+      proxyAddress,
+      this.positionsCache,
+      this.positionsCacheOrder,
+      this.positionsCacheTtl
+    );
+
+    if (cached) {
+      logger.debug(`[PolymarketService] Returning cached positions (wallet: ${proxyAddress})`);
+      return cached.data;
+    }
+
+    return this.retryFetch(async () => {
+      const url = `${this.dataApiUrl}/positions?user=${proxyAddress}`;
+      const response = await this.fetchWithTimeout(url);
+
+      if (!response.ok) {
+        throw new Error(`Data API error: ${response.status} ${response.statusText}`);
+      }
+
+      const positions = await response.json() as Position[];
+
+      // Update LRU cache
+      this.setCached(
+        proxyAddress,
+        {
+          data: positions,
+          timestamp: Date.now(),
+        },
+        this.positionsCache,
+        this.positionsCacheOrder,
+        100 // Max 100 wallets cached
+      );
+
+      logger.info(`[PolymarketService] Fetched ${positions.length} positions for wallet: ${proxyAddress}`);
+      return positions;
+    });
+  }
+
+  /**
+   * Get user balance and portfolio summary
+   *
+   * Fetches total portfolio value, available balance, and P&L metrics.
+   * Results are cached with positions data.
+   *
+   * @param walletAddress - User's EOA or proxy wallet address
+   * @returns Balance summary with total value and P&L
+   */
+  async getUserBalance(walletAddress: string): Promise<Balance> {
+    logger.info(`[PolymarketService] Fetching balance for wallet: ${walletAddress}`);
+
+    // Derive proxy address if this is an EOA
+    const proxyAddress = this.deriveProxyAddress(walletAddress);
+
+    return this.retryFetch(async () => {
+      const url = `${this.dataApiUrl}/value?user=${proxyAddress}`;
+      const response = await this.fetchWithTimeout(url);
+
+      if (!response.ok) {
+        throw new Error(`Data API error: ${response.status} ${response.statusText}`);
+      }
+
+      const balance = await response.json() as Balance;
+
+      logger.info(
+        `[PolymarketService] Fetched balance - Total: ${balance.total_value}, Available: ${balance.available_balance}`
+      );
+      return balance;
+    });
+  }
+
+  /**
+   * Get user trade history
+   *
+   * Fetches recent trades from Data API with automatic proxy address derivation.
+   * Results are cached for 30s to balance freshness with API load.
+   *
+   * @param walletAddress - User's EOA or proxy wallet address
+   * @param limit - Maximum number of trades to return (default: 100)
+   * @returns Array of trade history entries
+   */
+  async getUserTrades(walletAddress: string, limit: number = 100): Promise<Trade[]> {
+    logger.info(`[PolymarketService] Fetching trades for wallet: ${walletAddress}, limit: ${limit}`);
+
+    // Derive proxy address if this is an EOA
+    const proxyAddress = this.deriveProxyAddress(walletAddress);
+
+    // Create cache key with limit
+    const cacheKey = `${proxyAddress}-${limit}`;
+
+    // Check LRU cache
+    const cached = this.getCached(
+      cacheKey,
+      this.tradesCache,
+      this.tradesCacheOrder,
+      this.tradesCacheTtl
+    );
+
+    if (cached) {
+      logger.debug(`[PolymarketService] Returning cached trades (wallet: ${proxyAddress})`);
+      return cached.data;
+    }
+
+    return this.retryFetch(async () => {
+      const url = `${this.dataApiUrl}/trades?user=${proxyAddress}&limit=${limit}`;
+      const response = await this.fetchWithTimeout(url);
+
+      if (!response.ok) {
+        throw new Error(`Data API error: ${response.status} ${response.statusText}`);
+      }
+
+      const trades = await response.json() as Trade[];
+
+      // Update LRU cache
+      this.setCached(
+        cacheKey,
+        {
+          data: trades,
+          timestamp: Date.now(),
+        },
+        this.tradesCache,
+        this.tradesCacheOrder,
+        100 // Max 100 wallet-limit combinations cached
+      );
+
+      logger.info(`[PolymarketService] Fetched ${trades.length} trades for wallet: ${proxyAddress}`);
+      return trades;
+    });
+  }
+
+  /**
    * Clear all caches
    */
   clearCache(): void {
@@ -652,6 +837,10 @@ export class PolymarketService extends Service {
     this.priceCacheOrder = [];
     this.priceHistoryCache.clear();
     this.priceHistoryCacheOrder = [];
+    this.positionsCache.clear();
+    this.positionsCacheOrder = [];
+    this.tradesCache.clear();
+    this.tradesCacheOrder = [];
     this.marketsListCache = null;
     logger.info("[PolymarketService] Cache cleared");
   }

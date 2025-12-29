@@ -22,7 +22,8 @@
     "typecheck": "tsc --project tsconfig.build.json --noEmit"
   },
   "dependencies": {
-    "@elizaos/core": "alpha"
+    "@elizaos/core": "alpha",
+    "@polymarket/sdk": "^6.0.1"
   },
   "peerDependencies": {
     "@elizaos/core": "alpha"

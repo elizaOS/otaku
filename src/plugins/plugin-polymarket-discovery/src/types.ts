@@ -210,3 +210,58 @@ export interface PolymarketError {
   statusCode?: number;
   details?: unknown;
 }
+
+/**
+ * Phase 2: Portfolio Tracking Types
+ */
+
+/**
+ * Proxy wallet configuration
+ */
+export interface ProxyWalletConfig {
+  gnosisProxyFactory: string;  // Gnosis Safe proxy factory address
+  customProxyFactory?: string;  // Custom proxy factory (if needed)
+}
+
+/**
+ * User position in a market
+ */
+export interface Position {
+  market: string;              // Market identifier
+  condition_id: string;        // Condition ID
+  asset_id: string;            // Token ID
+  outcome: "YES" | "NO";       // Outcome position
+  size: string;                // Position size
+  value: string;               // Current value in USD
+  avg_price: string;           // Average entry price
+  current_price: string;       // Current market price
+  pnl: string;                 // Profit/loss
+  pnl_percentage: string;      // PnL as percentage
+}
+
+/**
+ * User balance information
+ */
+export interface Balance {
+  total_value: string;         // Total portfolio value in USD
+  available_balance: string;   // Available USDC balance
+  positions_value: string;     // Value locked in positions
+  realized_pnl: string;        // Realized profit/loss
+  unrealized_pnl: string;      // Unrealized profit/loss
+}
+
+/**
+ * Trade history entry
+ */
+export interface Trade {
+  id: string;                  // Trade ID
+  market: string;              // Market identifier
+  condition_id: string;        // Condition ID
+  asset_id: string;            // Token ID
+  outcome: "YES" | "NO";       // Outcome traded
+  side: "BUY" | "SELL";        // Trade side
+  size: string;                // Trade size
+  price: string;               // Execution price
+  timestamp: number;           // Unix timestamp
+  transaction_hash?: string;   // On-chain tx hash
+}
