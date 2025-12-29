@@ -196,6 +196,7 @@ export interface MarketPriceHistory {
   data_points: Array<{
     timestamp: number;
     price: number;
+    date: string; // Formatted date for UI display (e.g., "Jan 15")
   }>;
   current_price?: number;
   market_question?: string;

@@ -619,10 +619,15 @@ export class PolymarketService extends Service {
       const data = (await response.json()) as PriceHistoryResponse;
 
       // Format data for charting (convert to numbers and timestamps to ms)
-      const dataPoints = data.history.map((point) => ({
-        timestamp: point.t * 1000, // Convert seconds to milliseconds
-        price: parseFloat(point.p),
-      }));
+      const dataPoints = data.history.map((point) => {
+        const timestamp = point.t * 1000; // Convert seconds to milliseconds
+        const date = new Date(timestamp);
+        return {
+          timestamp,
+          price: parseFloat(point.p),
+          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), // Format: "Jan 15"
+        };
+      });
 
       // Calculate current price (last data point)
       const currentPrice =
