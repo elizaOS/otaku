@@ -1,0 +1,13 @@
+{
+  "name": "@otaku/plugin-cowswap",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "type": "module",
+  "dependencies": {
+    "@cowprotocol/cow-sdk": "^7.2.9",
+    "@elizaos/core": "*",
+    "@ethersproject/providers": "^5.7.2",
+    "@ethersproject/abstract-signer": "^5.7.2",
+    "viem": "^2.0.0"
+  }
+}

@@ -30,6 +30,7 @@
     "@coinbase/cdp-react": "0.0.70",
     "@coinbase/cdp-sdk": "1.38.6",
     "@coinbase/x402": "0.7.3",
+    "@cowprotocol/cow-sdk": "^7.2.9",
     "@elizaos/api-client": "workspace:*",
     "@elizaos/core": "1.6.4",
     "@elizaos/plugin-analytics": "1.0.1",
