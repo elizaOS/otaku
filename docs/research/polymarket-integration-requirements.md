@@ -652,3 +652,9 @@ Note: Polymarket is not available to US residents. Trading while circumventing g
 6. **MCP Integration**: Should Polymarket be exposed as an MCP server for other agents to use?
 
 7. **Rate Limiting**: What are CDP API signing rate limits for high-frequency trading scenarios?
+
+---
+
+## See Also
+
+- [Polymarket Discovery Roadmap](./polymarket-discovery-roadmap.md) - Detailed phased implementation plan for all read-only discovery actions based on https://docs.polymarket.com/llms.txt

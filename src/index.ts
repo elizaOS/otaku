@@ -16,6 +16,7 @@ import openrouterPlugin from '@elizaos/plugin-openrouter';
 import mcpPlugin from '@elizaos/plugin-mcp';
 import morphoPlugin from './plugins/plugin-morpho/src/index.ts';
 import gamificationPlugin from './plugins/plugin-gamification/src/index.ts';
+import polymarketDiscoveryPlugin from './plugins/plugin-polymarket-discovery/src/index.ts';
 
 const initCharacter = ({ runtime }: { runtime: IAgentRuntime }) => {
   logger.info('Initializing character');
@@ -42,6 +43,7 @@ export const projectAgent: ProjectAgent = {
     clankerPlugin,
     morphoPlugin,
     gamificationPlugin,
+    polymarketDiscoveryPlugin,
     // x402DiscoveryPlugin,
   ],
 };
