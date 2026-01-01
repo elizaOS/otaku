@@ -93,7 +93,12 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
     },
     slippage: {
       type: "number",
-      description: "Slippage tolerance (0-1, e.g., 0.01 for 1%). Default: 0.01",
+      description: "Slippage tolerance as percentage (e.g., 1 for 1%, 5 for 5%). Default: 1. Max: 5% unless confirmed.",
+      required: false,
+    },
+    confirmHighSlippage: {
+      type: "boolean",
+      description: "Set to true to confirm slippage above 5%. Required if slippage > 5.",
       required: false,
     },
   },
@@ -168,7 +173,8 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
       const dstToken = params?.dstToken?.toLowerCase().trim();
       const dstChain = params?.dstChain?.toLowerCase().trim();
       const amount = params?.amount?.trim();
-      const slippage = params?.slippage ?? 0.01;
+      const slippage = params?.slippage ?? 1; // percentage (1 = 1%)
+      const confirmHighSlippage = params?.confirmHighSlippage ?? false;
 
       // Input parameters object for response
       const inputParams = {
@@ -178,7 +184,25 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
         dstChain,
         amount,
         slippage,
+        confirmHighSlippage,
       };
+
+      // Validate slippage - max 5% unless explicitly confirmed
+      if (slippage > 5 && !confirmHighSlippage) {
+        const errorMsg = `⚠️ Slippage of ${slippage}% is above the recommended maximum of 5%. This could result in significant value loss. To proceed, please confirm you're okay with high slippage.`;
+        logger.warn(`[MEE_FUSION_SWAP] High slippage rejected: ${slippage}%`);
+        callback?.({ text: errorMsg });
+        return {
+          text: errorMsg,
+          success: false,
+          error: "high_slippage_not_confirmed",
+          input: inputParams,
+        } as ActionResult;
+      }
+
+      if (slippage > 5 && confirmHighSlippage) {
+        callback?.({ text: `⚠️ Proceeding with high slippage of ${slippage}% as confirmed.` });
+      }
 
       // Validation
       if (!srcToken) {
@@ -385,14 +409,14 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
         });
       }
 
-      // Build simple intent flow
+      // Build simple intent flow (convert slippage from percentage to decimal)
       const swapFlow = biconomyService.buildSimpleIntentFlow(
         srcChainId,
         dstChainId,
         srcTokenAddress,
         dstTokenAddress,
         swapAmountInWei.toString(),
-        slippage
+        slippage / 100
       );
 
       // Build withdrawal instruction to transfer output tokens back to EOA
@@ -448,7 +472,7 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
 
 **From:** ${amount} ${srcToken.toUpperCase()} on ${srcChain}
 **To:** ${dstToken.toUpperCase()} on ${dstChain}
-**Slippage:** ${(slippage * 100).toFixed(1)}%
+**Slippage:** ${slippage}%
 **Gas:** Paid in ${gasTokenDescription}
 
 **Supertx Hash:** \`${result.supertxHash}\`
@@ -509,6 +533,7 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
           dstChain: params?.dstChain,
           amount: params?.amount,
           slippage: params?.slippage,
+          confirmHighSlippage: params?.confirmHighSlippage,
         };
       } catch (e) {
         // If we can't get params, just use empty object

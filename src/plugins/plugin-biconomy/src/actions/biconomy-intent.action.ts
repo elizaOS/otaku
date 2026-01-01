@@ -95,7 +95,12 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
     },
     slippage: {
       type: "number",
-      description: "Slippage tolerance (0-1, e.g., 0.01 for 1%). Default: 0.01",
+      description: "Slippage tolerance as percentage (e.g., 1 for 1%, 5 for 5%). Default: 1. Max: 5% unless confirmed.",
+      required: false,
+    },
+    confirmHighSlippage: {
+      type: "boolean",
+      description: "Set to true to confirm slippage above 5%. Required if slippage > 5.",
       required: false,
     },
   },
@@ -152,7 +157,8 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
       const targetTokens = params?.targetTokens?.toLowerCase().trim();
       const targetChains = params?.targetChains?.toLowerCase().trim();
       const targetWeights = params?.targetWeights?.trim();
-      const slippage = params?.slippage ?? 0.01;
+      const slippage = params?.slippage ?? 1; // percentage (1 = 1%)
+      const confirmHighSlippage = params?.confirmHighSlippage ?? false;
 
       // Input parameters object for response
       const inputParams = {
@@ -163,7 +169,25 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
         targetChains,
         targetWeights,
         slippage,
+        confirmHighSlippage,
       };
+
+      // Validate slippage - max 5% unless explicitly confirmed
+      if (slippage > 5 && !confirmHighSlippage) {
+        const errorMsg = `⚠️ Slippage of ${slippage}% is above the recommended maximum of 5%. This could result in significant value loss. To proceed, please confirm you're okay with high slippage.`;
+        logger.warn(`[MEE_SUPERTX_REBALANCE] High slippage rejected: ${slippage}%`);
+        callback?.({ text: errorMsg });
+        return {
+          text: errorMsg,
+          success: false,
+          error: "high_slippage_not_confirmed",
+          input: inputParams,
+        } as ActionResult;
+      }
+
+      if (slippage > 5 && confirmHighSlippage) {
+        callback?.({ text: `⚠️ Proceeding with high slippage of ${slippage}% as confirmed.` });
+      }
 
       // Validation
       if (!inputToken || !inputChain || !inputAmount) {
@@ -308,7 +332,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
         });
       }
 
-      // Build compose flow for rebalancing
+      // Build compose flow for rebalancing (convert slippage from percentage to decimal)
       const rebalanceFlow = biconomyService.buildMultiIntentFlow(
         [{ chainId: inputChainId, tokenAddress: inputTokenAddress, amount: effectiveAmountInWei.toString() }],
         targetChainIds.map((chainId: number | undefined, i: number) => ({
@@ -316,7 +340,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
           tokenAddress: targetTokenAddresses[i],
           weight: weights[i],
         })),
-        slippage
+        slippage / 100
       );
 
       // Build withdrawal instructions for each target token to transfer back to EOA
@@ -379,7 +403,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
 
 **Input:** ${inputAmount} ${inputToken.toUpperCase()} on ${inputChain}
 **Output:** ${targetDesc}
-**Slippage:** ${(slippage * 100).toFixed(1)}%
+**Slippage:** ${slippage}%
 **Gas:** Paid in ${gasTokenDescription}
 
 **Supertx Hash:** \`${result.supertxHash}\`
