@@ -18,6 +18,11 @@ import {
 import { BiconomyService } from "../services/biconomy.service";
 import { type QuoteRequest } from "../types";
 import { tryGetBaseUsdcFeeToken } from "../utils/fee-token";
+import {
+  DEFAULT_SLIPPAGE,
+  validateSlippage,
+  slippageToDecimal,
+} from "../utils/slippage";
 
 // CDP network mapping
 const CDP_NETWORK_MAP: Record<string, CdpNetwork> = {
@@ -157,7 +162,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
       const targetTokens = params?.targetTokens?.toLowerCase().trim();
       const targetChains = params?.targetChains?.toLowerCase().trim();
       const targetWeights = params?.targetWeights?.trim();
-      const slippage = params?.slippage ?? 1; // percentage (1 = 1%)
+      const slippage = params?.slippage ?? DEFAULT_SLIPPAGE;
       const confirmHighSlippage = params?.confirmHighSlippage ?? false;
 
       // Input parameters object for response
@@ -173,20 +178,15 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
       };
 
       // Validate slippage - max 5% unless explicitly confirmed
-      if (slippage > 5 && !confirmHighSlippage) {
-        const errorMsg = `⚠️ Slippage of ${slippage}% is above the recommended maximum of 5%. This could result in significant value loss. To proceed, please confirm you're okay with high slippage.`;
-        logger.warn(`[MEE_SUPERTX_REBALANCE] High slippage rejected: ${slippage}%`);
-        callback?.({ text: errorMsg });
-        return {
-          text: errorMsg,
-          success: false,
-          error: "high_slippage_not_confirmed",
-          input: inputParams,
-        } as ActionResult;
-      }
-
-      if (slippage > 5 && confirmHighSlippage) {
-        callback?.({ text: `⚠️ Proceeding with high slippage of ${slippage}% as confirmed.` });
+      const slippageValidation = validateSlippage(
+        slippage,
+        confirmHighSlippage,
+        inputParams,
+        "MEE_SUPERTX_REBALANCE",
+        callback
+      );
+      if (!slippageValidation.valid) {
+        return slippageValidation.errorResult!;
       }
 
       // Validation
@@ -332,7 +332,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
         });
       }
 
-      // Build compose flow for rebalancing (convert slippage from percentage to decimal)
+      // Build compose flow for rebalancing
       const rebalanceFlow = biconomyService.buildMultiIntentFlow(
         [{ chainId: inputChainId, tokenAddress: inputTokenAddress, amount: effectiveAmountInWei.toString() }],
         targetChainIds.map((chainId: number | undefined, i: number) => ({
@@ -340,7 +340,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
           tokenAddress: targetTokenAddresses[i],
           weight: weights[i],
         })),
-        slippage / 100
+        slippageToDecimal(slippage)
       );
 
       // Build withdrawal instructions for each target token to transfer back to EOA
