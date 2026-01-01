@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "bun run build.ts",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "bun test src/**/*.test.ts"
   },
   "dependencies": {
     "@elizaos/core": "*",
