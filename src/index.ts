@@ -36,7 +36,7 @@ export const projectAgent: ProjectAgent = {
     coingeckoPlugin, 
     webSearchPlugin,
     defiLlamaPlugin,
-    relayPlugin,
+    // relayPlugin,
     etherscanPlugin,
     mcpPlugin,
     analyticsPlugin,

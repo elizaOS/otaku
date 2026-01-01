@@ -236,20 +236,25 @@ export async function resolveTokenToAddress(
   logger.debug(`Resolving token: ${token} on network: ${network}`);
   const trimmedToken = token.trim();
   
-  // Handle native gas tokens
-  // EXCEPTION: On Polygon, ETH refers to WETH (bridged ETH), not the native gas token
+  // Handle native gas tokens by mapping to their canonical wrapped versions.
   if (trimmedToken.toLowerCase() === "eth") {
-    if (network === "polygon") {
-      logger.debug(`ETH on Polygon is WETH, using WETH contract address`);
-      return "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619";
+    const wrappedEth = HARDCODED_TOKEN_ADDRESSES[network]?.["weth"];
+    if (wrappedEth) {
+      logger.info(`Mapping ETH to WETH for ${network}: ${wrappedEth}`);
+      return wrappedEth as `0x${string}`;
     }
-    logger.debug(`Token ${token} is a native token, using zero address`);
+    logger.warn(`No WETH mapping found for ${network}, falling back to zero address`);
     return "0x0000000000000000000000000000000000000000";
   }
   
-  // Handle MATIC/POL on Polygon (native gas token)
+  // Handle MATIC/POL on Polygon (use WMATIC/WPOL)
   if ((trimmedToken.toLowerCase() === "matic" || trimmedToken.toLowerCase() === "pol") && network === "polygon") {
-    logger.debug(`Token ${token} is the native gas token on Polygon, using zero address`);
+    const wrappedMatic = HARDCODED_TOKEN_ADDRESSES[network]?.["wmatic"] ?? HARDCODED_TOKEN_ADDRESSES[network]?.["wpol"];
+    if (wrappedMatic) {
+      logger.info(`Mapping ${token} to WMATIC/WPOL on Polygon: ${wrappedMatic}`);
+      return wrappedMatic as `0x${string}`;
+    }
+    logger.warn(`No WMATIC mapping found for Polygon, falling back to zero address`);
     return "0x0000000000000000000000000000000000000000";
   }
   

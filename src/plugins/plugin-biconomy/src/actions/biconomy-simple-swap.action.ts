@@ -36,6 +36,14 @@ const resolveCdpNetwork = (chainName: string): CdpNetwork => {
   return network;
 };
 
+const FUNDING_BUFFER_BPS = 50n; // 0.50% safety buffer for orchestration fees
+const BPS_DENOMINATOR = 10_000n;
+const addFundingBuffer = (amount: bigint): bigint => {
+  const buffer = (amount * FUNDING_BUFFER_BPS + (BPS_DENOMINATOR - 1n)) / BPS_DENOMINATOR;
+  return amount + (buffer > 0n ? buffer : 1n);
+};
+const bufferPercentLabel = (Number(FUNDING_BUFFER_BPS) / 100).toFixed(2);
+
 /**
  * MEE Fusion Swap Action
  *
@@ -306,6 +314,8 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
 
       const userAddress = viemClient.address as `0x${string}`;
       const cdpAccount = viemClient.cdpAccount; // Use CDP account for native EIP-712 signing
+      const walletClient = viemClient.walletClient;
+      const publicClient = viemClient.publicClient;
 
       // Resolve token addresses using CoinGecko (same as CDP/Relay)
       const srcTokenAddress = await resolveTokenToAddress(srcToken, srcChain);
@@ -335,6 +345,7 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
       // Get token decimals from CoinGecko
       const decimals = await getTokenDecimals(srcTokenAddress, srcChain);
       const amountInWei = parseUnits(amount, decimals);
+      const fundingAmountInWei = addFundingBuffer(amountInWei);
 
       // Build simple intent flow
       const swapFlow = biconomyService.buildSimpleIntentFlow(
@@ -354,21 +365,21 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
         userAddress
       );
 
-      // Build quote request - using EOA mode since CDP wallets are EOAs
-      // Includes swap + withdrawal to send output tokens directly to user's EOA
+      // Build quote request - use classic EOA mode with funding token provided
+      logger.info(`[MEE_FUSION_SWAP] Adding ${bufferPercentLabel}% buffer to funding tokens`);
+      callback?.({ text: `⚙️ Adding ${bufferPercentLabel}% buffer to cover Biconomy orchestration fees` });
+
       const quoteRequest: QuoteRequest = {
         mode: "eoa",
         ownerAddress: userAddress,
-        composeFlows: [swapFlow, withdrawalFlow], // Swap then withdraw to EOA
-        // For EOA mode, we need to specify funding tokens
+        composeFlows: [swapFlow, withdrawalFlow],
         fundingTokens: [
           {
             tokenAddress: srcTokenAddress,
             chainId: srcChainId,
-            amount: amountInWei.toString(),
+            amount: fundingAmountInWei.toString(),
           },
         ],
-        // Use input token to pay for gas (gasless from user perspective)
         feeToken: {
           address: srcTokenAddress,
           chainId: srcChainId,
@@ -381,9 +392,10 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
       // This bypasses the RPC and signs directly on Coinbase servers
       const result = await biconomyService.executeIntent(
         quoteRequest,
-        cdpAccount, // CDP account for native signing
-        undefined,  // No walletClient needed
-        undefined,  // No account needed
+        cdpAccount,
+        walletClient,
+        { address: userAddress },
+        publicClient,
         (status) => callback?.({ text: status })
       );
 

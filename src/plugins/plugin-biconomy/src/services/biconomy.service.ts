@@ -1,5 +1,5 @@
 import { IAgentRuntime, logger, Service } from "@elizaos/core";
-import { type WalletClient, type TypedDataDomain } from "viem";
+import { type WalletClient, type TypedDataDomain, type Account, type PublicClient } from "viem";
 import {
   type ComposeFlow,
   type ExecuteResponse,
@@ -33,6 +33,9 @@ interface CdpAccount {
 
 const BICONOMY_API_URL = "https://api.biconomy.io";
 const EXPLORER_URL = "https://meescan.biconomy.io";
+const BPS_DENOMINATOR = 10_000n;
+const FUNDING_RETRY_INCREMENT_BPS = 250n; // +2.5% per retry
+const FUNDING_RETRY_MAX_ATTEMPTS = 3;
 
 /**
  * Biconomy Service
@@ -89,13 +92,7 @@ export class BiconomyService extends Service {
 
       if (!response.ok) {
         const errorText = await response.text();
-        
-        // Check for 412 (authorization required for EIP-7702)
-        if (response.status === 412) {
-          const errorData = JSON.parse(errorText);
-          throw new Error(`Authorization required: ${JSON.stringify(errorData.authorizations)}`);
-        }
-        
+
         throw new Error(`Quote request failed: ${response.status} ${errorText}`);
       }
 
@@ -124,7 +121,8 @@ export class BiconomyService extends Service {
     quote: QuoteResponse,
     cdpAccount?: CdpAccount,
     walletClient?: WalletClient,
-    account?: { address: `0x${string}` }
+    account?: { address: `0x${string}` },
+    publicClient?: PublicClient
   ): Promise<PayloadToSign[]> {
     const signedPayloads: PayloadToSign[] = [];
 
@@ -132,46 +130,70 @@ export class BiconomyService extends Service {
     if (!cdpAccount && !walletClient) {
       throw new Error("Either cdpAccount or walletClient must be provided");
     }
-    if (walletClient && !account) {
-      throw new Error("account address is required when using walletClient");
-    }
 
     for (const payload of quote.payloadToSign) {
       let signature: string;
 
+      const signTypedPayload = async (): Promise<string> => {
+        const signablePayload = payload.signablePayload;
+        if (!signablePayload) {
+          throw new Error("Missing signable payload");
+        }
+        if (typeof signablePayload.message === "string") {
+          throw new Error("Expected typed data payload but received simple message");
+        }
+
+        if (cdpAccount) {
+          logger.info(`[BICONOMY SERVICE] Signing typed data using CDP account native method`);
+          return cdpAccount.signTypedData({
+            domain: signablePayload.domain as TypedDataDomain,
+            types: signablePayload.types as Record<string, Array<{ name: string; type: string }>>,
+            primaryType: signablePayload.primaryType,
+            message: signablePayload.message as Record<string, unknown>,
+          });
+        }
+
+        if (walletClient) {
+          const walletAccount = this.getWalletAccount(walletClient, account);
+          if (!walletAccount) {
+            throw new Error("Wallet client account is required for signing typed payloads");
+          }
+          logger.info(`[BICONOMY SERVICE] Signing typed data using viem wallet client`);
+          return walletClient.signTypedData({
+            account: walletAccount,
+            domain: signablePayload.domain as TypedDataDomain,
+            types: signablePayload.types as Record<string, Array<{ name: string; type: string }>>,
+            primaryType: signablePayload.primaryType,
+            message: signablePayload.message,
+          });
+        }
+
+        throw new Error("No valid signer available for typed payload");
+      };
+
       switch (quote.quoteType) {
         case "permit":
-        case "simple":
-          // EIP-712 typed data signing
-          if (cdpAccount) {
-            // Use CDP account's native signTypedData method (preferred)
-            // This signs on Coinbase's servers, not through RPC
-            logger.info(`[BICONOMY SERVICE] Signing typed data using CDP account native method`);
-            signature = await cdpAccount.signTypedData({
-              domain: payload.signablePayload.domain as TypedDataDomain,
-              types: payload.signablePayload.types as Record<string, Array<{ name: string; type: string }>>,
-              primaryType: payload.signablePayload.primaryType,
-              message: payload.signablePayload.message as Record<string, unknown>,
-            });
-          } else if (walletClient && account) {
-            // Fallback to viem wallet client (for non-CDP wallets)
-            logger.info(`[BICONOMY SERVICE] Signing typed data using viem wallet client`);
-            signature = await walletClient.signTypedData({
-              account: account.address,
-              domain: payload.signablePayload.domain as TypedDataDomain,
-              types: payload.signablePayload.types as Record<string, Array<{ name: string; type: string }>>,
-              primaryType: payload.signablePayload.primaryType,
-              message: payload.signablePayload.message,
-            });
+          signature = await signTypedPayload();
+          break;
+        case "simple": {
+          const rawMessage = payload.signablePayload?.message;
+          if (typeof rawMessage === "string") {
+            signature = await this.signSimpleMessage(rawMessage, walletClient, account);
           } else {
-            throw new Error("No valid signer available");
+            signature = await signTypedPayload();
           }
           break;
+        }
 
-        case "onchain":
-          // For onchain type, we need to send an approval transaction first
-          // The signature field will contain the tx hash
-          throw new Error("Onchain approval not yet implemented - token does not support EIP-2612");
+        case "onchain": {
+          signature = await this.executeOnchainPayload(
+            payload,
+            walletClient,
+            account,
+            publicClient
+          );
+          break;
+        }
 
         default:
           throw new Error(`Unknown quote type: ${quote.quoteType}`);
@@ -184,6 +206,115 @@ export class BiconomyService extends Service {
     }
 
     return signedPayloads;
+  }
+
+  private getWalletAccount(
+    walletClient?: WalletClient,
+    account?: { address: `0x${string}` }
+  ): Account | `0x${string}` | undefined {
+    if (!walletClient) {
+      return account?.address;
+    }
+
+    const walletAccount = (walletClient as WalletClient & { account?: unknown }).account;
+    return walletAccount ?? account?.address;
+  }
+
+  private async signSimpleMessage(
+    message: string,
+    walletClient?: WalletClient,
+    account?: { address: `0x${string}` }
+  ): Promise<`0x${string}`> {
+    if (!walletClient || typeof walletClient.signMessage !== "function") {
+      throw new Error("Simple payload signing requires a wallet client with signMessage support");
+    }
+
+    const walletAccount = this.getWalletAccount(walletClient, account);
+    if (!walletAccount) {
+      throw new Error("Wallet client account is required for signing simple payloads");
+    }
+
+    return walletClient.signMessage({
+      account: walletAccount,
+      message,
+    });
+  }
+
+  private async executeOnchainPayload(
+    payload: PayloadToSign,
+    walletClient?: WalletClient,
+    account?: { address: `0x${string}` },
+    publicClient?: PublicClient
+  ): Promise<`0x${string}`> {
+    if (!walletClient || typeof walletClient.sendTransaction !== "function") {
+      throw new Error("Onchain approval requires a wallet client capable of sending transactions");
+    }
+
+    const walletAccount = this.getWalletAccount(walletClient, account);
+    if (!walletAccount) {
+      throw new Error("Wallet client account is required for onchain approvals");
+    }
+
+    const to = payload.to;
+    const data = payload.data;
+    if (!to || !data) {
+      throw new Error("Onchain payload missing transaction target or calldata");
+    }
+
+    const chainIdFromPayload = payload.chainId;
+    const walletChainId = (walletClient.chain as { id?: number } | undefined)?.id;
+    if (chainIdFromPayload && walletChainId && chainIdFromPayload !== walletChainId) {
+      logger.warn(
+        `[BICONOMY SERVICE] Wallet client chainId (${walletChainId}) differs from payload chainId (${chainIdFromPayload}). Ensure the client is initialized for the funding chain.`
+      );
+    }
+
+    const value = this.parseOnchainValue(payload.value);
+    const gasOverride = payload.gasLimit ? BigInt(payload.gasLimit) : undefined;
+
+    logger.info("[BICONOMY SERVICE] Sending onchain approval transaction...");
+    const txHash = await walletClient.sendTransaction({
+      account: walletAccount,
+      to,
+      data,
+      value,
+      chain: walletClient.chain,
+      ...(gasOverride ? { gas: gasOverride } : {}),
+    } as any);
+
+    if (publicClient && typeof publicClient.waitForTransactionReceipt === "function") {
+      logger.info("[BICONOMY SERVICE] Waiting for approval receipt...");
+      await publicClient.waitForTransactionReceipt({ hash: txHash });
+    }
+
+    logger.info(`[BICONOMY SERVICE] Onchain approval confirmed: ${txHash}`);
+    return txHash;
+  }
+
+  private parseOnchainValue(value?: string | number | bigint): bigint {
+    if (value === undefined || value === null) {
+      return 0n;
+    }
+
+    if (typeof value === "bigint") {
+      return value;
+    }
+
+    if (typeof value === "number") {
+      return BigInt(value);
+    }
+
+    const serialized = value.toString().trim();
+    if (serialized.length === 0) {
+      return 0n;
+    }
+
+    try {
+      return BigInt(serialized);
+    } catch (error) {
+      logger.warn(`[BICONOMY SERVICE] Failed to parse onchain value "${value}", defaulting to 0`);
+      return 0n;
+    }
   }
 
   /**
@@ -269,6 +400,7 @@ export class BiconomyService extends Service {
    * @param cdpAccount - CDP account for signing (preferred - signs on Coinbase servers)
    * @param walletClient - Viem wallet client (fallback for non-CDP wallets)
    * @param account - Account address (required if using walletClient)
+   * @param publicClient - Viem public client for waiting on onchain approvals
    * @param onProgress - Progress callback
    */
   async executeIntent(
@@ -276,16 +408,22 @@ export class BiconomyService extends Service {
     cdpAccount?: CdpAccount,
     walletClient?: WalletClient,
     account?: { address: `0x${string}` },
+    publicClient?: PublicClient,
     onProgress?: (status: string) => void
   ): Promise<ExecuteResponse> {
     try {
-      // Step 1: Get quote
-      onProgress?.("Getting quote from Biconomy...");
-      const quote = await this.getQuote(request);
+      // Step 1: Get quote (auto-retrying if funding buffer is insufficient)
+      const quote = await this.getQuoteWithFundingRetries(request, onProgress);
 
       // Step 2: Sign payloads
       onProgress?.(`Signing ${quote.payloadToSign.length} payload(s)...`);
-      const signedPayloads = await this.signPayloads(quote, cdpAccount, walletClient, account);
+      const signedPayloads = await this.signPayloads(
+        quote,
+        cdpAccount,
+        walletClient,
+        account,
+        publicClient
+      );
 
       // Step 3: Execute
       onProgress?.("Executing supertransaction...");
@@ -418,6 +556,91 @@ export class BiconomyService extends Service {
    */
   getChainName(chainId: number): string {
     return CHAIN_ID_TO_NAME[chainId] || `Chain ${chainId}`;
+  }
+
+  private async getQuoteWithFundingRetries(
+    request: QuoteRequest,
+    onProgress?: (status: string) => void
+  ): Promise<QuoteResponse> {
+    let currentRequest = this.cloneQuoteRequest(request);
+
+    for (let attempt = 0; attempt <= FUNDING_RETRY_MAX_ATTEMPTS; attempt++) {
+      try {
+        const attemptLabel = attempt === 0 ? "Getting quote from Biconomy..." : `Getting quote (retry ${attempt})...`;
+        onProgress?.(attemptLabel);
+        return await this.getQuote(currentRequest);
+      } catch (error) {
+        const err = error as Error;
+        const canRetry =
+          attempt < FUNDING_RETRY_MAX_ATTEMPTS &&
+          !!currentRequest.fundingTokens?.length &&
+          this.isFundingShortfallError(err);
+
+        if (!canRetry) {
+          logger.error(`[BICONOMY SERVICE] Failed to get quote: ${err.message}`);
+          throw err;
+        }
+
+        currentRequest = this.applyFundingRetryBuffer(currentRequest, FUNDING_RETRY_INCREMENT_BPS);
+        const cumulativeBps = FUNDING_RETRY_INCREMENT_BPS * BigInt(attempt + 1);
+        const retryMessage = `Funding shortfall detected. Increasing funding buffer to +${this.formatBps(
+          cumulativeBps
+        )}% and retrying...`;
+        logger.warn(`[BICONOMY SERVICE] ${retryMessage}`);
+        onProgress?.(retryMessage);
+      }
+    }
+
+    throw new Error("Failed to obtain Biconomy quote after funding retries");
+  }
+
+  private cloneQuoteRequest(request: QuoteRequest): QuoteRequest {
+    return {
+      ...request,
+      composeFlows: [...request.composeFlows],
+      fundingTokens: request.fundingTokens?.map((token) => ({ ...token })),
+      feeToken: request.feeToken ? { ...request.feeToken } : undefined,
+    };
+  }
+
+  private isFundingShortfallError(error: Error): boolean {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("insufficient funding amount") ||
+      message.includes("not enough eoa balance to pay orchestration fee")
+    );
+  }
+
+  private applyFundingRetryBuffer(request: QuoteRequest, incrementBps: bigint): QuoteRequest {
+    if (!request.fundingTokens?.length) {
+      return request;
+    }
+
+    const multiplier = BPS_DENOMINATOR + incrementBps;
+    return {
+      ...request,
+      fundingTokens: request.fundingTokens.map((token) => {
+        try {
+          const current = BigInt(token.amount);
+          const adjusted = (current * multiplier + (BPS_DENOMINATOR - 1n)) / BPS_DENOMINATOR;
+          return {
+            ...token,
+            amount: adjusted.toString(),
+          };
+        } catch (parseError) {
+          logger.warn(
+            `[BICONOMY SERVICE] Unable to increase funding token amount "${token.amount}": ${
+              (parseError as Error).message
+            }`
+          );
+          return token;
+        }
+      }),
+    };
+  }
+
+  private formatBps(bps: bigint): string {
+    return (Number(bps) / 100).toFixed(2);
   }
 }
 

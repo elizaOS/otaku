@@ -83,30 +83,17 @@ export interface FeeToken {
 // Quote Request/Response Types
 // ============================================
 
-export type ExecutionMode = 'eoa' | 'smart-account' | 'eoa-7702';
+export type ExecutionMode = 'eoa' | 'smart-account';
 
 export interface QuoteRequest {
   mode: ExecutionMode;
   ownerAddress: string;
   composeFlows: ComposeFlow[];
-  fundingTokens?: FundingToken[]; // Required for EOA mode
+  fundingTokens?: FundingToken[];
   feeToken?: FeeToken; // Optional, defaults to sponsorship (gasless)
-  authorizations?: Authorization[]; // Required for EIP-7702 mode if EOA not delegated
   gasLimit?: string;
   lowerBoundTimestamp?: number;
   upperBoundTimestamp?: number;
-}
-
-export interface Authorization {
-  chainId: number;
-  address: string;
-  nonce: number;
-}
-
-export interface SignedAuthorization extends Authorization {
-  yParity: number;
-  r: string;
-  s: string;
 }
 
 export type QuoteType = 'permit' | 'onchain' | 'simple';
@@ -114,14 +101,19 @@ export type QuoteType = 'permit' | 'onchain' | 'simple';
 export interface SignablePayload {
   domain: Record<string, unknown>;
   types: Record<string, unknown>;
-  message: Record<string, unknown>;
+  message: Record<string, unknown> | string;
   primaryType: string;
 }
 
 export interface PayloadToSign {
-  signablePayload: SignablePayload;
+  signablePayload?: SignablePayload;
   metadata: Record<string, unknown>;
   signature?: string;
+  to?: `0x${string}`;
+  data?: `0x${string}`;
+  value?: string | number | bigint;
+  chainId?: number;
+  gasLimit?: string;
 }
 
 export interface RouteInfo {
@@ -186,16 +178,6 @@ export interface SupertxStatus {
     status: string;
   }[];
   error?: string;
-}
-
-// ============================================
-// 412 Error Response (EIP-7702)
-// ============================================
-
-export interface AuthorizationRequired {
-  error: 'MISSING_AUTHORIZATION';
-  message: string;
-  authorizations: Authorization[];
 }
 
 // ============================================

@@ -898,7 +898,6 @@ const syncSingleUser = async (
         | string,
       source,
       channelId,
-      serverId,
       type,
       worldId,
       metadata: worldMetadata,

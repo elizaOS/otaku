@@ -1,22 +1,22 @@
 import {
   type Action,
+  type ActionResult,
+  type HandlerCallback,
   type IAgentRuntime,
   logger,
   type Memory,
   type State,
-  type HandlerCallback,
-  type ActionResult,
 } from "@elizaos/core";
 import { parseUnits } from "viem";
-import { BiconomyService } from "../services/biconomy.service";
-import { CdpService } from "../../../plugin-cdp/services/cdp.service";
-import { type QuoteRequest, CHAIN_ID_TO_NAME } from "../types";
-import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
-import { 
-  resolveTokenToAddress, 
-  getTokenDecimals 
+import { CdpService } from "../../../plugin-cdp/services/cdp.service";
+import { CdpNetwork } from "../../../plugin-cdp/types";
+import {
+  getTokenDecimals,
+  resolveTokenToAddress
 } from "../../../plugin-relay/src/utils/token-resolver";
+import { BiconomyService } from "../services/biconomy.service";
+import { type QuoteRequest } from "../types";
 
 // CDP network mapping
 const CDP_NETWORK_MAP: Record<string, CdpNetwork> = {
@@ -35,6 +35,14 @@ const resolveCdpNetwork = (chainName: string): CdpNetwork => {
   }
   return network;
 };
+
+const FUNDING_BUFFER_BPS = 300n; // 3.00% base buffer for multi-leg rebalances
+const BPS_DENOMINATOR = 10_000n;
+const addFundingBuffer = (amount: bigint): bigint => {
+  const buffer = (amount * FUNDING_BUFFER_BPS + (BPS_DENOMINATOR - 1n)) / BPS_DENOMINATOR;
+  return amount + (buffer > 0n ? buffer : 1n);
+};
+const bufferPercentLabel = (Number(FUNDING_BUFFER_BPS) / 100).toFixed(2);
 
 /**
  * MEE Supertransaction Rebalance Action
@@ -236,6 +244,8 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
 
       const userAddress = viemClient.address as `0x${string}`;
       const cdpAccount = viemClient.cdpAccount; // Use CDP account for native EIP-712 signing
+      const walletClient = viemClient.walletClient;
+      const publicClient = viemClient.publicClient;
 
       // Resolve token addresses using CoinGecko (same as CDP/Relay)
       const inputTokenAddress = await resolveTokenToAddress(inputToken, inputChain);
@@ -259,6 +269,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
       // Get token decimals from CoinGecko
       const decimals = await getTokenDecimals(inputTokenAddress, inputChain);
       const amountInWei = parseUnits(inputAmount, decimals);
+      const fundingAmountInWei = addFundingBuffer(amountInWei);
 
       // Build compose flow for rebalancing
       const rebalanceFlow = biconomyService.buildMultiIntentFlow(
@@ -281,21 +292,21 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
         )
       );
 
-      // Build quote request - using EOA mode since CDP wallets are EOAs
-      // Includes rebalance + withdrawals to send all output tokens directly to user's EOA
+      // Build quote request - use classic EOA mode with funding token provided
+      logger.info(`[MEE_SUPERTX_REBALANCE] Adding ${bufferPercentLabel}% buffer to funding tokens`);
+      callback?.({ text: `⚙️ Adding ${bufferPercentLabel}% funding buffer for Biconomy orchestration fee` });
+
       const quoteRequest: QuoteRequest = {
         mode: "eoa",
         ownerAddress: userAddress,
-        composeFlows: [rebalanceFlow, ...withdrawalFlows], // Rebalance then withdraw all outputs
-        // For EOA mode, we need to specify funding tokens
+        composeFlows: [rebalanceFlow, ...withdrawalFlows],
         fundingTokens: [
           {
             tokenAddress: inputTokenAddress,
             chainId: inputChainId,
-            amount: amountInWei.toString(),
+            amount: fundingAmountInWei.toString(),
           },
         ],
-        // Use input token to pay for gas (gasless from user perspective)
         feeToken: {
           address: inputTokenAddress,
           chainId: inputChainId,
@@ -308,9 +319,10 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
       // This bypasses the RPC and signs directly on Coinbase servers
       const result = await biconomyService.executeIntent(
         quoteRequest,
-        cdpAccount, // CDP account for native signing
-        undefined,  // No walletClient needed
-        undefined,  // No account needed
+        cdpAccount,
+        walletClient,
+        { address: userAddress },
+        publicClient,
         (status) => callback?.({ text: status })
       );
 
