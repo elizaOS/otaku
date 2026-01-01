@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig(({ mode }) => {
-  // Load ALL env vars (not just VITE_ prefixed) by using empty prefix
+  // Load all env vars for filtering (only VITE_* will be exposed to frontend)
   const env = loadEnv(mode, process.cwd(), '');
   
   return {
@@ -32,11 +32,13 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: false,
     },
-    // Dynamically expose ALL env vars to import.meta.env
-    define: Object.keys(env).reduce((acc, key) => {
-      acc[`import.meta.env.${key}`] = JSON.stringify(env[key]);
-      return acc;
-    }, {} as Record<string, string>),
+    // Only expose VITE_* prefixed env vars to import.meta.env (safe for frontend)
+    define: Object.keys(env)
+      .filter(key => key.startsWith('VITE_'))
+      .reduce((acc, key) => {
+        acc[`import.meta.env.${key}`] = JSON.stringify(env[key]);
+        return acc;
+      }, {} as Record<string, string>),
   };
 });
 

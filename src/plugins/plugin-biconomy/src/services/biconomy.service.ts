@@ -271,8 +271,8 @@ export class BiconomyService extends Service {
     const chainIdFromPayload = payload.chainId;
     const walletChainId = (walletClient.chain as { id?: number } | undefined)?.id;
     if (chainIdFromPayload && walletChainId && chainIdFromPayload !== walletChainId) {
-      logger.warn(
-        `[BICONOMY SERVICE] Wallet client chainId (${walletChainId}) differs from payload chainId (${chainIdFromPayload}). Ensure the client is initialized for the funding chain.`
+      throw new Error(
+        `Chain mismatch: wallet is on chain ${walletChainId} but transaction targets chain ${chainIdFromPayload}. Cannot execute cross-chain transaction with wrong wallet configuration.`
       );
     }
 
