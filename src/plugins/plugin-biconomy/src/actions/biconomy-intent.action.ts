@@ -7,16 +7,17 @@ import {
   type Memory,
   type State,
 } from "@elizaos/core";
-import { parseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { getEntityWallet } from "../../../../utils/entity";
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import {
   getTokenDecimals,
-  resolveTokenToAddress
+  resolveTokenToAddress,
 } from "../../../plugin-relay/src/utils/token-resolver";
 import { BiconomyService } from "../services/biconomy.service";
 import { type QuoteRequest } from "../types";
+import { tryGetBaseUsdcFeeToken } from "../utils/fee-token";
 
 // CDP network mapping
 const CDP_NETWORK_MAP: Record<string, CdpNetwork> = {
@@ -35,14 +36,6 @@ const resolveCdpNetwork = (chainName: string): CdpNetwork => {
   }
   return network;
 };
-
-const FUNDING_BUFFER_BPS = 300n; // 3.00% base buffer for multi-leg rebalances
-const BPS_DENOMINATOR = 10_000n;
-const addFundingBuffer = (amount: bigint): bigint => {
-  const buffer = (amount * FUNDING_BUFFER_BPS + (BPS_DENOMINATOR - 1n)) / BPS_DENOMINATOR;
-  return amount + (buffer > 0n ? buffer : 1n);
-};
-const bufferPercentLabel = (Number(FUNDING_BUFFER_BPS) / 100).toFixed(2);
 
 /**
  * MEE Supertransaction Rebalance Action
@@ -179,6 +172,18 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
         return { text: `❌ ${errorMsg}`, success: false, error: "missing_parameters", input: inputParams } as ActionResult & { input: typeof inputParams };
       }
 
+      const inputAmountFloat = Number(inputAmount);
+      if (!Number.isFinite(inputAmountFloat) || inputAmountFloat <= 0) {
+        const errorMsg = "inputAmount must be a positive number (e.g., '1000').";
+        callback?.({ text: `❌ ${errorMsg}` });
+        return {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "invalid_amount",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+      }
+
       if (!targetTokens || !targetChains || !targetWeights) {
         const errorMsg = "Missing required target parameters (targetTokens, targetChains, targetWeights)";
         callback?.({ text: `❌ ${errorMsg}` });
@@ -247,6 +252,11 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
       const walletClient = viemClient.walletClient;
       const publicClient = viemClient.publicClient;
 
+      const preferredFeeTokenResult = await tryGetBaseUsdcFeeToken(cdpService, accountName);
+      if (preferredFeeTokenResult?.usedBaseUsdc) {
+        callback?.({ text: "🪙 Using Base USDC to pay Biconomy orchestration fees" });
+      }
+
       // Resolve token addresses using CoinGecko (same as CDP/Relay)
       const inputTokenAddress = await resolveTokenToAddress(inputToken, inputChain);
       if (!inputTokenAddress) {
@@ -268,12 +278,39 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
 
       // Get token decimals from CoinGecko
       const decimals = await getTokenDecimals(inputTokenAddress, inputChain);
+
       const amountInWei = parseUnits(inputAmount, decimals);
-      const fundingAmountInWei = addFundingBuffer(amountInWei);
+
+      const onChainBalance = await cdpService.getOnChainBalance({
+        accountName,
+        network: cdpNetwork,
+        tokenAddress: inputTokenAddress as `0x${string}`,
+        walletAddress: userAddress,
+      });
+
+      if (onChainBalance <= 0n) {
+        const errorMsg = `No ${inputToken.toUpperCase()} balance available on ${inputChain}`;
+        callback?.({ text: `❌ ${errorMsg}` });
+        return {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "insufficient_balance",
+          input: inputParams,
+        } as ActionResult & { input: typeof inputParams };
+      }
+
+      let effectiveAmountInWei = amountInWei;
+      if (amountInWei > onChainBalance) {
+        effectiveAmountInWei = onChainBalance;
+        const balanceHuman = formatUnits(onChainBalance, decimals);
+        callback?.({
+          text: `🧮 Input exceeds on-chain balance; using ${balanceHuman} ${inputToken.toUpperCase()} available on ${inputChain}`,
+        });
+      }
 
       // Build compose flow for rebalancing
       const rebalanceFlow = biconomyService.buildMultiIntentFlow(
-        [{ chainId: inputChainId, tokenAddress: inputTokenAddress, amount: amountInWei.toString() }],
+        [{ chainId: inputChainId, tokenAddress: inputTokenAddress, amount: effectiveAmountInWei.toString() }],
         targetChainIds.map((chainId: number | undefined, i: number) => ({
           chainId: chainId!,
           tokenAddress: targetTokenAddresses[i],
@@ -293,8 +330,10 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
       );
 
       // Build quote request - use classic EOA mode with funding token provided
-      logger.info(`[MEE_SUPERTX_REBALANCE] Adding ${bufferPercentLabel}% buffer to funding tokens`);
-      callback?.({ text: `⚙️ Adding ${bufferPercentLabel}% funding buffer for Biconomy orchestration fee` });
+      const feeToken = preferredFeeTokenResult?.feeToken ?? {
+        address: inputTokenAddress,
+        chainId: inputChainId,
+      };
 
       const quoteRequest: QuoteRequest = {
         mode: "eoa",
@@ -304,13 +343,10 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
           {
             tokenAddress: inputTokenAddress,
             chainId: inputChainId,
-            amount: fundingAmountInWei.toString(),
+            amount: effectiveAmountInWei.toString(),
           },
         ],
-        feeToken: {
-          address: inputTokenAddress,
-          chainId: inputChainId,
-        },
+        // feeToken,
       };
 
       callback?.({ text: `🔄 Getting quote from MEE...` });
@@ -334,13 +370,17 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
           `${(weights[i] * 100).toFixed(0)}% ${t.toUpperCase()} on ${chains[i]}`
         ).join(", ");
 
+        const gasTokenDescription = preferredFeeTokenResult?.usedBaseUsdc
+          ? "Base USDC"
+          : `${inputToken.toUpperCase()} on ${inputChain}`;
+
         const responseText = `
 ✅ **MEE Supertransaction Rebalance Executed**
 
 **Input:** ${inputAmount} ${inputToken.toUpperCase()} on ${inputChain}
 **Output:** ${targetDesc}
 **Slippage:** ${(slippage * 100).toFixed(1)}%
-**Gas:** Paid from input token
+**Gas:** Paid in ${gasTokenDescription}
 
 **Supertx Hash:** \`${result.supertxHash}\`
 **Track:** [MEE Explorer](${explorerUrl})

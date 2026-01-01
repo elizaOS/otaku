@@ -549,7 +549,7 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       if (!accumulatedState.data.workingMemory) accumulatedState.data.workingMemory = {} as any;
 
       // Parse and store parameters if provided
-      let actionParams = {};
+      let actionParams: Record<string, unknown> = {};
       if (parameters) {
         if (typeof parameters === 'string') {
           try {
@@ -565,7 +565,9 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       }
 
       // Store parameters in state for action to consume
-      if (action && Object.keys(actionParams).length > 0) {
+      const hasActionParams = Object.keys(actionParams).length > 0;
+
+      if (action && hasActionParams) {
         accumulatedState.data.actionParams = actionParams;
         
         // Also support action-specific namespaces for backwards compatibility
@@ -583,11 +585,19 @@ async function runMultiStepCore({ runtime, message, state, callback }: { runtime
       }
 
       if (action) {
-        const actionContent = {
+        const actionContent: Content & {
+          actionParams?: Record<string, unknown>;
+          actionInput?: Record<string, unknown>;
+        } = {
           text: ` Executing action: ${action}`,
           actions: [action],
           thought: thought ?? '',
         };
+
+        if (hasActionParams) {
+          actionContent.actionParams = actionParams;
+          actionContent.actionInput = actionParams;
+        }
         await runtime.processActions(
           message,
           [

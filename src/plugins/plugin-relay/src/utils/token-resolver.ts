@@ -9,6 +9,7 @@ export interface TokenMetadata {
   address: string;
   decimals: number;
   network: string;
+  usdPrice?: number;
 }
 
 interface CoinGeckoTokenResponse {
@@ -16,6 +17,11 @@ interface CoinGeckoTokenResponse {
   name?: string;
   platforms?: Record<string, string>;
   detail_platforms?: Record<string, { decimal_place?: number }>;
+  market_data?: {
+    current_price?: {
+      usd?: number;
+    };
+  };
 }
 
 interface CoinGeckoSearchCoin {
@@ -152,12 +158,14 @@ export async function getTokenMetadata(
 
     const data = await response.json() as CoinGeckoTokenResponse;
     const decimals = data.detail_platforms?.[platformId]?.decimal_place || 18;
+    const usdPrice = data.market_data?.current_price?.usd;
     const metadata: TokenMetadata = {
       symbol: data.symbol?.toLowerCase() || "",
       name: data.name || "",
       address: normalizedAddress,
       decimals,
       network,
+      usdPrice,
     };
 
     tokenCache.set(cacheKey, metadata);
@@ -304,6 +312,17 @@ export async function getTokenDecimals(
   }
   logger.warn(`Could not determine decimals for ${address}, defaulting to 18`);
   return 18;
+}
+
+export async function getTokenUsdPrice(
+  address: string,
+  network: string
+): Promise<number | null> {
+  const metadata = await getTokenMetadata(address, network);
+  if (metadata?.usdPrice && metadata.usdPrice > 0) {
+    return metadata.usdPrice;
+  }
+  return null;
 }
 
 export function clearTokenCache(): void {

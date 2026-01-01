@@ -4,6 +4,17 @@ import type { ToolPart } from "@/components/action-tool"
  * Convert an agent action message to ToolPart format for display
  * This handles messages with type/sourceType 'agent_action' and parses their rawMessage
  */
+const normalizeInput = (value: unknown): Record<string, unknown> | undefined => {
+  if (value === null || value === undefined) return undefined
+  if (Array.isArray(value)) {
+    return { items: value }
+  }
+  if (typeof value === "object") {
+    return value as Record<string, unknown>
+  }
+  return { value }
+}
+
 export function convertActionMessageToToolPart(message: any): ToolPart {
   // rawMessage contains the action details from the server
   const rawMessage = message.rawMessage || message.metadata || {}
@@ -32,8 +43,15 @@ export function convertActionMessageToToolPart(message: any): ToolPart {
   const actionId = rawMessage.actionId
 
   // Create input data from available action properties
-  const inputData: Record<string, unknown> = {}
-  inputData.input = rawMessage?.actionResult?.input || {};
+  const inputSource =
+    rawMessage?.actionResult?.input ??
+    rawMessage?.actionInput ??
+    rawMessage?.actionParams ??
+    rawMessage?.input ??
+    rawMessage?.params ??
+    message.metadata?.actionParams
+
+  const inputData: Record<string, unknown> = normalizeInput(inputSource) ?? {}
 
   // Create output data based on status and content
   const outputData: Record<string, unknown> = {}

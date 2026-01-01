@@ -37,6 +37,13 @@ const BPS_DENOMINATOR = 10_000n;
 const FUNDING_RETRY_INCREMENT_BPS = 250n; // +2.5% per retry
 const FUNDING_RETRY_MAX_ATTEMPTS = 3;
 
+type HttpResponse = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+  text: () => Promise<string>;
+};
+
 /**
  * Biconomy Service
  * Provides integration with Biconomy's Supertransaction API for multi-chain
@@ -81,15 +88,15 @@ export class BiconomyService extends Service {
     try {
       logger.info(`[BICONOMY SERVICE] Getting quote for ${request.mode} mode`);
       
-      const response = await fetch(`${BICONOMY_API_URL}/v1/quote`, {
+      const response = (await fetch(`${BICONOMY_API_URL}/v1/quote`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(this.apiKey && { "X-API-Key": this.apiKey }),
         },
         body: JSON.stringify(request),
-      });
-
+      })) as HttpResponse;
+      
       if (!response.ok) {
         const errorText = await response.text();
 
@@ -332,14 +339,14 @@ export class BiconomyService extends Service {
         payloadToSign: signedPayloads,
       };
 
-      const response = await fetch(`${BICONOMY_API_URL}/v1/execute`, {
+      const response = (await fetch(`${BICONOMY_API_URL}/v1/execute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(this.apiKey && { "X-API-Key": this.apiKey }),
         },
         body: JSON.stringify(executeRequest),
-      });
+      })) as HttpResponse;
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -370,12 +377,12 @@ export class BiconomyService extends Service {
     try {
       logger.info(`[BICONOMY SERVICE] Getting status for ${supertxHash}`);
 
-      const response = await fetch(`https://network.biconomy.io/v1/explorer/${supertxHash}`, {
+      const response = (await fetch(`https://network.biconomy.io/v1/explorer/${supertxHash}`, {
         headers: {
           "Content-Type": "application/json",
           ...(this.apiKey && { "X-API-Key": this.apiKey }),
         },
-      });
+      })) as HttpResponse;
 
       if (!response.ok) {
         const errorText = await response.text();

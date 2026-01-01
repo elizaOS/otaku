@@ -7,15 +7,16 @@ import {
   type HandlerCallback,
   type ActionResult,
 } from "@elizaos/core";
-import { parseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { BiconomyService } from "../services/biconomy.service";
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { type QuoteRequest } from "../types";
+import { tryGetBaseUsdcFeeToken } from "../utils/fee-token";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
-import { 
-  resolveTokenToAddress, 
-  getTokenDecimals 
+import {
+  resolveTokenToAddress,
+  getTokenDecimals,
 } from "../../../plugin-relay/src/utils/token-resolver";
 
 // CDP network mapping
@@ -35,14 +36,6 @@ const resolveCdpNetwork = (chainName: string): CdpNetwork => {
   }
   return network;
 };
-
-const FUNDING_BUFFER_BPS = 50n; // 0.50% safety buffer for orchestration fees
-const BPS_DENOMINATOR = 10_000n;
-const addFundingBuffer = (amount: bigint): bigint => {
-  const buffer = (amount * FUNDING_BUFFER_BPS + (BPS_DENOMINATOR - 1n)) / BPS_DENOMINATOR;
-  return amount + (buffer > 0n ? buffer : 1n);
-};
-const bufferPercentLabel = (Number(FUNDING_BUFFER_BPS) / 100).toFixed(2);
 
 /**
  * MEE Fusion Swap Action
@@ -253,6 +246,19 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
         } as ActionResult;
       }
 
+      const amountFloat = Number(amount);
+      if (!Number.isFinite(amountFloat) || amountFloat <= 0) {
+        const errorMsg = "Amount must be a positive number (e.g., '100').";
+        logger.error(`[MEE_FUSION_SWAP] ${errorMsg}`);
+        callback?.({ text: `❌ ${errorMsg}` });
+        return {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "invalid_amount",
+          input: inputParams,
+        } as ActionResult;
+      }
+
       // Resolve chain IDs
       const srcChainId = biconomyService.resolveChainId(srcChain);
       const dstChainId = biconomyService.resolveChainId(dstChain);
@@ -317,6 +323,11 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
       const walletClient = viemClient.walletClient;
       const publicClient = viemClient.publicClient;
 
+      const preferredFeeTokenResult = await tryGetBaseUsdcFeeToken(cdpService, accountName);
+      if (preferredFeeTokenResult?.usedBaseUsdc) {
+        callback?.({ text: "🪙 Using Base USDC to pay Biconomy orchestration fees" });
+      }
+
       // Resolve token addresses using CoinGecko (same as CDP/Relay)
       const srcTokenAddress = await resolveTokenToAddress(srcToken, srcChain);
       if (!srcTokenAddress) {
@@ -344,8 +355,35 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
 
       // Get token decimals from CoinGecko
       const decimals = await getTokenDecimals(srcTokenAddress, srcChain);
+
       const amountInWei = parseUnits(amount, decimals);
-      const fundingAmountInWei = addFundingBuffer(amountInWei);
+
+      const onChainBalance = await cdpService.getOnChainBalance({
+        accountName,
+        network: cdpNetwork,
+        tokenAddress: srcTokenAddress as `0x${string}`,
+        walletAddress: userAddress,
+      });
+
+      if (onChainBalance <= 0n) {
+        const errorMsg = `No ${srcToken.toUpperCase()} balance available on ${srcChain}`;
+        callback?.({ text: `❌ ${errorMsg}` });
+        return {
+          text: `❌ ${errorMsg}`,
+          success: false,
+          error: "insufficient_balance",
+          input: inputParams,
+        } as ActionResult;
+      }
+
+      let swapAmountInWei = amountInWei;
+      if (amountInWei > onChainBalance) {
+        swapAmountInWei = onChainBalance;
+        const balanceHuman = formatUnits(onChainBalance, decimals);
+        callback?.({
+          text: `🧮 Input exceeds on-chain balance; using ${balanceHuman} ${srcToken.toUpperCase()} available on ${srcChain}`,
+        });
+      }
 
       // Build simple intent flow
       const swapFlow = biconomyService.buildSimpleIntentFlow(
@@ -353,7 +391,7 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
         dstChainId,
         srcTokenAddress,
         dstTokenAddress,
-        amountInWei.toString(),
+        swapAmountInWei.toString(),
         slippage
       );
 
@@ -366,8 +404,10 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
       );
 
       // Build quote request - use classic EOA mode with funding token provided
-      logger.info(`[MEE_FUSION_SWAP] Adding ${bufferPercentLabel}% buffer to funding tokens`);
-      callback?.({ text: `⚙️ Adding ${bufferPercentLabel}% buffer to cover Biconomy orchestration fees` });
+      const feeToken = preferredFeeTokenResult?.feeToken ?? {
+        address: srcTokenAddress,
+        chainId: srcChainId,
+      };
 
       const quoteRequest: QuoteRequest = {
         mode: "eoa",
@@ -377,13 +417,10 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
           {
             tokenAddress: srcTokenAddress,
             chainId: srcChainId,
-            amount: fundingAmountInWei.toString(),
+            amount: swapAmountInWei.toString(),
           },
         ],
-        feeToken: {
-          address: srcTokenAddress,
-          chainId: srcChainId,
-        },
+        // feeToken,
       };
 
       callback?.({ text: `🔄 Getting quote from MEE...` });
@@ -402,13 +439,17 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
       if (result.success && result.supertxHash) {
         const explorerUrl = biconomyService.getExplorerUrl(result.supertxHash);
 
+        const gasTokenDescription = preferredFeeTokenResult?.usedBaseUsdc
+          ? "Base USDC"
+          : `${srcToken.toUpperCase()} on ${srcChain}`;
+
         const responseText = `
 ✅ **MEE Fusion Swap Executed**
 
 **From:** ${amount} ${srcToken.toUpperCase()} on ${srcChain}
 **To:** ${dstToken.toUpperCase()} on ${dstChain}
 **Slippage:** ${(slippage * 100).toFixed(1)}%
-**Gas:** Paid from input token
+**Gas:** Paid in ${gasTokenDescription}
 
 **Supertx Hash:** \`${result.supertxHash}\`
 **Track:** [MEE Explorer](${explorerUrl})

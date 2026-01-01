@@ -2,7 +2,8 @@ import type { Plugin } from "@elizaos/core";
 import {
   meeFusionSwapAction,
   meeSupertransactionRebalanceAction,
-  meeSupertransactionStatusAction
+  meeSupertransactionStatusAction,
+  biconomyWithdrawAllAction
 } from "./actions/index";
 import { BiconomyService } from "./services/biconomy.service";
 
@@ -18,6 +19,7 @@ import { BiconomyService } from "./services/biconomy.service";
  * - MEE_FUSION_SWAP: Gasless cross-chain token swap (single input → single output)
  * - MEE_SUPERTRANSACTION_REBALANCE: Gasless multi-chain portfolio rebalancing (single input → multiple weighted outputs)
  * - MEE_SUPERTRANSACTION_STATUS: Track supertransaction status
+ * - BICONOMY_WITHDRAW_ALL: Withdraw all tokens from Nexus companion wallet to user address
  * 
  * Supported Chains:
  * Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, Sonic,
@@ -29,7 +31,7 @@ export const meePlugin: Plugin = {
   name: "mee",
   description:
     "Biconomy MEE (Modular Execution Environment) plugin for gasless cross-chain swaps and portfolio rebalancing",
-  actions: [meeFusionSwapAction, meeSupertransactionRebalanceAction, meeSupertransactionStatusAction],
+  actions: [meeFusionSwapAction, biconomyWithdrawAllAction, meeSupertransactionRebalanceAction, meeSupertransactionStatusAction],
   services: [BiconomyService],
   evaluators: [],
   providers: [],
