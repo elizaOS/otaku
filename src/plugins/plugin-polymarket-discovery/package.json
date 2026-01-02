@@ -22,7 +22,7 @@
     "typecheck": "tsc --project tsconfig.build.json --noEmit"
   },
   "dependencies": {
-    "@elizaos/core": "alpha",
+    "@elizaos/core": "1.6.4",
     "@polymarket/sdk": "^6.0.1",
     "viem": "^2.43.3"
   },

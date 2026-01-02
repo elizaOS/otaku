@@ -25,6 +25,8 @@ import {
 interface GetEventsParams {
   active?: string | boolean;
   tag?: string;
+  query?: string;
+  slug?: string;
   limit?: string | number;
 }
 
@@ -42,7 +44,7 @@ export const getEventsAction: Action = {
     "WHAT_EVENTS",
   ],
   description:
-    "Browse prediction events from Polymarket. Events are higher-level groupings that contain multiple related markets (e.g., '2024 US Election' contains markets for different races).",
+    "Browse prediction events from Polymarket by tag (e.g., 'sports', 'politics', 'crypto'). This is the primary way to find markets by category. Events are higher-level groupings that contain multiple related markets (e.g., '2024 US Election' contains markets for different races). Use GET_POLYMARKET_EVENT_DETAIL with an event ID to see all markets within that event.",
 
   parameters: {
     active: {
@@ -52,7 +54,17 @@ export const getEventsAction: Action = {
     },
     tag: {
       type: "string",
-      description: "Filter by event tag (e.g., 'politics', 'sports')",
+      description: "Filter by event tag. Common tags: 'sports', 'politics', 'crypto', 'AI', 'science', 'pop-culture'. Use this to find category-specific markets.",
+      required: false,
+    },
+    query: {
+      type: "string",
+      description: "Text search query to filter events by title or description (e.g., 'Sunderland', 'Trump', 'Bitcoin')",
+      required: false,
+    },
+    slug: {
+      type: "string",
+      description: "Direct event lookup by slug (e.g., 'epl-sun-mac-2026-01-01' for specific sports matches)",
       required: false,
     },
     limit: {
@@ -88,6 +100,8 @@ export const getEventsAction: Action = {
       }
 
       const tag = params.tag;
+      const query = params.query?.trim();
+      const slug = params.slug?.trim();
 
       let limit = 20; // default
       if (params.limit) {
@@ -101,6 +115,8 @@ export const getEventsAction: Action = {
       const inputParams: GetEventsInput = {
         active,
         tag,
+        query,
+        slug,
         limit,
       };
 
@@ -233,6 +249,51 @@ export const getEventsAction: Action = {
           text: " Getting politics events...",
           action: "GET_POLYMARKET_EVENTS",
           tag: "politics",
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
+        content: { text: "show me sports markets on polymarket" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: " Getting sports events...",
+          action: "GET_POLYMARKET_EVENTS",
+          tag: "sports",
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
+        content: { text: "what are the trending sports predictions?" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: " Fetching trending sports events...",
+          action: "GET_POLYMARKET_EVENTS",
+          tag: "sports",
+          active: true,
+        },
+      },
+    ],
+    [
+      {
+        name: "{{user}}",
+        content: { text: "find Sunderland vs Man City prediction markets" },
+      },
+      {
+        name: "{{agent}}",
+        content: {
+          text: " Searching for Sunderland markets...",
+          action: "GET_POLYMARKET_EVENTS",
+          tag: "sports",
+          query: "Sunderland",
+          active: true,
         },
       },
     ],

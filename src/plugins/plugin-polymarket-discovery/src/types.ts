@@ -366,6 +366,7 @@ export interface VolumeData {
     volume: string;            // Market-specific volume
     question?: string;         // Market question
   }>;
+  markets_count?: number;      // Total number of active markets
   timestamp?: number;          // Data timestamp
 }
 
@@ -429,6 +430,8 @@ export interface EventFilters {
   active?: boolean;            // Filter by active status
   closed?: boolean;            // Include closed events
   tag?: string;                // Filter by tag
+  query?: string;              // Text search query (searches event titles and market questions)
+  slug?: string;               // Event slug for direct lookup (e.g., 'epl-sun-mac-2026-01-01')
   limit?: number;              // Results limit (default 20)
   offset?: number;             // Pagination offset
 }

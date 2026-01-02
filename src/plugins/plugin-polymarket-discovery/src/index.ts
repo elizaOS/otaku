@@ -86,6 +86,7 @@ export type * from "./types";
  * Phase 4 - Events API:
  * - GET_POLYMARKET_EVENTS: Browse prediction events
  * - GET_POLYMARKET_EVENT_DETAIL: Event-specific data with markets
+ * - GET_LIVE_SPORTS_MARKETS: Find live/upcoming sports matches for betting
  *
  * Phase 5A - Extended Portfolio:
  * - GET_POLYMARKET_CLOSED_POSITIONS: Historical resolved positions

@@ -366,15 +366,54 @@ export class PolymarketService extends Service {
     }
 
     return this.retryFetch(async () => {
-      const url = `${this.gammaApiUrl}/markets?limit=${limit}&active=true&closed=false`;
+      // Use /events/pagination with proper filtering to avoid closed/archived markets
+      // Order by volume24hr descending to get the most actively traded markets
+      // NOTE: Do NOT use tag_slug=15M - that filters only to 15-minute crypto price prediction markets
+      const url = `${this.gammaApiUrl}/events/pagination?limit=${limit}&active=true&archived=false&closed=false&order=volume24hr&ascending=false&offset=0`;
       const response = await this.fetchWithTimeout(url);
 
       if (!response.ok) {
         throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
       }
 
-      const rawData = await response.json() as any[];
-      const data = rawData.map(mapApiMarketToInterface);
+      const responseData = await response.json() as { data: any[] };
+      const eventsData = responseData.data || [];
+      const now = new Date();
+      
+      // Extract markets from events (each event may contain multiple markets)
+      // Sort by volume to get the highest volume markets first
+      const allMarkets: any[] = [];
+      for (const event of eventsData) {
+        if (event.markets && Array.isArray(event.markets)) {
+          // Filter for active, non-closed markets AND not expired (endDate > now)
+          // Markets can be active=true/closed=false but still expired if endDate has passed
+          const activeMarkets = event.markets.filter((m: any) => {
+            if (m.active !== true || m.closed === true || m.archived === true) {
+              return false;
+            }
+            // Filter out expired markets - their endDate has passed
+            if (m.endDate) {
+              const endDate = new Date(m.endDate);
+              if (endDate < now) {
+                return false;
+              }
+            }
+            return true;
+          });
+          allMarkets.push(...activeMarkets);
+        }
+      }
+
+      // Sort markets by volume24hr (descending) to ensure highest volume markets come first
+      // Use volume24hr instead of total volume to show currently active markets
+      allMarkets.sort((a, b) => {
+        const volA = a.volume24hr || 0;
+        const volB = b.volume24hr || 0;
+        return volB - volA;
+      });
+
+      // Map to our interface and limit results
+      const data = allMarkets.slice(0, limit).map(mapApiMarketToInterface);
 
       // Parse tokens from JSON strings
       const marketsWithTokens = data.map(market => this.parseTokens(market));
@@ -385,7 +424,7 @@ export class PolymarketService extends Service {
         timestamp: Date.now(),
       };
 
-      logger.info(`[PolymarketService] Fetched ${marketsWithTokens.length} active markets`);
+      logger.info(`[PolymarketService] Fetched ${marketsWithTokens.length} active (non-expired) markets from ${eventsData.length} events`);
       return marketsWithTokens;
     });
   }
@@ -408,37 +447,49 @@ export class PolymarketService extends Service {
     logger.info(`[PolymarketService] Searching markets: query="${query}", category="${category}", limit=${limit}, closed=${closed}`);
 
     return this.retryFetch(async () => {
-      // Build query parameters
-      const queryParams = new URLSearchParams();
-      
-      // IMPORTANT: Since Gamma API doesn't support server-side search, we need to fetch
-      // a larger batch of markets to filter client-side. We fetch more markets than the
-      // requested limit to ensure we can return enough results after filtering.
-      // Use 5x the requested limit (min 100) for keyword searches, or use limit as-is for category filters
+      // Use events/pagination endpoint with proper filtering to avoid closed/archived markets
+      // Fetch a larger batch for client-side filtering
       const fetchLimit = query ? Math.max(limit * 5, 100) : limit;
-      queryParams.set("limit", fetchLimit.toString());
-      queryParams.set("offset", offset.toString());
-
-      if (active !== undefined) {
-        queryParams.set("active", active.toString());
-      }
-
-      // IMPORTANT: Filter out closed/resolved markets to avoid returning old historical data
-      // "active=true" alone is not sufficient - markets can be active but closed (resolved)
-      queryParams.set("closed", closed.toString());
-
-      // NOTE: Gamma API doesn't provide server-side text search or category filtering.
-      // We fetch based on pagination params and filter client-side.
-      // This is a limitation of the Gamma API, not our implementation.
-      const url = `${this.gammaApiUrl}/markets?${queryParams.toString()}`;
+      
+      // Use /events/pagination with proper filtering to avoid closed/archived markets
+      // Order by volume24hr descending to get the most actively traded markets
+      // NOTE: Do NOT use tag_slug=15M - that filters only to 15-minute crypto price prediction markets
+      const url = `${this.gammaApiUrl}/events/pagination?limit=${fetchLimit}&active=${active}&archived=false&closed=${closed}&order=volume24hr&ascending=false&offset=${offset}`;
       const response = await this.fetchWithTimeout(url);
 
       if (!response.ok) {
         throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
       }
 
-      const rawMarkets = await response.json() as any[];
-      let markets = rawMarkets.map(mapApiMarketToInterface);
+      const responseData = await response.json() as { data: any[] };
+      const eventsData = responseData.data || [];
+      const now = new Date();
+      
+      // Extract markets from events (each event may contain multiple markets)
+      let markets: any[] = [];
+      for (const event of eventsData) {
+        if (event.markets && Array.isArray(event.markets)) {
+          // Filter for active, non-closed markets AND not expired (endDate > now)
+          // Markets can be active=true/closed=false but still expired if endDate has passed
+          const activeMarkets = event.markets.filter((m: any) => {
+            if (m.active !== true || m.closed === true || m.archived === true) {
+              return false;
+            }
+            // Filter out expired markets - their endDate has passed
+            if (m.endDate) {
+              const endDate = new Date(m.endDate);
+              if (endDate < now) {
+                return false;
+              }
+            }
+            return true;
+          });
+          markets.push(...activeMarkets);
+        }
+      }
+
+      // Map to our interface
+      markets = markets.map(mapApiMarketToInterface);
 
       // Parse tokens from JSON strings
       markets = markets.map(market => this.parseTokens(market));
@@ -450,7 +501,7 @@ export class PolymarketService extends Service {
           (m) =>
             m.question?.toLowerCase().includes(lowerQuery) ||
             m.description?.toLowerCase().includes(lowerQuery) ||
-            m.tags?.some((tag) => tag.toLowerCase().includes(lowerQuery))
+            m.tags?.some((tag: string) => tag.toLowerCase().includes(lowerQuery))
         );
       }
 
@@ -502,17 +553,31 @@ export class PolymarketService extends Service {
     return this.retryFetch(async () => {
       // NOTE: Gamma API does not provide a /markets/:conditionId endpoint.
       // We must fetch active markets and filter client-side.
-      // Use closed=false to get current active markets, not historical closed ones.
-      const url = `${this.gammaApiUrl}/markets?limit=500&active=true&closed=false`;
+      // Use events/pagination with proper filtering to avoid closed/archived markets
+      // NOTE: Do NOT use tag_slug=15M - that filters only to 15-minute crypto price prediction markets
+      const url = `${this.gammaApiUrl}/events/pagination?limit=500&active=true&archived=false&closed=false&order=volume24hr&ascending=false&offset=0`;
       const response = await this.fetchWithTimeout(url);
 
       if (!response.ok) {
         throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
       }
 
-      const rawMarkets = await response.json() as any[];
-      const markets = rawMarkets.map(mapApiMarketToInterface);
+      const responseData = await response.json() as { data: any[] };
+      const eventsData = responseData.data || [];
       
+      // Extract markets from events
+      const allMarkets: any[] = [];
+      for (const event of eventsData) {
+        if (event.markets && Array.isArray(event.markets)) {
+          // Filter for active, non-closed markets
+          const activeMarkets = event.markets.filter((m: any) => 
+            m.active === true && m.closed === false && m.archived === false
+          );
+          allMarkets.push(...activeMarkets);
+        }
+      }
+      
+      const markets = allMarkets.map(mapApiMarketToInterface);
       const market = markets.find((m) => m.condition_id === conditionId);
 
       if (!market) {
@@ -582,26 +647,13 @@ export class PolymarketService extends Service {
         );
       }
 
-      // Fetch orderbooks for both tokens in parallel
-      const [yesBook, noBook] = await Promise.all([
-        this.getOrderBook(yesToken.token_id),
-        this.getOrderBook(noToken.token_id),
+      // Fetch prices using the /price endpoint (not orderbook asks!)
+      // The /price endpoint returns the actual market price you'd pay to buy
+      // Using orderbook asks[0] is WRONG - it gives the lowest sell offer, not the market price
+      const [yesPrice, noPrice] = await Promise.all([
+        this.getTokenPrice(yesToken.token_id, "buy"),
+        this.getTokenPrice(noToken.token_id, "buy"),
       ]);
-
-      // Extract best bid/ask prices
-      // FALLBACK: If orderbook is empty (no liquidity), default to 50/50 (0.50)
-      // This represents maximum uncertainty when no market makers are providing quotes
-      const yesPrice = yesBook.asks[0]?.price || "0.50";
-      const noPrice = noBook.asks[0]?.price || "0.50";
-
-      // Log warning if using fallback prices (indicates low/no liquidity)
-      if (!yesBook.asks[0]?.price || !noBook.asks[0]?.price) {
-        logger.warn(
-          `[PolymarketService] Empty orderbook for market ${conditionId}, ` +
-          `using fallback 50/50 prices (YES: ${yesBook.asks[0]?.price ? 'has price' : 'NO LIQUIDITY'}, ` +
-          `NO: ${noBook.asks[0]?.price ? 'has price' : 'NO LIQUIDITY'})`
-        );
-      }
 
       // Calculate spread (difference between yes and no prices)
       const yesPriceNum = parseFloat(yesPrice);
@@ -636,6 +688,35 @@ export class PolymarketService extends Service {
       );
       return prices;
     });
+  }
+
+  /**
+   * Get the current price for a token from CLOB /price endpoint
+   * 
+   * This is the correct way to get market prices - NOT from orderbook asks.
+   * The /price endpoint returns what you'd actually pay to buy/sell.
+   * 
+   * @param tokenId - The token ID
+   * @param side - "buy" or "sell"
+   * @returns Price as string (e.g., "0.007" for 0.7%)
+   * @throws Error if price cannot be fetched
+   */
+  async getTokenPrice(tokenId: string, side: "buy" | "sell" = "buy"): Promise<string> {
+    const url = `${this.clobApiUrl}/price?token_id=${tokenId}&side=${side}`;
+    const response = await this.fetchWithTimeout(url);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch price for token ${tokenId.substring(0, 30)}...: HTTP ${response.status}`);
+    }
+
+    const data = await response.json() as { price?: string };
+    
+    if (!data.price) {
+      throw new Error(`No price returned for token ${tokenId.substring(0, 30)}... (side: ${side})`);
+    }
+    
+    logger.debug(`[PolymarketService] Token ${tokenId.substring(0, 20)}... ${side} price: ${data.price}`);
+    return data.price;
   }
 
   /**
@@ -1044,36 +1125,58 @@ export class PolymarketService extends Service {
    * @returns Array of events with metadata
    */
   async getEvents(filters?: EventFilters): Promise<PolymarketEvent[]> {
-    const { active, closed, tag, limit = 20, offset = 0 } = filters || {};
-    logger.info(`[PolymarketService] Fetching events with filters: active=${active}, tag=${tag}, limit=${limit}`);
+    const { active, closed, tag, query, slug, limit = 20, offset = 0 } = filters || {};
+    logger.info(`[PolymarketService] Fetching events with filters: active=${active}, tag=${tag}, query="${query || 'none'}", slug="${slug || 'none'}", limit=${limit}`);
 
     // Check cache (only cache if no filters, since filtered results vary)
-    if (!filters || (active === undefined && !closed && !tag && offset === 0)) {
+    if (!filters || (active === undefined && !closed && !tag && !query && !slug && offset === 0)) {
       if (this.eventsListCache) {
         const age = Date.now() - this.eventsListCache.timestamp;
         if (age < this.eventCacheTtl) {
           logger.debug(`[PolymarketService] Returning cached events list (age: ${age}ms)`);
-          return this.eventsListCache.data.slice(0, limit);
+          let cachedEvents = this.eventsListCache.data;
+          
+          // Apply client-side query filter if needed
+          if (query) {
+            const lowerQuery = query.toLowerCase();
+            cachedEvents = cachedEvents.filter(
+              (e) =>
+                e.title?.toLowerCase().includes(lowerQuery) ||
+                e.description?.toLowerCase().includes(lowerQuery)
+            );
+          }
+          
+          return cachedEvents.slice(0, limit);
         }
       }
     }
 
     return this.retryFetch(async () => {
+      // Fetch more events if query is provided for client-side filtering
+      const fetchLimit = query ? Math.max(limit * 5, 100) : limit;
+      
       // Build query parameters
       const queryParams = new URLSearchParams();
-      queryParams.set("limit", limit.toString());
+      queryParams.set("limit", fetchLimit.toString());
       queryParams.set("offset", offset.toString());
+      
+      // Default to active, non-closed, non-archived events for relevance
+      queryParams.set("active", active !== undefined ? active.toString() : "true");
+      queryParams.set("closed", closed !== undefined ? closed.toString() : "false");
+      queryParams.set("archived", "false");
+      
+      // Sort by 24h volume for relevance (most active first)
+      queryParams.set("order", "volume24hr");
+      queryParams.set("ascending", "false");
 
-      if (active !== undefined) {
-        queryParams.set("active", active.toString());
-      }
-
-      if (closed !== undefined) {
-        queryParams.set("closed", closed.toString());
-      }
-
+      // Use tag_slug parameter (not tag) for proper filtering
       if (tag) {
-        queryParams.set("tag", tag);
+        queryParams.set("tag_slug", tag);
+      }
+
+      // Support slug-based direct lookup (e.g., 'epl-sun-mac-2026-01-01' for specific games)
+      if (slug) {
+        queryParams.set("slug", slug);
       }
 
       const url = `${this.gammaApiUrl}/events?${queryParams.toString()}`;
@@ -1083,18 +1186,31 @@ export class PolymarketService extends Service {
         throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
       }
 
-      const events = await response.json() as PolymarketEvent[];
+      let events = await response.json() as PolymarketEvent[];
+
+      // Client-side filtering by query text (searches event title and description)
+      if (query) {
+        const lowerQuery = query.toLowerCase();
+        events = events.filter(
+          (e) =>
+            e.title?.toLowerCase().includes(lowerQuery) ||
+            e.description?.toLowerCase().includes(lowerQuery)
+        );
+        logger.info(`[PolymarketService] Filtered to ${events.length} events matching query "${query}"`);
+      }
 
       // Update cache only if no filters
-      if (!filters || (active === undefined && !closed && !tag && offset === 0)) {
+      if (!filters || (active === undefined && !closed && !tag && !query && !slug && offset === 0)) {
         this.eventsListCache = {
           data: events,
           timestamp: Date.now(),
         };
       }
 
-      logger.info(`[PolymarketService] Fetched ${events.length} events`);
-      return events;
+      // Return only the requested number of results
+      const results = events.slice(0, limit);
+      logger.info(`[PolymarketService] Returning ${results.length} events`);
+      return results;
     });
   }
 
@@ -1226,33 +1342,94 @@ export class PolymarketService extends Service {
     }
 
     return this.retryFetch(async () => {
-      // Fetch top markets by 24h volume from Gamma API
-      // The data-api /live-volume endpoint returns zero, so we aggregate from markets
-      const url = `${this.gammaApiUrl}/markets?active=true&closed=false&limit=500&order=volume24hr&ascending=false`;
-      const response = await this.fetchWithTimeout(url);
-
-      if (!response.ok) {
-        throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
-      }
-
-      const markets = await response.json() as Array<{
+      // Fetch ALL active markets by 24h volume from Gamma API using events/pagination
+      // Note: We need to paginate since there are thousands of active markets
+      const allMarkets: Array<{
         conditionId: string;
         question: string;
         volume24hr: number;
         volumeNum?: number;
-      }>;
+        active?: boolean;
+        closed?: boolean;
+        archived?: boolean;
+        endDate?: string;
+      }> = [];
+
+      let offset = 0;
+      const limit = 500; // API max
+      let hasMore = true;
+      let fetchCount = 0;
+      const maxFetches = 20; // Fetch up to 10,000 markets max
+      const now = new Date();
+
+      // Paginate through all markets to get accurate total volume
+      while (hasMore && fetchCount < maxFetches) {
+        // Removed tag_slug=15M filter to get ALL markets, not just 15-minute ones
+        const url = `${this.gammaApiUrl}/events/pagination?limit=${limit}&active=true&archived=false&closed=false&order=volume24hr&ascending=false&offset=${offset}`;
+        
+        logger.debug(`[PolymarketService] Fetching page ${fetchCount + 1} (offset: ${offset})`);
+        const response = await this.fetchWithTimeout(url);
+
+        if (!response.ok) {
+          throw new Error(`Gamma API error: ${response.status} ${response.statusText}`);
+        }
+
+        const responseData = await response.json() as { data: any[] };
+        const eventsData = responseData.data || [];
+        
+        if (eventsData.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        // Extract markets from events
+        for (const event of eventsData) {
+          if (event.markets && Array.isArray(event.markets)) {
+            // Filter for active, non-closed markets AND not expired (endDate > now)
+            // Markets can be active=true/closed=false but still expired if endDate has passed
+            const activeMarkets = event.markets.filter((m: any) => {
+              if (m.active !== true || m.closed === true || m.archived === true) {
+                return false;
+              }
+              // Filter out expired markets - their endDate has passed
+              if (m.endDate) {
+                const endDate = new Date(m.endDate);
+                if (endDate < now) {
+                  return false;
+                }
+              }
+              return true;
+            });
+            allMarkets.push(...activeMarkets);
+          }
+        }
+
+        // If we got less than the limit, we've reached the end
+        if (eventsData.length < limit) {
+          hasMore = false;
+        }
+
+        offset += limit;
+        fetchCount++;
+      }
+
+      logger.info(`[PolymarketService] Fetched ${allMarkets.length} active (non-expired) markets across ${fetchCount} pages`);
 
       // Aggregate total 24h volume from all fetched markets
-      const totalVolume = markets.reduce((sum, m) => sum + (m.volume24hr || 0), 0);
+      const totalVolume = allMarkets.reduce((sum, m) => sum + (m.volume24hr || 0), 0);
+
+      // Sort by volume and get top markets
+      const sortedMarkets = allMarkets.sort((a, b) => (b.volume24hr || 0) - (a.volume24hr || 0));
 
       // Transform to expected format with top markets
       const data: VolumeData = {
         total_volume_24h: totalVolume.toFixed(2),
-        markets: markets.slice(0, 20).map(m => ({
+        markets: sortedMarkets.slice(0, 20).map(m => ({
           condition_id: m.conditionId,
           volume: (m.volume24hr || 0).toFixed(2),
           question: m.question,
         })),
+        markets_count: allMarkets.length,
         timestamp: Date.now()
       };
 
@@ -1262,7 +1439,7 @@ export class PolymarketService extends Service {
         timestamp: Date.now(),
       };
 
-      logger.info(`[PolymarketService] Fetched live volume: $${(totalVolume / 1_000_000).toFixed(2)}M from ${markets.length} markets`);
+      logger.info(`[PolymarketService] Fetched live volume: $${(totalVolume / 1_000_000).toFixed(2)}M from ${allMarkets.length} markets`);
       return data;
     });
   }
@@ -1645,7 +1822,7 @@ export class PolymarketService extends Service {
       return closedPositions;
     });
   }
-
+  
   /**
    * Get user activity log (deposits, withdrawals, trades, redemptions)
    *

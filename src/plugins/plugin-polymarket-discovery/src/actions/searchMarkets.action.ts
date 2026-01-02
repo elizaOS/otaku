@@ -39,8 +39,17 @@ export const searchMarketsAction: Action = {
     "QUERY_POLYMARKET",
     "LOOK_FOR_MARKETS",
   ],
-  description:
-    "Search for prediction markets on Polymarket by keyword or category. Returns condition_id for each market. To get orderbook data, first use GET_POLYMARKET_DETAIL with the condition_id to get the token_ids, then use GET_POLYMARKET_ORDERBOOK with those token_ids.",
+  description: `Search for prediction markets on Polymarket by keyword or category.
+
+**Returns for each market:**
+- condition_id: Market identifier
+- yes_token_id: Token ID for buying YES shares (use with POLYMARKET_BUY_SHARES)
+- no_token_id: Token ID for buying NO shares (use with POLYMARKET_BUY_SHARES)  
+- yes_price: Current YES price (use as price parameter for buying YES)
+- no_price: Current NO price (use as price parameter for buying NO)
+
+**For Trading:** Use the returned yes_token_id/no_token_id and yes_price/no_price with POLYMARKET_BUY_SHARES.
+**For Sports:** Use GET_POLYMARKET_EVENTS with tag='sports' instead.`,
 
   parameters: {
     query: {
@@ -179,30 +188,32 @@ export const searchMarketsAction: Action = {
 
       // Fetch prices for all markets in parallel
       logger.info(`[SEARCH_POLYMARKETS] Fetching prices for ${markets.length} markets`);
-      const marketsWithPrices = await Promise.all(
+      const marketsWithPricesResults = await Promise.all(
         markets.map(async (market) => {
           try {
             const prices = await service.getMarketPrices(market.conditionId);
-            return { market, prices };
+            return { market, prices, error: null };
           } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
             logger.warn(
-              `[SEARCH_POLYMARKETS] Failed to fetch prices for ${market.conditionId}: ${error instanceof Error ? error.message : String(error)}`
+              `[SEARCH_POLYMARKETS] Failed to fetch prices for ${market.conditionId}: ${errorMsg}`
             );
-            return {
-              market,
-              prices: {
-                yes_price: "0.50",
-                no_price: "0.50",
-                yes_price_formatted: "50.0%",
-                no_price_formatted: "50.0%",
-                spread: "0.0000",
-                last_updated: Date.now(),
-                condition_id: market.conditionId,
-              },
-            };
+            // Return market with error - do NOT use fake prices
+            return { market, prices: null, error: errorMsg };
           }
         })
       );
+      
+      // Filter out markets where we couldn't get prices - don't show bad data
+      const marketsWithPrices = marketsWithPricesResults.filter(
+        (result): result is { market: typeof result.market; prices: NonNullable<typeof result.prices>; error: null } => 
+          result.prices !== null
+      );
+      
+      const failedCount = marketsWithPricesResults.length - marketsWithPrices.length;
+      if (failedCount > 0) {
+        logger.warn(`[SEARCH_POLYMARKETS] Excluded ${failedCount} markets due to price fetch failures`);
+      }
 
       // Format response
       const searchDesc = query
@@ -247,8 +258,8 @@ export const searchMarketsAction: Action = {
         text += "\n";
       });
 
-      text +=
-        "_Use GET_POLYMARKET_DETAIL with condition_id for full market info, or GET_POLYMARKET_ORDERBOOK with token_id for orderbook depth._";
+      text += `**To Trade:** Use POLYMARKET_BUY_SHARES with token_id (yes_token_id or no_token_id), outcome, amount, and price (yes_price or no_price).\n`;
+      text += `_Use GET_POLYMARKET_DETAIL with condition_id for full market info, or GET_POLYMARKET_ORDERBOOK with token_id for orderbook depth._`;
 
       const result: SearchMarketsActionResult = {
         text,

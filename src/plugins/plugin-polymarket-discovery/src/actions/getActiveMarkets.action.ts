@@ -38,7 +38,7 @@ export const getActiveMarketsAction: Action = {
     "WHAT_MARKETS",
   ],
   description:
-    "Get trending and active prediction markets from Polymarket. Returns condition_id and token_ids (yes_token_id, no_token_id) for each market. Use condition_id with GET_POLYMARKET_DETAIL for full info, or use token_id directly with GET_POLYMARKET_ORDERBOOK for orderbook depth.",
+    "Get trending and active prediction markets from Polymarket. This returns general trending markets without category filtering. For category-specific markets (e.g., sports, politics), use GET_POLYMARKET_EVENTS with a tag parameter instead. Returns condition_id and token_ids (yes_token_id, no_token_id) for each market. Use condition_id with GET_POLYMARKET_DETAIL for full info, or use token_id directly with GET_POLYMARKET_ORDERBOOK for orderbook depth.",
 
   parameters: {
     limit: {
@@ -132,31 +132,32 @@ export const getActiveMarketsAction: Action = {
 
       // Fetch prices for all markets in parallel
       logger.info("[GET_ACTIVE_POLYMARKETS] Fetching prices for markets");
-      const marketsWithPrices = await Promise.all(
+      const marketsWithPricesResults = await Promise.all(
         markets.map(async (market) => {
           try {
             const prices = await service.getMarketPrices(market.conditionId);
-            return { market, prices };
+            return { market, prices, error: null };
           } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
             logger.warn(
-              `[GET_ACTIVE_POLYMARKETS] Failed to fetch prices for ${market.conditionId}: ${error instanceof Error ? error.message : String(error)}`
+              `[GET_ACTIVE_POLYMARKETS] Failed to fetch prices for ${market.conditionId}: ${errorMsg}`
             );
-            // Return market without prices
-            return {
-              market,
-              prices: {
-                yes_price: "0.50",
-                no_price: "0.50",
-                yes_price_formatted: "50.0%",
-                no_price_formatted: "50.0%",
-                spread: "0.0000",
-                last_updated: Date.now(),
-                condition_id: market.conditionId,
-              },
-            };
+            // Return market with error - do NOT use fake prices
+            return { market, prices: null, error: errorMsg };
           }
         })
       );
+      
+      // Filter out markets where we couldn't get prices - don't show bad data
+      const marketsWithPrices = marketsWithPricesResults.filter(
+        (result): result is { market: typeof result.market; prices: NonNullable<typeof result.prices>; error: null } => 
+          result.prices !== null
+      );
+      
+      const failedCount = marketsWithPricesResults.length - marketsWithPrices.length;
+      if (failedCount > 0) {
+        logger.warn(`[GET_ACTIVE_POLYMARKETS] Excluded ${failedCount} markets due to price fetch failures`);
+      }
 
       // Format response
       let text = ` **Active Polymarket Predictions**\n\n`;

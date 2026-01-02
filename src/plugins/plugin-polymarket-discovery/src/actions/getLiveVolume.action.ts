@@ -84,14 +84,18 @@ export const getLiveVolumeAction: Action = {
         maximumFractionDigits: 0,
       });
 
+      // Format in millions for readability
+      const volumeInMillions = totalVolume / 1_000_000;
+      const formattedVolumeShort = `$${volumeInMillions.toFixed(2)}M`;
+
       let text = ` **Polymarket Live Volume (24h)**\n\n`;
-      text += `**Total 24h Volume:** ${formattedVolume}\n`;
+      text += `**Total 24h Volume:** ${formattedVolume} (${formattedVolumeShort})\n`;
 
       // Add top markets if available
       if (volumeData.markets && volumeData.markets.length > 0) {
-        text += `\n**Top Markets by Volume:**\n\n`;
+        text += `\n**Top 10 Markets by Volume:**\n\n`;
         const topMarkets = volumeData.markets
-          .slice(0, 5) // Show top 5
+          .slice(0, 10) // Show top 10
           .map((market, index) => {
             const marketVolume = parseFloat(market.volume);
             const formattedMarketVolume = marketVolume.toLocaleString("en-US", {
@@ -101,12 +105,12 @@ export const getLiveVolumeAction: Action = {
               maximumFractionDigits: 0,
             });
             const question = market.question || "Unknown Market";
-            return `${index + 1}. ${question} - ${formattedMarketVolume}`;
+            return `${index + 1}. **${formattedMarketVolume}** - ${question}`;
           });
-        text += topMarkets.join("\n");
+        text += topMarkets.join("\n\n");
       }
 
-      text += `\n\n_Volume represents total trading activity over the last 24 hours._`;
+      text += `\n\n_Volume represents total trading activity across all ${volumeData.markets_count || 0} active Polymarket markets over the last 24 hours._`;
 
       const result: GetLiveVolumeActionResult = {
         text,
