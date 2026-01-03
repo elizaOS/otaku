@@ -355,9 +355,17 @@ export class SocketIORouter {
       return;
     }
 
+    // Authorization: Require authentication to send messages
+    // This prevents unauthenticated users from sending messages as anyone
+    if (!socket.userId) {
+      logger.warn(`[SocketIO ${socket.id}] Unauthenticated user attempted to send message as ${senderId}`);
+      this.sendErrorResponse(socket, 'Authentication required to send messages');
+      return;
+    }
+
     // Authorization: Verify the authenticated user matches the senderId
     // This prevents impersonation attacks where someone sends messages as another user
-    if (socket.userId && socket.userId !== senderId) {
+    if (socket.userId !== senderId) {
       logger.warn(
         `[SocketIO ${socket.id}] User ${socket.userId} attempted to send message as ${senderId} - impersonation blocked`
       );

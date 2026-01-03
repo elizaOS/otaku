@@ -185,7 +185,13 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
       }
 
       // Authorization: Check if user can access the memory's room
-      if (existingMemory.roomId) {
+      // Memories without roomId are restricted to admins only (no room = no participant check possible)
+      if (!existingMemory.roomId) {
+        if (!req.isAdmin) {
+          logger.warn(`[MEMORY UPDATE] User ${req.userId} denied access to update orphan memory ${memoryId} (no roomId)`);
+          return sendError(res, 403, 'FORBIDDEN', 'Cannot modify memories without room association');
+        }
+      } else {
         const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, existingMemory.roomId, { isAdmin: req.isAdmin });
         if (!authResult.authorized) {
           logger.warn(`[MEMORY UPDATE] User ${req.userId} denied access to update memory ${memoryId}`);
@@ -359,7 +365,13 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
       }
 
       // Authorization: Check if user can access the memory's room
-      if (existingMemory.roomId) {
+      // Memories without roomId are restricted to admins only (no room = no participant check possible)
+      if (!existingMemory.roomId) {
+        if (!req.isAdmin) {
+          logger.warn(`[DELETE MEMORY] User ${req.userId} denied access to delete orphan memory ${memoryId} (no roomId)`);
+          return sendError(res, 403, 'FORBIDDEN', 'Cannot delete memories without room association');
+        }
+      } else {
         const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, existingMemory.roomId, { isAdmin: req.isAdmin });
         if (!authResult.authorized) {
           logger.warn(`[DELETE MEMORY] User ${req.userId} denied access to delete memory ${memoryId}`);
