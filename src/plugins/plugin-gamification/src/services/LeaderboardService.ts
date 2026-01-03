@@ -2,14 +2,14 @@ import {
   logger,
   Service,
   type IAgentRuntime,
-  DatabaseAdapter,
   type UUID,
 } from '@elizaos/core';
 import { desc, eq, sql } from 'drizzle-orm';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { leaderboardSnapshotsTable, pointBalancesTable } from '../schema';
 
-interface RuntimeWithDb extends IAgentRuntime {
-  db?: DatabaseAdapter;
+interface RuntimeWithDb {
+  db?: PgDatabase<PgQueryResultHKT>;
 }
 
 export class LeaderboardService extends Service {
@@ -21,8 +21,8 @@ export class LeaderboardService extends Service {
   private isStopped = false;
   private readonly SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-  private getDb(): DatabaseAdapter | undefined {
-    return (this.runtime as RuntimeWithDb).db;
+  private getDb(): PgDatabase<PgQueryResultHKT> | undefined {
+    return (this.runtime as unknown as RuntimeWithDb).db;
   }
 
   /**
@@ -90,7 +90,7 @@ export class LeaderboardService extends Service {
 
       // Filter out agents and limit to top 100
       const allTimeBalances = allTimeBalancesRaw
-        .filter((balance) => !this.isAgent(balance.userId))
+        .filter((balance) => !this.isAgent(balance.userId as UUID))
         .slice(0, 100);
 
       // Aggregate weekly leaderboard (excluding agents)
@@ -104,7 +104,7 @@ export class LeaderboardService extends Service {
 
       // Filter out agents and limit to top 100
       const weeklyBalances = weeklyBalancesRaw
-        .filter((balance) => !this.isAgent(balance.userId))
+        .filter((balance) => !this.isAgent(balance.userId as UUID))
         .slice(0, 100);
 
       // Prepare batch inserts

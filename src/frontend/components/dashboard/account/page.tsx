@@ -1,15 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import DashboardPageLayout from "@/components/dashboard/layout";
-import DashboardCard from "@/components/dashboard/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { useLoadingPanel } from "@/contexts/LoadingPanelContext";
-import { useModal } from "@/contexts/ModalContext";
-import { useCDPWallet } from '@/hooks/useCDPWallet';
-import { elizaClient } from "@/lib/elizaClient";
+import DashboardPageLayout from "@/frontend/components/dashboard/layout";
+import DashboardCard from "@/frontend/components/dashboard/card";
+import { Button } from "@/frontend/components/ui/button";
+import { Input } from "@/frontend/components/ui/input";
+import { Label } from "@/frontend/components/ui/label";
+import { Badge } from "@/frontend/components/ui/badge";
+import { useLoadingPanel } from "@/frontend/contexts/LoadingPanelContext";
+import { useModal } from "@/frontend/contexts/ModalContext";
+import { useCDPWallet } from '@/frontend/hooks/useCDPWallet';
+import { elizaClient } from "@/frontend/lib/elizaClient";
 import { Copy, Check, Upload } from 'lucide-react';
 import { UUID } from '@elizaos/core';
 

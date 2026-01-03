@@ -1,6 +1,6 @@
 import React from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Bullet } from "@/components/ui/bullet";
+import { Card, CardHeader, CardTitle, CardContent } from "@/frontend/components/ui/card";
+import { Bullet } from "@/frontend/components/ui/bullet";
 
 interface DashboardCardProps
   extends Omit<React.ComponentProps<typeof Card>, "title"> {

@@ -1,5 +1,7 @@
-import { BigNumberish } from "ethers";
 import { z } from "zod";
+
+// Type alias for numeric values that can be strings, numbers, or bigints
+export type BigNumberish = string | number | bigint;
 
 // Constants
 export const NATIVE_TOKEN_ADDRESSES =

@@ -11,6 +11,7 @@ import { MorphoService } from "../services";
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { getEntityWallet } from "../../../../utils/entity";
 import { getTxExplorerUrl } from "../../../../constants/chains";
+import { validateMorphoService, extractActionParams } from "../utils/actionHelpers";
 
 interface VaultTransferParams {
   intent: "deposit" | "withdraw";
@@ -66,13 +67,8 @@ export const vaultTransferAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime) => {
-    const svc = runtime.getService(MorphoService.serviceType) as MorphoService;
-    if (!svc) {
-      logger.error("[MORPHO_VAULT_TRANSFER] MorphoService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateMorphoService(runtime, "MORPHO_VAULT_TRANSFER", state, message);
   },
 
   handler: async (

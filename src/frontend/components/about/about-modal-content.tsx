@@ -1,6 +1,6 @@
-import { Badge } from '@/components/ui/badge';
-import { Bullet } from '@/components/ui/bullet';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/frontend/components/ui/badge';
+import { Bullet } from '@/frontend/components/ui/bullet';
+import { Button } from '@/frontend/components/ui/button';
 import { Sparkles, X } from 'lucide-react';
 
 interface AboutModalContentProps {

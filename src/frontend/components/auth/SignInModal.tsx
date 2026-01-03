@@ -7,11 +7,11 @@ import {
   useSignInWithOAuth,
 } from "@coinbase/cdp-hooks";
 import type { OAuth2ProviderType } from "@coinbase/cdp-hooks";
-import { useCDPWallet } from '@/hooks/useCDPWallet';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Bullet } from '../ui/bullet';
+import { useCDPWallet } from '@/frontend/hooks/useCDPWallet';
+import { Card, CardContent, CardHeader, CardTitle } from '@/frontend/components/ui/card';
+import { Input } from '@/frontend/components/ui/input';
+import { Button } from '@/frontend/components/ui/button';
+import { Bullet } from '@/frontend/components/ui/bullet';
 
 interface SignInModalProps {
   isOpen: boolean;

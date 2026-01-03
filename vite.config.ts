@@ -18,7 +18,7 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src/frontend'),
+        '@/frontend': path.resolve(__dirname, './src/frontend'),
         // Frontend never executes x402-fetch, but Vite still tries to resolve it
         // because backend files import it. Point to a browser-safe shim so the
         // resolver stops touching the broken package metadata.

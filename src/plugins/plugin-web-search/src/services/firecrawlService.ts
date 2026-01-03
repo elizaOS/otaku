@@ -39,7 +39,7 @@ export class FirecrawlService extends Service {
     static serviceType = "FIRECRAWL" as const;
     capabilityDescription = "Fetch and scrape webpage content using Firecrawl API";
     
-    private apiKey: string;
+    private apiKey!: string;
     private baseUrl: string = "https://api.firecrawl.dev/v1";
 
     static async start(runtime: IAgentRuntime): Promise<FirecrawlService> {

@@ -1,13 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Bullet } from "@/components/ui/bullet";
+import { Badge } from "@/frontend/components/ui/badge";
+import { Bullet } from "@/frontend/components/ui/bullet";
 import { AnimatePresence, motion, PanInfo } from "framer-motion";
 import NotificationItem from "./notification-item";
-import type { Notification } from "@/types/dashboard";
-import { SheetClose, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { useIsV0 } from "@/lib/v0-context";
+import type { Notification } from "@/frontend/types/dashboard";
+import { SheetClose, SheetHeader, SheetTitle, SheetDescription } from "@/frontend/components/ui/sheet";
+import { useIsV0 } from "@/frontend/lib/v0-context";
 
 interface MobileNotificationsProps {
   initialNotifications: Notification[];

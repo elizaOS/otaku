@@ -65,7 +65,7 @@ export class CoinDeskService extends Service {
     static serviceType = "COINDESK_NEWS" as const;
     capabilityDescription = "Fetch cryptocurrency news articles from CoinDesk API";
     
-    private apiKey: string;
+    private apiKey!: string;
     private baseUrl: string = "https://data-api.coindesk.com";
 
     static async start(runtime: IAgentRuntime): Promise<CoinDeskService> {

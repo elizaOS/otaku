@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Bullet } from "@/components/ui/bullet";
+import { Card, CardHeader, CardTitle, CardContent } from "@/frontend/components/ui/card";
+import { Badge } from "@/frontend/components/ui/badge";
+import { Button } from "@/frontend/components/ui/button";
+import { Bullet } from "@/frontend/components/ui/bullet";
 import NotificationItem from "./notification-item";
-import type { Notification } from "@/types/dashboard";
+import type { Notification } from "@/frontend/types/dashboard";
 import { AnimatePresence, motion } from "framer-motion";
 
 interface NotificationsProps {

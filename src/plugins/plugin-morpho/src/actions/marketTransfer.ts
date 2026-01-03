@@ -11,6 +11,7 @@ import { MorphoService } from "../services";
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { getEntityWallet } from "../../../../utils/entity";
 import { getTxExplorerUrl } from "../../../../constants/chains";
+import { validateMorphoService, extractActionParams } from "../utils/actionHelpers";
 
 interface MarketTransferParams {
   intent?: string;
@@ -120,14 +121,8 @@ export const marketTransferAction: Action = {
       required: false,
     },
   },
-  validate: async (runtime: IAgentRuntime) => {
-    const svc = runtime.getService(MorphoService.serviceType) as MorphoService;
-    const cdp = runtime.getService(CdpService.serviceType) as CdpService;
-    if (!svc || !cdp) {
-      logger.error("[MORPHO_MARKET_TRANSFER] Required services not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateMorphoService(runtime, "MORPHO_MARKET_TRANSFER", state, message);
   },
 
   handler: async (

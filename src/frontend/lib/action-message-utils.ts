@@ -1,4 +1,4 @@
-import type { ToolPart } from "@/components/action-tool"
+import type { ToolPart } from "@/frontend/components/action-tool"
 
 /**
  * Convert an agent action message to ToolPart format for display

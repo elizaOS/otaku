@@ -1,5 +1,5 @@
 import { useEffect, ReactNode } from 'react';
-import { useIsMobile } from '../../hooks/use-mobile';
+import { useIsMobile } from '@/frontend/hooks/use-mobile';
 
 interface ModalProps {
   children: ReactNode;

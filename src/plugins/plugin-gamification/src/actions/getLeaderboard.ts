@@ -32,7 +32,7 @@ export const getLeaderboardAction: Action = {
 
       // Default to weekly, but could parse scope from message
       const scope = (options?.scope as 'weekly' | 'all_time') || 'weekly';
-      const limit = options?.limit || 10;
+      const limit = (options?.limit as number) || 10;
 
       const entries = await gamificationService.getLeaderboard(scope, limit);
       const userRank = await gamificationService.getUserRank(message.entityId, scope);

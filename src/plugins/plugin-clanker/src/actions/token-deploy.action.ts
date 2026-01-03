@@ -16,6 +16,7 @@ import { ClankerService } from "../services/clanker.service";
 import { shortenAddress } from "../utils/format";
 import { handleError } from "../utils/errors";
 import { getEntityWallet } from "../../../../utils/entity";
+import { validateClankerService, getClankerService, extractActionParams } from "../utils/actionHelpers";
 
 // Utility function to safely serialize objects with BigInt values
 function safeStringify(obj: any): any {
@@ -94,27 +95,9 @@ export const tokenDeployAction: Action = {
   validate: async (
     runtime: IAgentRuntime,
     message: Memory,
-    _state: State | undefined,
+    state?: State | undefined,
   ): Promise<boolean> => {
-    try {
-      // Check if services are available
-      const clankerService = runtime.getService(
-        ClankerService.serviceType,
-      ) as ClankerService;
-
-      if (!clankerService) {
-        logger.warn("Required services not available for token deployment");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "Error validating token deployment action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+    return validateClankerService(runtime, "DEPLOY_TOKEN", state, message);
   },
 
   handler: async (

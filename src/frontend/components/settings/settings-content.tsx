@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { cn } from "@/lib/utils"
-import { Bullet } from "@/components/ui/bullet"
+import { cn } from "@/frontend/lib/utils"
+import { Bullet } from "@/frontend/components/ui/bullet"
 import { ProfileSettings } from "./profile-settings"
 import { PreferencesSettings } from "./preferences-settings"
 import { NotificationSettings } from "./notification-settings"

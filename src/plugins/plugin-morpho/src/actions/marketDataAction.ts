@@ -11,6 +11,7 @@ import { MorphoService } from "../services";
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { MorphoMarketData } from "../types";
 import { getEntityWallet } from "../../../../utils/entity";
+import { validateMorphoService, extractActionParams } from "../utils/actionHelpers";
 
 interface MarketInfoParams {
   market?: string;
@@ -54,15 +55,8 @@ export const marketInfoAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime) => {
-    const morphoService = runtime.getService(
-      MorphoService.serviceType,
-    ) as MorphoService;
-    if (!morphoService) {
-      logger.error("[GET_MORPHO_MARKET_INFO] Required services not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateMorphoService(runtime, "GET_MORPHO_MARKET_INFO", state, message);
   },
 
   handler: async (

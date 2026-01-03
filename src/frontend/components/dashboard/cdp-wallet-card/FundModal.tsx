@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Button } from '../../ui/button';
+import { Button } from '@/frontend/components/ui/button';
 import { Copy, Check } from 'lucide-react';
-import { useModal } from '../../../contexts/ModalContext';
-import { SUPPORTED_CHAINS, CHAIN_UI_CONFIGS, getChainWalletIcon } from '../../../constants/chains';
+import { useModal } from '@/frontend/contexts/ModalContext';
+import { SUPPORTED_CHAINS, CHAIN_UI_CONFIGS, getChainWalletIcon } from '@/frontend/constants/chains';
 
 interface FundModalContentProps {
   walletAddress?: string;

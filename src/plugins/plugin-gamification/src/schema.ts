@@ -2,13 +2,18 @@
  * Drizzle ORM schema for gamification tables
  */
 
-import { pgTable, uuid, text, integer, timestamp, jsonb, boolean, index } from 'drizzle-orm/pg-core';
+import { pgSchema, uuid, text, integer, timestamp, jsonb, boolean, index } from 'drizzle-orm/pg-core';
 import type { UUID } from '@elizaos/core';
+
+/**
+ * Gamification schema for table isolation
+ */
+const gamificationPgSchema = pgSchema('gamification');
 
 /**
  * Append-only ledger of all gamification events
  */
-export const gamificationEventsTable = pgTable('gamification_events', {
+export const gamificationEventsTable = gamificationPgSchema.table('gamification_events', {
   eventId: uuid('event_id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull(),
   actionType: text('action_type').notNull(),
@@ -27,7 +32,7 @@ export const gamificationEventsTable = pgTable('gamification_events', {
 /**
  * Materialized point balances per user
  */
-export const pointBalancesTable = pgTable('point_balances', {
+export const pointBalancesTable = gamificationPgSchema.table('point_balances', {
   userId: uuid('user_id').primaryKey(),
   allTimePoints: integer('all_time_points').notNull().default(0),
   weeklyPoints: integer('weekly_points').notNull().default(0),
@@ -43,7 +48,7 @@ export const pointBalancesTable = pgTable('point_balances', {
 /**
  * User referral codes
  */
-export const referralCodesTable = pgTable('referral_codes', {
+export const referralCodesTable = gamificationPgSchema.table('referral_codes', {
   userId: uuid('user_id').primaryKey(),
   code: text('code').notNull().unique(),
   referrerId: uuid('referrer_id'),
@@ -57,7 +62,7 @@ export const referralCodesTable = pgTable('referral_codes', {
 /**
  * First-time chain transaction tracking
  */
-export const userChainHistoryTable = pgTable('user_chain_history', {
+export const userChainHistoryTable = gamificationPgSchema.table('user_chain_history', {
   userId: uuid('user_id').notNull(),
   chain: text('chain').notNull(),
   firstTxAt: timestamp('first_tx_at').notNull().defaultNow(),
@@ -69,7 +74,7 @@ export const userChainHistoryTable = pgTable('user_chain_history', {
 /**
  * Campaign multipliers configuration
  */
-export const gamificationCampaignsTable = pgTable('gamification_campaigns', {
+export const gamificationCampaignsTable = gamificationPgSchema.table('gamification_campaigns', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   actionType: text('action_type'), // null = all actions
@@ -86,7 +91,7 @@ export const gamificationCampaignsTable = pgTable('gamification_campaigns', {
 /**
  * Denormalized leaderboard snapshots for fast reads
  */
-export const leaderboardSnapshotsTable = pgTable('leaderboard_snapshots', {
+export const leaderboardSnapshotsTable = gamificationPgSchema.table('leaderboard_snapshots', {
   scope: text('scope').notNull(), // 'weekly' | 'all_time'
   rank: integer('rank').notNull(),
   userId: uuid('user_id').notNull(),

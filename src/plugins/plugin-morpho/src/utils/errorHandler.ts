@@ -234,14 +234,14 @@ export class ErrorHandler {
     maxRetries: number = 3,
     delayMs: number = 1000,
   ): Promise<T> {
-    let lastError: any;
+    let lastError: Error | undefined;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         return await operation();
       } catch (error) {
-        lastError = error;
-        logger.warn(`Attempt ${attempt} failed:`, error);
+        lastError = error instanceof Error ? error : new Error(String(error));
+        logger.warn(`Attempt ${attempt} failed:`, lastError.message);
 
         if (attempt < maxRetries) {
           await new Promise((resolve) =>

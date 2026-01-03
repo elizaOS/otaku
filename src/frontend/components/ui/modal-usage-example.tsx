@@ -12,7 +12,7 @@
  * - Similar pattern to LoadingPanel
  */
 
-import { useModal } from '../../contexts/ModalContext';
+import { useModal } from '@/frontend/contexts/ModalContext';
 import { Button } from './button';
 import { Input } from './input';
 import { useState } from 'react';

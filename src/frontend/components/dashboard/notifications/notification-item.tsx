@@ -1,8 +1,8 @@
 import React from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import type { Notification } from "@/types/dashboard";
+import { Badge } from "@/frontend/components/ui/badge";
+import { Button } from "@/frontend/components/ui/button";
+import { cn } from "@/frontend/lib/utils";
+import type { Notification } from "@/frontend/types/dashboard";
 
 interface NotificationItemProps {
   notification: Notification;

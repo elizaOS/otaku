@@ -11,6 +11,7 @@ import { MorphoService } from "../services";
 import { MorphoMarketData, UserPosition } from "../types";
 import { getEntityWallet } from "../../../../utils/entity";
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
+import { validateMorphoService, extractActionParams } from "../utils/actionHelpers";
 import BigNumber from "bignumber.js";
 
 interface MarketPositionsParams {
@@ -95,15 +96,8 @@ export const marketPositionsAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime) => {
-    const morphoService = runtime.getService(
-      MorphoService.serviceType,
-    ) as MorphoService;
-    if (!morphoService) {
-      logger.error("[GET_MORPHO_MARKET_POSITIONS] Required services not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateMorphoService(runtime, "GET_MORPHO_MARKET_POSITIONS", state, message);
   },
 
   handler: async (

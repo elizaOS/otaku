@@ -8,6 +8,7 @@ import {
   type ActionResult,
 } from "@elizaos/core";
 import { BiconomyService } from "../services/biconomy.service";
+import { validateBiconomyService } from "../utils/actionHelpers";
 
 /**
  * MEE Supertransaction Status Action
@@ -32,12 +33,7 @@ export const meeSupertransactionStatusAction: Action = {
   },
 
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
-    try {
-      const biconomyService = runtime.getService(BiconomyService.serviceType) as BiconomyService;
-      return !!biconomyService;
-    } catch (error) {
-      return false;
-    }
+    return validateBiconomyService(runtime, "MEE_SUPERTRANSACTION_STATUS", state, message);
   },
 
   handler: async (

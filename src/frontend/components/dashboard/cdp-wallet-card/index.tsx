@@ -1,17 +1,17 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '../../ui/card';
-import { Button } from '../../ui/button';
-import { Bullet } from '../../ui/bullet';
+import { Card, CardHeader, CardTitle, CardContent } from '@/frontend/components/ui/card';
+import { Button } from '@/frontend/components/ui/button';
+import { Bullet } from '@/frontend/components/ui/bullet';
 import { Copy, Check } from 'lucide-react';
 import { SendModalContent } from './SendModal';
 import { SwapModalContent } from './SwapModal';
 import { TokenDetailModalContent } from './TokenDetailModal';
 import { NFTDetailModalContent } from './NFTDetailModal';
 import { FundModalContent } from './FundModal';
-import { elizaClient } from '../../../lib/elizaClient';
-import { formatTokenBalance } from '../../../lib/number-format';
-import { getTokenIconBySymbol, SUPPORTED_CHAINS, CHAIN_UI_CONFIGS, getChainWalletIcon } from '../../../constants/chains';
-import { useModal } from '../../../contexts/ModalContext';
+import { elizaClient } from '@/frontend/lib/elizaClient';
+import { formatTokenBalance } from '@/frontend/lib/number-format';
+import { getTokenIconBySymbol, SUPPORTED_CHAINS, CHAIN_UI_CONFIGS, getChainWalletIcon } from '@/frontend/constants/chains';
+import { useModal } from '@/frontend/contexts/ModalContext';
 
 interface Token {
   symbol: string;

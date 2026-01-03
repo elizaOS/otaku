@@ -2,13 +2,13 @@
 
 import type React from "react"
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Button } from "@/frontend/components/ui/button"
+import { Input } from "@/frontend/components/ui/input"
 import { Loader2 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import ArrowRightIcon from "@/components/icons/arrow-right"
-import type { RebelRanking } from "@/types/dashboard"
-import DashboardCard from "@/components/dashboard/card"
+import { cn } from "@/frontend/lib/utils"
+import ArrowRightIcon from "@/frontend/components/icons/arrow-right"
+import type { RebelRanking } from "@/frontend/types/dashboard"
+import DashboardCard from "@/frontend/components/dashboard/card"
 
 interface Message {
   id: string

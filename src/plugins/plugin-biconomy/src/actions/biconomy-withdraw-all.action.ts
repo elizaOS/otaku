@@ -17,6 +17,7 @@ import {
 } from "../../../plugin-relay/src/utils/token-resolver";
 import { BiconomyService } from "../services/biconomy.service";
 import { type QuoteRequest } from "../types";
+import { validateBiconomyService } from "../utils/actionHelpers";
 
 // CDP network mapping (chain ID -> CDP network name)
 const CDP_NETWORK_MAP: Record<number, CdpNetwork> = {
@@ -93,9 +94,8 @@ Parameters: chain (string), token (string), fundingToken (string, optional), wit
     },
   },
 
-  validate: async (runtime: IAgentRuntime, _message: Memory, _state?: State) => {
-    const biconomyService = runtime.getService(BiconomyService.serviceType) as BiconomyService;
-    return !!biconomyService;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateBiconomyService(runtime, "BICONOMY_WITHDRAW", state, message);
   },
 
   handler: async (

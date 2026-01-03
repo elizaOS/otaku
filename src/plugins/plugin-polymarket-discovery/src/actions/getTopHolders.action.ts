@@ -14,6 +14,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 import type { TopHolder } from "../types";
 import {
   validatePolymarketService,
@@ -52,8 +53,8 @@ export const getTopHoldersAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime, _message: Memory) => {
-    return validatePolymarketService(runtime, "GET_POLYMARKET_TOP_HOLDERS");
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validatePolymarketService(runtime, "GET_POLYMARKET_TOP_HOLDERS", state, message);
   },
 
   handler: async (

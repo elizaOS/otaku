@@ -1,8 +1,8 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { cn } from "@/lib/utils"
+import { Button } from "@/frontend/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/frontend/components/ui/collapsible"
+import { cn } from "@/frontend/lib/utils"
 import { CheckCircle2, ChevronDown, Loader2, Settings, XCircle } from "lucide-react"
 import { useState } from "react"
 

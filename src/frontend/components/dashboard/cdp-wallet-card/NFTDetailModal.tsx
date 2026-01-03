@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { X, Copy, Check, Send, ExternalLink } from 'lucide-react';
-import { Button } from '../../ui/button';
-import { useModal } from '../../../contexts/ModalContext';
-import { useLoadingPanel } from '../../../contexts/LoadingPanelContext';
-import { elizaClient } from '../../../lib/elizaClient';
+import { Button } from '@/frontend/components/ui/button';
+import { useModal } from '@/frontend/contexts/ModalContext';
+import { useLoadingPanel } from '@/frontend/contexts/LoadingPanelContext';
+import { elizaClient } from '@/frontend/lib/elizaClient';
 
 // NFT interface
 interface NFT {

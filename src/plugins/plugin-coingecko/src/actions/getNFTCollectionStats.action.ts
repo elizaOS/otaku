@@ -7,7 +7,7 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { CoinGeckoService } from "../services/coingecko.service";
+import { validateCoingeckoService, getCoingeckoService } from "../utils/actionHelpers";
 
 export const getNFTCollectionStatsAction: Action = {
   name: "GET_NFT_COLLECTION_STATS",
@@ -30,13 +30,8 @@ export const getNFTCollectionStatsAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
-    if (!svc) {
-      logger.error("CoinGeckoService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateCoingeckoService(runtime, "GET_NFT_COLLECTION_STATS", state, message);
   },
 
   handler: async (
@@ -47,7 +42,7 @@ export const getNFTCollectionStatsAction: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
-      const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
+      const svc = getCoingeckoService(runtime);
       if (!svc) {
         throw new Error("CoinGeckoService not available");
       }

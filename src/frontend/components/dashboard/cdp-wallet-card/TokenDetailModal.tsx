@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { X, Copy, Check, TrendingUp, TrendingDown } from 'lucide-react';
-import { Button } from '../../ui/button';
-import { useModal } from '../../../contexts/ModalContext';
-import { getTokenIconBySymbol } from '../../../constants/chains';
-import { formatTokenBalance } from '../../../lib/number-format';
+import { Button } from '@/frontend/components/ui/button';
+import { useModal } from '@/frontend/contexts/ModalContext';
+import { getTokenIconBySymbol } from '@/frontend/constants/chains';
+import { formatTokenBalance } from '@/frontend/lib/number-format';
 import { XAxis, YAxis, CartesianGrid, Area, AreaChart } from 'recharts';
 import {
   ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-} from '../../ui/chart';
+} from '@/frontend/components/ui/chart';
 
 interface Token {
   symbol: string;

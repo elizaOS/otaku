@@ -1,10 +1,10 @@
-import { Badge } from "@/components/ui/badge";
-import DashboardCard from "@/components/dashboard/card";
-import type { SecurityStatus as SecurityStatusType } from "@/types/dashboard";
+import { Badge } from "@/frontend/components/ui/badge";
+import DashboardCard from "@/frontend/components/dashboard/card";
+import type { SecurityStatus as SecurityStatusType } from "@/frontend/types/dashboard";
 
 import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/utils";
-import { Bullet } from "@/components/ui/bullet";
+import { cn } from "@/frontend/lib/utils";
+import { Bullet } from "@/frontend/components/ui/bullet";
 
 const securityStatusItemVariants = cva("border rounded-md ring-4", {
   variants: {

@@ -1,7 +1,7 @@
-import { Badge } from "@/components/ui/badge";
-import DashboardCard from "@/components/dashboard/card";
-import type { RebelRanking } from "@/types/dashboard";
-import { cn } from "@/lib/utils";
+import { Badge } from "@/frontend/components/ui/badge";
+import DashboardCard from "@/frontend/components/dashboard/card";
+import type { RebelRanking } from "@/frontend/types/dashboard";
+import { cn } from "@/frontend/lib/utils";
 
 interface RebelsRankingProps {
   rebels: RebelRanking[];

@@ -8,6 +8,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { DefiLlamaService, type ProtocolLookupResult, type ProtocolSummary } from "../services/defillama.service";
+import { validateDefillamaService, getDefillamaService, extractActionParams } from "../utils/actionHelpers";
 
 export const getProtocolSlugAction: Action = {
   name: "GET_PROTOCOL_SLUG",
@@ -30,13 +31,8 @@ export const getProtocolSlugAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
-    if (!svc) {
-      logger.error("DefiLlamaService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateDefillamaService(runtime, "GET_PROTOCOL_SLUG", state, message);
   },
 
   handler: async (
@@ -47,14 +43,13 @@ export const getProtocolSlugAction: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
-      const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
+      const svc = getDefillamaService(runtime);
       if (!svc) {
         throw new Error("DefiLlamaService not available");
       }
 
       // Read parameters from state (extracted by multiStepDecisionTemplate)
-      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
-      const params = composedState?.data?.actionParams || {};
+      const params = await extractActionParams<{ protocols?: string }>(runtime, message);
 
       // Extract and validate protocols parameter (required)
       const protocolsRaw: string | undefined = params?.protocols?.trim();
@@ -190,8 +185,7 @@ export const getProtocolSlugAction: Action = {
       logger.error(`[GET_PROTOCOL_SLUG] Action failed: ${msg}`);
       
       // Try to capture input params even in failure
-      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
-      const params = composedState?.data?.actionParams || {};
+      const params = await extractActionParams<{ protocols?: string }>(runtime, message);
       const failureInputParams = {
         protocols: params?.protocols,
       };

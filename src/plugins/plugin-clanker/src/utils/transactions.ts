@@ -92,7 +92,7 @@ export class TransactionMonitor {
           // Check again in 5 seconds
           setTimeout(checkTransaction, 5000);
         } catch (error) {
-          logger.error("Error checking transaction:", error);
+          logger.error("Error checking transaction:", error instanceof Error ? error.message : String(error));
           if (attempts >= 3) {
             const status: TransactionStatus = {
               hash,
@@ -132,7 +132,7 @@ export async function retryTransaction<T>(
       return await fn();
     } catch (error) {
       lastError = error;
-      logger.warn(`Transaction attempt ${i + 1} failed:`, error);
+      logger.warn(`Transaction attempt ${i + 1} failed:`, error instanceof Error ? error.message : String(error));
 
       if (i < maxRetries - 1) {
         await new Promise((resolve) => setTimeout(resolve, delay * (i + 1)));

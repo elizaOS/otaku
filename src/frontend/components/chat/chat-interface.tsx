@@ -1,19 +1,19 @@
-import { Tool } from "@/components/action-tool"
-import { ToolGroup } from "@/components/action-tool-group"
-import { AnimatedResponse } from "@/components/chat/animated-response"
-import { ChatPriceChart } from "@/components/chat/chat-price-chart"
-import ArrowRightIcon from "@/components/icons/arrow-right"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { convertActionMessageToToolPart, isActionMessage } from "@/lib/action-message-utils"
-import { elizaClient } from '@/lib/elizaClient'
-import { socketManager } from '@/lib/socketManager'
-import { cn } from "@/lib/utils"
+import { Tool } from "@/frontend/components/action-tool"
+import { ToolGroup } from "@/frontend/components/action-tool-group"
+import { AnimatedResponse } from "@/frontend/components/chat/animated-response"
+import { ChatPriceChart } from "@/frontend/components/chat/chat-price-chart"
+import ArrowRightIcon from "@/frontend/components/icons/arrow-right"
+import { Button } from "@/frontend/components/ui/button"
+import { Card, CardContent } from "@/frontend/components/ui/card"
+import { convertActionMessageToToolPart, isActionMessage } from "@/frontend/lib/action-message-utils"
+import { elizaClient } from '@/frontend/lib/elizaClient'
+import { socketManager } from '@/frontend/lib/socketManager'
+import { cn } from "@/frontend/lib/utils"
 import type { Agent, UUID } from '@elizaos/core'
 import { Loader2, ArrowLeft, Wallet, TrendingUp, Search, Repeat, Database, CheckCircle2 } from "lucide-react"
 import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Textarea } from "../ui/textarea"
+import { Textarea } from "@/frontend/components/ui/textarea"
 
 // Plugin definitions with metadata and sample prompts
 const PLUGIN_ACTIONS = {

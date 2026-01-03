@@ -14,6 +14,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 import type { ClosedPosition } from "../types";
 import {
   validatePolymarketService,
@@ -54,8 +55,8 @@ export const getClosedPositionsAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime, _message: Memory) => {
-    return validatePolymarketService(runtime, "GET_POLYMARKET_CLOSED_POSITIONS");
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validatePolymarketService(runtime, "GET_POLYMARKET_CLOSED_POSITIONS", state, message);
   },
 
   handler: async (

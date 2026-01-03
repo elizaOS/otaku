@@ -2,11 +2,11 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Badge } from "@/components/ui/badge";
-import { Bullet } from "@/components/ui/bullet";
-import BellIcon from "@/components/icons/bell";
-import PlusIcon from "@/components/icons/plus";
-import MinusIcon from "@/components/icons/minus";
+import { Badge } from "@/frontend/components/ui/badge";
+import { Bullet } from "@/frontend/components/ui/bullet";
+import BellIcon from "@/frontend/components/icons/bell";
+import PlusIcon from "@/frontend/components/icons/plus";
+import MinusIcon from "@/frontend/components/icons/minus";
 
 const CONTENT_HEIGHT = 400; // Height of expandable content
 

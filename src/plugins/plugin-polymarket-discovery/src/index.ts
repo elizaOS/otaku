@@ -53,6 +53,9 @@ import { getClosedPositionsAction } from "./actions/getClosedPositions.action";
 import { getUserActivityAction } from "./actions/getUserActivity.action";
 import { getTopHoldersAction } from "./actions/getTopHolders.action";
 
+// Context Matcher
+export { shouldPolymarketPluginBeInContext, polymarketKeywordPatterns } from "../matcher";
+
 // Types
 export type * from "./types";
 

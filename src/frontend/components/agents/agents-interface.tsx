@@ -1,10 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import type { RebelRanking } from "@/types/dashboard"
+import type { RebelRanking } from "@/frontend/types/dashboard"
 import AgentCard from "./agent-card"
 import AgentChat from "./agent-chat"
-import DashboardCard from "@/components/dashboard/card"
+import DashboardCard from "@/frontend/components/dashboard/card"
 
 interface AgentsInterfaceProps {
   agents: RebelRanking[]

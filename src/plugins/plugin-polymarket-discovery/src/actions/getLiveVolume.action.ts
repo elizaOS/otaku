@@ -14,6 +14,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 import { validatePolymarketService, getPolymarketService } from "../utils/actionHelpers";
 
 type GetLiveVolumeInput = Record<string, never>;
@@ -36,8 +37,8 @@ export const getLiveVolumeAction: Action = {
 
   parameters: {},
 
-  validate: async (runtime: IAgentRuntime, _message: Memory) => {
-    return validatePolymarketService(runtime, "GET_POLYMARKET_LIVE_VOLUME");
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validatePolymarketService(runtime, "GET_POLYMARKET_LIVE_VOLUME", state, message);
   },
 
   handler: async (

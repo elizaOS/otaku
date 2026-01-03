@@ -13,13 +13,13 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-} from "@/components/ui/sidebar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
-import DotsVerticalIcon from "@/components/icons/dots-vertical"
-import { Bullet } from "@/components/ui/bullet"
-import PlusIcon from "@/components/icons/plus"
+} from "@/frontend/components/ui/sidebar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/frontend/components/ui/popover"
+import { Button } from "@/frontend/components/ui/button"
+import { cn } from "@/frontend/lib/utils"
+import DotsVerticalIcon from "@/frontend/components/icons/dots-vertical"
+import { Bullet } from "@/frontend/components/ui/bullet"
+import PlusIcon from "@/frontend/components/icons/plus"
 import { LogOut, Trophy, User } from "lucide-react"
 
 interface Channel {

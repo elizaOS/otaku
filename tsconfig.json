@@ -17,9 +17,11 @@
     "outDir": "./dist",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/frontend/*"],
+      "@/frontend/*": ["./src/frontend/*"],
       "@/managers/*": ["./src/managers/*"],
-      "@/constants/*": ["./src/constants/*"]
+      "@/constants/*": ["./src/constants/*"],
+      "@/utils/*": ["./src/utils/*"],
+      "@/plugins/*": ["./src/plugins/*"]
     }
   },
   "include": ["src/**/*"],

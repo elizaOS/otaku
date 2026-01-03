@@ -1,9 +1,9 @@
 import React from "react";
 import NumberFlow from "@number-flow/react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Bullet } from "@/components/ui/bullet";
-import { cn } from "@/lib/utils";
+import { Card, CardHeader, CardTitle, CardContent } from "@/frontend/components/ui/card";
+import { Badge } from "@/frontend/components/ui/badge";
+import { Bullet } from "@/frontend/components/ui/bullet";
+import { cn } from "@/frontend/lib/utils";
 
 interface DashboardStatProps {
   label: string;

@@ -26,6 +26,7 @@ import { getTokenDecimals, resolveTokenToAddress } from "../utils/token-resolver
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
+import { validateRelayService, serializeBigInt, getChainName, formatAmount } from "../utils/actionHelpers";
 
 // Supported chains mapping
 const SUPPORTED_CHAINS: Record<string, Chain> = {
@@ -141,25 +142,7 @@ export const relayQuoteAction: Action = {
   },
 
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
-    try {
-      // Check if services are available
-      const relayService = runtime.getService(
-        RelayService.serviceType,
-      ) as RelayService;
-
-      if (!relayService) {
-        logger.warn("[GET_RELAY_QUOTE] Relay service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[GET_RELAY_QUOTE] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+    return validateRelayService(runtime, "GET_RELAY_QUOTE", state, message);
   },
 
     handler: async (
@@ -460,21 +443,6 @@ export const relayQuoteAction: Action = {
   
         const quote = await relayService.getQuote(quoteRequest);
 
-      // Serialize BigInt values to strings for storage
-      const serializeBigInt = (obj: any): any => {
-        if (obj === null || obj === undefined) return obj;
-        if (typeof obj === 'bigint') return obj.toString();
-        if (Array.isArray(obj)) return obj.map(serializeBigInt);
-        if (typeof obj === 'object') {
-          const serialized: any = {};
-          for (const key in obj) {
-            serialized[key] = serializeBigInt(obj[key]);
-          }
-          return serialized;
-        }
-        return obj;
-      };
-
       // Format response
       const responseText = formatQuoteResponse(
         quote as Execute, 
@@ -623,27 +591,6 @@ function formatQuoteResponse(
 
 The quote is ready for execution.
   `.trim();
-}
-
-function getChainName(chainId: number): string {
-  const chains: Record<number, string> = {
-    1: "Ethereum",
-    8453: "Base",
-    42161: "Arbitrum",
-    137: "Polygon",
-    10: "Optimism",
-    7777777: "Zora",
-    81457: "Blast",
-    534352: "Scroll",
-    59144: "Linea",
-  };
-  return chains[chainId] || `Chain ${chainId}`;
-}
-
-function formatAmount(amount: string, currency: string): string {
-  const decimals = currency.toLowerCase().includes("usdc") || currency.toLowerCase().includes("usdt") ? 6 : 18;
-  const value = Number(amount) / Math.pow(10, decimals);
-  return `${value.toFixed(6)} ${currency.toUpperCase()}`;
 }
 
 export default relayQuoteAction;

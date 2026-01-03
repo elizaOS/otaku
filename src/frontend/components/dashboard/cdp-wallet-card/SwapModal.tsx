@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Button } from '../../ui/button';
+import { Button } from '@/frontend/components/ui/button';
 import { X, ArrowDownUp, Loader2 } from 'lucide-react';
-import { useLoadingPanel } from '../../../contexts/LoadingPanelContext';
-import { useModal } from '../../../contexts/ModalContext';
-import { elizaClient } from '../../../lib/elizaClient';
-import { getTokenIconBySymbol, getTxExplorerUrl } from '../../../constants/chains';
-import { formatTokenBalance } from '../../../lib/number-format';
+import { useLoadingPanel } from '@/frontend/contexts/LoadingPanelContext';
+import { useModal } from '@/frontend/contexts/ModalContext';
+import { elizaClient } from '@/frontend/lib/elizaClient';
+import { getTokenIconBySymbol, getTxExplorerUrl } from '@/frontend/constants/chains';
+import { formatTokenBalance } from '@/frontend/lib/number-format';
 
 interface Token {
   symbol: string;

@@ -9,19 +9,15 @@ mkdir -p src/plugins/plugin-name/src/actions
 mkdir -p src/plugins/plugin-name/src/services
 ```
 
-### 2. Create `package.json`
+### 2. Add Dependencies (if needed)
 
-```json
-{
-  "name": "plugin-name",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "bun run build.ts"
-  }
-}
+If your plugin requires external libraries, install them in the root:
+
+```bash
+bun add some-library
 ```
+
+Plugins do NOT have their own `package.json` or `node_modules`. All dependencies are managed at the root level.
 
 ### 3. Create Plugin Export
 
@@ -43,13 +39,7 @@ Must export: `Action` object with `{ name, description, parameters, validate, ha
 - `src/plugins/plugin-cdp/src/actions/cdp-wallet-swap.ts`
 - `src/plugins/plugin-web-search/src/actions/webSearch.ts`
 
-### 5. Build Plugin
-
-```bash
-cd src/plugins/plugin-name && bun run build
-```
-
-### 6. Register in Root
+### 5. Register in Root
 
 File: `src/index.ts`
 
@@ -70,7 +60,7 @@ export const projectAgent: ProjectAgent = {
 
 **Order matters**: Services must be registered before actions that use them.
 
-### 7. Rebuild Backend
+### 6. Rebuild Backend
 
 ```bash
 bun run build:backend
@@ -103,7 +93,6 @@ actions: [existingAction1, existingAction2, myAction]
 ### 3. Rebuild
 
 ```bash
-cd src/plugins/plugin-name && bun run build
 bun run build:backend
 ```
 

@@ -1,7 +1,7 @@
 "use client"
 
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
+import { Label } from "@/frontend/components/ui/label"
+import { Switch } from "@/frontend/components/ui/switch"
 import { useState } from "react"
 
 export function NotificationSettings() {

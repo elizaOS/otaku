@@ -1,9 +1,9 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/frontend/components/ui/button"
+import { Input } from "@/frontend/components/ui/input"
+import { Label } from "@/frontend/components/ui/label"
+import { Textarea } from "@/frontend/components/ui/textarea"
 // Image component removed - using img tag instead
 import { useState } from "react"
 

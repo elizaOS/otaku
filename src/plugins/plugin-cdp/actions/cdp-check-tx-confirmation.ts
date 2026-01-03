@@ -10,6 +10,7 @@ import {
 import { createPublicClient, http } from "viem";
 import type { PublicClient } from "viem";
 import { getChainConfig, getViemChain, getRpcUrl } from "../../../constants/chains";
+import { validateCdpPluginContext } from "../utils/actionHelpers";
 
 export const cdpCheckTxConfirmation: Action = {
   name: "CHECK_TX_CONFIRMATION",
@@ -38,17 +39,8 @@ export const cdpCheckTxConfirmation: Action = {
     },
   },
   
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    try {
-      // This action doesn't require any services, just validates inputs
-      return true;
-    } catch (error) {
-      logger.error(
-        "[CHECK_TX_CONFIRMATION] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpPluginContext("CHECK_TX_CONFIRMATION", state, message);
   },
   
   handler: async (

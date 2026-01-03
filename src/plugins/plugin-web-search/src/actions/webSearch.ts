@@ -102,7 +102,7 @@ export const webSearch: Action = {
     handler: async (
         runtime: IAgentRuntime,
         message: Memory,
-        _state: State,
+        _state?: State,
         _options?: { [key: string]: unknown },
         callback?: HandlerCallback
     ): Promise<ActionResult> => {

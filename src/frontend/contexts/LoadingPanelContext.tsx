@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { LoadingPanel } from '@/components/ui/loading-panel';
+import { LoadingPanel } from '@/frontend/components/ui/loading-panel';
 
 interface LoadingPanelState {
   isVisible: boolean;

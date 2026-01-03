@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { Modal } from '@/components/ui/modal';
+import { Modal } from '@/frontend/components/ui/modal';
 
 interface ModalState {
   isVisible: boolean;

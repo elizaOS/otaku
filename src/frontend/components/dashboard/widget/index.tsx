@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, memo } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import TVNoise from "@/components/ui/tv-noise";
+import { Card, CardContent } from "@/frontend/components/ui/card";
+import { Badge } from "@/frontend/components/ui/badge";
+import TVNoise from "@/frontend/components/ui/tv-noise";
 
 // Memoize Widget to prevent re-renders of parent components
 // The clock updates every second internally, but shouldn't trigger parent re-renders

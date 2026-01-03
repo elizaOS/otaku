@@ -7,7 +7,7 @@
 
 import { AgentServer, ServerOptions, ServerMiddleware } from '@elizaos/server';
 import { logger } from '@elizaos/core';
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 
 // Custom middleware example
 const customLoggingMiddleware: ServerMiddleware = (
@@ -44,7 +44,7 @@ async function createStandaloneServer() {
     await server.initialize(serverOptions);
 
     // Register custom middleware if needed
-    server.registerMiddleware((req, res, next) => {
+    server.registerMiddleware((req: Request, res: Response, next: NextFunction) => {
       // Custom request processing
       res.setHeader('X-Powered-By', 'ElizaOS-Standalone');
       next();
@@ -53,8 +53,8 @@ async function createStandaloneServer() {
     logger.success(' Server initialized successfully');
 
     return server;
-  } catch (error) {
-    logger.error(' Failed to create server:', error);
+  } catch (error: unknown) {
+    logger.error(' Failed to create server:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -87,8 +87,8 @@ async function startServer() {
 
     process.on('SIGTERM', gracefulShutdown);
     process.on('SIGINT', gracefulShutdown);
-  } catch (error) {
-    logger.error(' Server startup failed:', error);
+  } catch (error: unknown) {
+    logger.error(' Server startup failed:', error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 }

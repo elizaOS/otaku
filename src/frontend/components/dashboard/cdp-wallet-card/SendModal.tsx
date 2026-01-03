@@ -1,11 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { Button } from '../../ui/button';
-import { Input } from '../../ui/input';
-import { useLoadingPanel } from '../../../contexts/LoadingPanelContext';
-import { useModal } from '../../../contexts/ModalContext';
-import { elizaClient } from '../../../lib/elizaClient';
-import { getTokenIconBySymbol } from '../../../constants/chains';
-import { formatTokenBalance } from '../../../lib/number-format';
+import { Button } from '@/frontend/components/ui/button';
+import { Input } from '@/frontend/components/ui/input';
+import { useLoadingPanel } from '@/frontend/contexts/LoadingPanelContext';
+import { useModal } from '@/frontend/contexts/ModalContext';
+import { elizaClient } from '@/frontend/lib/elizaClient';
+import { getTokenIconBySymbol } from '@/frontend/constants/chains';
+import { formatTokenBalance } from '@/frontend/lib/number-format';
 
 interface Token {
   symbol: string;

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useIsSignedIn, useSignOut, useIsInitialized, useCurrentUser } from "@coinbase/cdp-hooks";
-import { resolveCdpUserInfo, type CdpUser } from "@/lib/cdpUser";
+import { resolveCdpUserInfo, type CdpUser } from "@/frontend/lib/cdpUser";
 
 /**
  * Custom hook to access CDP wallet information

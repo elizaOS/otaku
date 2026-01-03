@@ -4,9 +4,10 @@
  * Shared utilities for Polymarket discovery plugin actions to reduce code duplication
  */
 
-import { type IAgentRuntime, type Memory, logger } from "@elizaos/core";
+import { type IAgentRuntime, type Memory, type State, logger } from "@elizaos/core";
 import { isAddress } from "viem";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 
 /**
  * Validate Ethereum address format using viem
@@ -19,17 +20,25 @@ export function isValidEthereumAddress(address: string): boolean {
 }
 
 /**
- * Validate that Polymarket service is available
+ * Validate that Polymarket service is available and plugin context is active
  *
  * @param runtime - Agent runtime
  * @param actionName - Name of action for logging
- * @returns True if service is available
+ * @param state - Optional state for plugin context check
+ * @returns True if service is available and plugin context is active
  */
 export function validatePolymarketService(
   runtime: IAgentRuntime,
-  actionName: string
+  actionName: string,
+  state?: State,
+  message?: Memory
 ): boolean {
   try {
+    // Check plugin context first
+    if (!shouldPolymarketPluginBeInContext(state, message)) {
+      return false;
+    }
+
     const service = runtime.getService(
       PolymarketService.serviceType
     ) as PolymarketService;

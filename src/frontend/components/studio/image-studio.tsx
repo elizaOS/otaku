@@ -1,13 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Slider } from "@/components/ui/slider"
-import { Bullet } from "@/components/ui/bullet"
+import { Card, CardHeader, CardTitle, CardContent } from "@/frontend/components/ui/card"
+import { Button } from "@/frontend/components/ui/button"
+import { Input } from "@/frontend/components/ui/input"
+import { Label } from "@/frontend/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/frontend/components/ui/select"
+import { Slider } from "@/frontend/components/ui/slider"
+import { Bullet } from "@/frontend/components/ui/bullet"
 import { Loader2, Sparkles, Download } from "lucide-react"
 
 const MODELS = [

@@ -1,7 +1,7 @@
 "use client"
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { cn } from "@/lib/utils"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/frontend/components/ui/collapsible"
+import { cn } from "@/frontend/lib/utils"
 import { ChevronRight } from "lucide-react"
 import { useState, useEffect } from "react"
 import type { ReactNode } from "react"

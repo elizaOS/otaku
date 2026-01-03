@@ -1,10 +1,10 @@
 import * as React from "react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Sheet, SheetContent, SheetTrigger, SheetClose, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { CDPWalletCard } from "@/components/dashboard/cdp-wallet-card";
-import { useCDPWallet } from "@/hooks/useCDPWallet";
+import { Button } from "@/frontend/components/ui/button";
+import { Badge } from "@/frontend/components/ui/badge";
+import { SidebarTrigger } from "@/frontend/components/ui/sidebar";
+import { Sheet, SheetContent, SheetTrigger, SheetClose, SheetHeader, SheetTitle, SheetDescription } from "@/frontend/components/ui/sheet";
+import { CDPWalletCard } from "@/frontend/components/dashboard/cdp-wallet-card";
+import { useCDPWallet } from "@/frontend/hooks/useCDPWallet";
 import { Wallet } from "lucide-react";
 
 interface MobileHeaderProps {

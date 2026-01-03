@@ -1,11 +1,11 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
+import { Button } from "@/frontend/components/ui/button"
+import { Input } from "@/frontend/components/ui/input"
+import { Label } from "@/frontend/components/ui/label"
+import { Switch } from "@/frontend/components/ui/switch"
 import { useState } from "react"
-import LockIcon from "@/components/icons/lock"
+import LockIcon from "@/frontend/components/icons/lock"
 
 export function SecuritySettings() {
   const [security, setSecuritySettings] = useState({

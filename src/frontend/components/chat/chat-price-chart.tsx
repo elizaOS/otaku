@@ -5,9 +5,9 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-} from '../ui/chart';
+} from '@/frontend/components/ui/chart';
 import { TrendingUp, TrendingDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/frontend/lib/utils';
 
 interface PriceDataPoint {
   timestamp: number;

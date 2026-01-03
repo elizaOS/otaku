@@ -1,7 +1,7 @@
 // Image component removed - using img tag instead
-import type { RebelRanking } from "@/types/dashboard"
-import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
+import type { RebelRanking } from "@/frontend/types/dashboard"
+import { Badge } from "@/frontend/components/ui/badge"
+import { cn } from "@/frontend/lib/utils"
 
 interface AgentCardProps {
   agent: RebelRanking

@@ -8,6 +8,7 @@ import { getTokenPriceChartAction } from "./actions/getTokenPriceChart.action";
 import { getCategoriesListAction } from "./actions/getCategoriesList.action";
 import { getCategoriesWithMarketDataAction } from "./actions/getCategoriesWithMarketData.action";
 import { getHistoricalPriceAction } from "./actions/getHistoricalPrice.action";
+import { shouldCoingeckoPluginBeInContext } from "../matcher";
 
 export const coingeckoPlugin: Plugin = {
   name: "plugin-coingecko",
@@ -39,6 +40,7 @@ export {
   getHistoricalPriceAction,
   getCategoriesListAction,
   getCategoriesWithMarketDataAction,
+  shouldCoingeckoPluginBeInContext,
 };
 
 

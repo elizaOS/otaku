@@ -8,10 +8,10 @@ import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-} from "@/components/ui/chart";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bullet } from "@/components/ui/bullet";
-import type { TimePeriod } from "@/types/dashboard";
+} from "@/frontend/components/ui/chart";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/frontend/components/ui/tabs";
+import { Bullet } from "@/frontend/components/ui/bullet";
+import type { TimePeriod } from "@/frontend/types/dashboard";
 
 type ChartDataPoint = {
   date: string;
