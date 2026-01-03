@@ -218,7 +218,8 @@ export class GamificationService extends Service {
         if (entity) {
           entityMap.set(userId, {
             displayName: (entity.metadata?.displayName as string) || (entity.names?.[0] as string),
-            avatarUrl: entity.metadata?.avatarUrl as string | undefined,
+            // Check both 'avatar' and 'avatarUrl' for backwards compatibility
+            avatarUrl: (entity.metadata?.avatar as string) || (entity.metadata?.avatarUrl as string) || undefined,
           });
         }
       } catch (error) {

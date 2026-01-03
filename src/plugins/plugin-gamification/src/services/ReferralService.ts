@@ -232,18 +232,15 @@ export class ReferralService extends Service {
   }
 
   /**
-   * Generate unique referral code from user ID using cryptographically secure randomness
+   * Generate deterministic referral code from user ID using SHA-256 hash
+   * Same userId always produces the same code, making codes recoverable
    */
   private generateReferralCode(userId: UUID): string {
-    // Use first 8 characters of UUID + cryptographically secure random suffix
-    const uuidPart = userId.replace(/-/g, '').substring(0, 8).toUpperCase();
-    
-    // Use crypto.randomBytes for secure randomness instead of Math.random()
     const crypto = require('crypto');
-    const randomBytes = crypto.randomBytes(3); // 3 bytes = 6 hex chars
-    const randomSuffix = randomBytes.toString('hex').toUpperCase();
-    
-    return `${uuidPart}${randomSuffix}`;
+    // Hash the userId to get deterministic output
+    const hash = crypto.createHash('sha256').update(userId).digest('hex').toUpperCase();
+    // Use first 12 characters of the hash for a compact, unique code
+    return hash.substring(0, 12);
   }
 }
 

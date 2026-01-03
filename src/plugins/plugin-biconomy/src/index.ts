@@ -34,7 +34,7 @@ export const meePlugin: Plugin = {
   name: "mee",
   description:
     "Biconomy MEE (Modular Execution Environment) plugin for gasless cross-chain swaps, CCIP bridging, and portfolio rebalancing",
-  actions: [meeFusionSwapAction, meeCcipBridgeAction, biconomyWithdrawAllAction, meeSupertransactionRebalanceAction, meeSupertransactionStatusAction],
+  actions: [meeFusionSwapAction, biconomyWithdrawAllAction, meeSupertransactionRebalanceAction, meeSupertransactionStatusAction],
   services: [BiconomyService],
   evaluators: [],
   providers: [],

@@ -373,6 +373,27 @@ async function recordAccountCreationPoints(payload: EntityPayload): Promise<void
   }
 }
 
+/**
+ * Action names that trigger swap points
+ * - USER_WALLET_SWAP: Legacy CDP swap
+ * - MEE_FUSION_SWAP: Biconomy gasless cross-chain swap
+ */
+const SWAP_ACTIONS = ['USER_WALLET_SWAP', 'MEE_FUSION_SWAP'];
+
+/**
+ * Action names that trigger bridge points
+ * - EXECUTE_RELAY_BRIDGE, RELAY_BRIDGE: Legacy Relay bridge
+ * - MEE_CCIP_BRIDGE: Biconomy CCIP bridge
+ */
+const BRIDGE_ACTIONS = ['EXECUTE_RELAY_BRIDGE', 'RELAY_BRIDGE', 'MEE_CCIP_BRIDGE'];
+
+/**
+ * Action names that trigger transfer points
+ * - USER_WALLET_TOKEN_TRANSFER, USER_WALLET_NFT_TRANSFER: Legacy CDP transfers
+ * - BICONOMY_WITHDRAW: Biconomy withdrawal to external address
+ */
+const TRANSFER_ACTIONS = ['USER_WALLET_TOKEN_TRANSFER', 'USER_WALLET_NFT_TRANSFER', 'BICONOMY_WITHDRAW'];
+
 export const gamificationEvents: PluginEvents = {
   [EventType.ACTION_COMPLETED]: [
     async (payload: ActionEventPayload) => {
@@ -380,11 +401,11 @@ export const gamificationEvents: PluginEvents = {
 
       // Award specific action points
       let handled = false;
-      if (actionName === 'USER_WALLET_SWAP') {
+      if (actionName && SWAP_ACTIONS.includes(actionName)) {
         handled = await recordSwapPoints(payload);
-      } else if (actionName === 'EXECUTE_RELAY_BRIDGE' || actionName === 'RELAY_BRIDGE') {
+      } else if (actionName && BRIDGE_ACTIONS.includes(actionName)) {
         handled = await recordBridgePoints(payload);
-      } else if (actionName === 'USER_WALLET_TOKEN_TRANSFER' || actionName === 'USER_WALLET_NFT_TRANSFER') {
+      } else if (actionName && TRANSFER_ACTIONS.includes(actionName)) {
         handled = await recordTransferPoints(payload);
       }
 
