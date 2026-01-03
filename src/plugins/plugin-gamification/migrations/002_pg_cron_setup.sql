@@ -3,9 +3,10 @@
 -- ============================================================================
 -- 
 -- Prerequisites:
---   1. pg_cron extension must be enabled by your cloud provider (Supabase, RDS, etc.)
---   2. Run: CREATE EXTENSION IF NOT EXISTS pg_cron;
---   3. Grant permissions: GRANT USAGE ON SCHEMA cron TO your_user;
+--   1. Run migration 001_add_is_agent_column.sql first (creates is_agent column)
+--   2. pg_cron extension must be enabled by your cloud provider (Supabase, RDS, etc.)
+--   3. Run: CREATE EXTENSION IF NOT EXISTS pg_cron;
+--   4. Grant permissions: GRANT USAGE ON SCHEMA cron TO your_user;
 --
 -- Run this migration to set up scheduled jobs
 -- ============================================================================

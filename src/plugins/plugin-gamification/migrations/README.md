@@ -32,15 +32,20 @@ Most managed Postgres services (Supabase, RDS, etc.) have pg_cron available:
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 ```
 
-### 2. Run the migration
+### 2. Run the migrations
+
+Run migrations in order:
 
 ```bash
-# Using psql
-psql $DATABASE_URL -f src/plugins/plugin-gamification/migrations/001_pg_cron_setup.sql
+# Using psql - run in order
+psql $DATABASE_URL -f src/plugins/plugin-gamification/migrations/001_add_is_agent_column.sql
+psql $DATABASE_URL -f src/plugins/plugin-gamification/migrations/002_pg_cron_setup.sql
 
 # Or using bun
 bun run scripts/setup-pg-cron.ts
 ```
+
+> **Note**: Migration 001 adds the `is_agent` column which is required by the pg_cron jobs in migration 002.
 
 ### 3. Verify jobs are scheduled
 
