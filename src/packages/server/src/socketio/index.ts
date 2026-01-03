@@ -9,10 +9,23 @@ import {
   EventType,
 } from '@elizaos/core';
 import type { Socket, Server as SocketIOServer } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import type { AgentServer } from '../index';
 import { attachmentsToApiUrls } from '../utils/media-transformer';
+import type { AuthTokenPayload } from '../middleware/jwt';
 
 const DEFAULT_SERVER_ID = '00000000-0000-0000-0000-000000000000' as UUID; // Single default server
+const JWT_SECRET = process.env.JWT_SECRET;
+
+/**
+ * Extended Socket interface with authenticated user data
+ */
+interface AuthenticatedSocket extends Socket {
+  userId?: string;
+  userEmail?: string;
+  username?: string;
+  isAdmin?: boolean;
+}
 export class SocketIORouter {
   private elizaOS: ElizaOS;
   private connections: Map<string, UUID>; // socket.id -> agentId (for agent-specific interactions like log streaming, if any)
@@ -33,13 +46,93 @@ export class SocketIORouter {
       (key) => `${key}: ${SOCKET_MESSAGE_TYPE[key as keyof typeof SOCKET_MESSAGE_TYPE]}`
     );
     logger.info(`[SocketIO] Registered message types: ${messageTypes.join(', ')}`);
+
+    // Authentication middleware for Socket.IO
+    io.use((socket: AuthenticatedSocket, next) => {
+      this.authenticateSocket(socket, next);
+    });
+
     io.on('connection', (socket: Socket) => {
-      this.handleNewConnection(socket, io);
+      this.handleNewConnection(socket as AuthenticatedSocket, io);
     });
   }
 
-  private handleNewConnection(socket: Socket, _io: SocketIOServer) {
-    logger.info(`[SocketIO] New connection: ${socket.id}`);
+  /**
+   * Authenticate socket connection via JWT token
+   * Token can be passed in auth.token, query.token, or Authorization header
+   */
+  private authenticateSocket(socket: AuthenticatedSocket, next: (err?: Error) => void) {
+    const token = 
+      socket.handshake.auth?.token ||
+      socket.handshake.query?.token ||
+      socket.handshake.headers?.authorization?.replace('Bearer ', '');
+
+    if (!token) {
+      // Allow unauthenticated connections but mark them
+      logger.debug(`[SocketIO] Unauthenticated connection: ${socket.id}`);
+      return next();
+    }
+
+    if (!JWT_SECRET) {
+      logger.warn('[SocketIO] JWT_SECRET not configured - cannot verify tokens');
+      return next();
+    }
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as AuthTokenPayload;
+      socket.userId = decoded.userId;
+      socket.userEmail = decoded.email;
+      socket.username = decoded.username;
+      socket.isAdmin = decoded.isAdmin || false;
+      logger.info(`[SocketIO] Authenticated socket ${socket.id} as user ${decoded.username} (${decoded.userId.substring(0, 8)}...)`);
+      next();
+    } catch (error: any) {
+      logger.warn(`[SocketIO] Socket auth failed for ${socket.id}: ${error.message}`);
+      // Don't reject - allow connection but mark as unauthenticated
+      next();
+    }
+  }
+
+  /**
+   * Check if user is authorized to access a channel
+   */
+  private async checkChannelAuthorization(
+    socket: AuthenticatedSocket,
+    channelId: UUID
+  ): Promise<{ authorized: boolean; error?: string }> {
+    // Admins can access everything
+    if (socket.isAdmin) {
+      return { authorized: true };
+    }
+
+    // Unauthenticated users cannot access channels
+    if (!socket.userId) {
+      return { authorized: false, error: 'Authentication required to access channels' };
+    }
+
+    try {
+      // Check if user is a participant of the channel
+      const participants = await this.serverInstance.getChannelParticipants(channelId);
+      if (participants.includes(socket.userId as UUID)) {
+        return { authorized: true };
+      }
+
+      return { authorized: false, error: 'You are not a participant of this channel' };
+    } catch (error: any) {
+      // If channel doesn't exist yet, allow (it will be created)
+      if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
+        return { authorized: true };
+      }
+      logger.error(`[SocketIO] Error checking channel authorization: ${error.message}`);
+      return { authorized: false, error: 'Unable to verify channel access' };
+    }
+  }
+
+  private handleNewConnection(socket: AuthenticatedSocket, _io: SocketIOServer) {
+    const authInfo = socket.userId 
+      ? `authenticated as ${socket.username} (${socket.userId.substring(0, 8)}...)` 
+      : 'unauthenticated';
+    logger.info(`[SocketIO] New connection: ${socket.id} - ${authInfo}`);
 
     socket.on(String(SOCKET_MESSAGE_TYPE.ROOM_JOINING), (payload) => {
       logger.debug(
@@ -89,10 +182,13 @@ export class SocketIORouter {
     socket.emit('connection_established', {
       message: 'Connected to Eliza Socket.IO server',
       socketId: socket.id,
+      authenticated: !!socket.userId,
+      userId: socket.userId,
+      username: socket.username,
     });
   }
 
-  private handleGenericMessage(socket: Socket, data: any) {
+  private handleGenericMessage(socket: AuthenticatedSocket, data: any) {
     try {
       if (!(data && typeof data === 'object' && 'type' in data && 'payload' in data)) {
         logger.warn(
@@ -125,7 +221,7 @@ export class SocketIORouter {
     }
   }
 
-  private handleChannelJoining(socket: Socket, payload: any) {
+  private async handleChannelJoining(socket: AuthenticatedSocket, payload: any) {
     const channelId = payload.channelId || payload.roomId; // Support both for backward compatibility
     const { agentId, entityId, serverId, metadata } = payload;
 
@@ -139,6 +235,24 @@ export class SocketIORouter {
       return;
     }
 
+    const validChannelId = validateUuid(channelId);
+    if (!validChannelId) {
+      this.sendErrorResponse(socket, `Invalid channelId format.`);
+      return;
+    }
+
+    // Authorization: Check if user can access this channel
+    const authResult = await this.checkChannelAuthorization(socket, validChannelId);
+    if (!authResult.authorized) {
+      logger.warn(`[SocketIO] User ${socket.userId || 'unauthenticated'} denied access to channel ${channelId}`);
+      this.sendErrorResponse(socket, authResult.error || 'Access denied to this channel');
+      socket.emit('channel_join_denied', {
+        channelId,
+        error: authResult.error || 'Access denied',
+      });
+      return;
+    }
+
     if (agentId) {
       const agentUuid = validateUuid(agentId);
       if (agentUuid) {
@@ -148,7 +262,7 @@ export class SocketIORouter {
     }
 
     socket.join(channelId);
-    logger.info(`[SocketIO] Socket ${socket.id} joined Socket.IO channel: ${channelId}`);
+    logger.info(`[SocketIO] Socket ${socket.id} (user: ${socket.userId || 'unauthenticated'}) joined Socket.IO channel: ${channelId}`);
 
     // Emit ENTITY_JOINED event for bootstrap plugin to handle world/entity creation
     if (entityId && (serverId || DEFAULT_SERVER_ID)) {
@@ -197,7 +311,7 @@ export class SocketIORouter {
     logger.info(`[SocketIO] ${successMessage}`);
   }
 
-  private async handleMessageSubmission(socket: Socket, payload: any) {
+  private async handleMessageSubmission(socket: AuthenticatedSocket, payload: any) {
     const channelId = payload.channelId || payload.roomId; // Support both for backward compatibility
     const { senderId, senderName, message, serverId, source, metadata, attachments } = payload;
 
@@ -218,6 +332,27 @@ export class SocketIORouter {
         `For SEND_MESSAGE: channelId, serverId (server_id), senderId (author_id), and message are required.`
       );
       return;
+    }
+
+    // Authorization: Verify the authenticated user matches the senderId
+    // This prevents impersonation attacks where someone sends messages as another user
+    if (socket.userId && socket.userId !== senderId) {
+      logger.warn(
+        `[SocketIO ${socket.id}] User ${socket.userId} attempted to send message as ${senderId} - impersonation blocked`
+      );
+      this.sendErrorResponse(socket, 'Cannot send messages as another user');
+      return;
+    }
+
+    // Authorization: Check if user can send to this channel
+    const validChannelId = validateUuid(channelId);
+    if (validChannelId) {
+      const authResult = await this.checkChannelAuthorization(socket, validChannelId);
+      if (!authResult.authorized) {
+        logger.warn(`[SocketIO ${socket.id}] User ${socket.userId || senderId} denied sending to channel ${channelId}`);
+        this.sendErrorResponse(socket, authResult.error || 'Not authorized to send to this channel');
+        return;
+      }
     }
 
     try {
@@ -475,16 +610,14 @@ export class SocketIORouter {
     });
   }
 
-  private handleDisconnect(socket: Socket) {
+  private handleDisconnect(socket: AuthenticatedSocket) {
     const agentIdAssociated = this.connections.get(socket.id);
     this.connections.delete(socket.id);
     this.logStreamConnections.delete(socket.id);
-    if (agentIdAssociated) {
-      logger.info(
-        `[SocketIO] Client ${socket.id} (associated with agent ${agentIdAssociated}) disconnected.`
-      );
-    } else {
-      logger.info(`[SocketIO] Client ${socket.id} disconnected.`);
-    }
+    
+    const userInfo = socket.userId ? ` (user: ${socket.username || socket.userId.substring(0, 8)})` : '';
+    const agentInfo = agentIdAssociated ? ` (agent: ${agentIdAssociated})` : '';
+    
+    logger.info(`[SocketIO] Client ${socket.id}${userInfo}${agentInfo} disconnected.`);
   }
 }
