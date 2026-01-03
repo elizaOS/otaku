@@ -1,4 +1,5 @@
 import { clankerPlugin } from "./plugin";
+import { shouldClankerPluginBeInContext } from "../matcher";
 
 // Export the plugin as default
 export default clankerPlugin;
@@ -11,6 +12,9 @@ export { ClankerService } from "./services";
 
 // Export actions for direct use if needed
 export { tokenDeployAction } from "./actions";
+
+// Export matcher
+export { shouldClankerPluginBeInContext };
 
 // Export types
 export * from "./types";

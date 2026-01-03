@@ -7,12 +7,12 @@ import {
   type HandlerCallback,
   type ActionResult,
 } from "@elizaos/core";
-import { 
-  mainnet, 
-  base, 
-  arbitrum, 
-  polygon, 
-  optimism, 
+import {
+  mainnet,
+  base,
+  arbitrum,
+  polygon,
+  optimism,
   zora,
   blast,
   scroll,
@@ -20,13 +20,14 @@ import {
   type Chain
   } from "viem/chains";
 import { parseUnits } from "viem";
-import { RelayService } from "../services/relay.service"; 
+import { RelayService } from "../services/relay.service";
 import { CdpService } from "../../../plugin-cdp/services/cdp.service";
 import { type BridgeRequest, type ResolvedBridgeRequest, type RelayStatus } from "../types";
 import type { ProgressData } from "@relayprotocol/relay-sdk";
 import { resolveTokenToAddress, getTokenDecimals } from "../utils/token-resolver";
 import { CdpNetwork } from "../../../plugin-cdp/types";
 import { getEntityWallet } from "../../../../utils/entity";
+import { validateRelayService, serializeBigInt, getChainName, formatAmount } from "../utils/actionHelpers";
 
 // Supported chains mapping
 const SUPPORTED_CHAINS: Record<string, Chain> = {
@@ -138,25 +139,7 @@ export const relayBridgeAction: Action = {
   },
 
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
-    try {
-      // Check if services are available
-      const relayService = runtime.getService(
-        RelayService.serviceType,
-      ) as RelayService;
-
-      if (!relayService) {
-        logger.warn("[EXECUTE_RELAY_BRIDGE] Relay service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[EXECUTE_RELAY_BRIDGE] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+    return validateRelayService(runtime, "EXECUTE_RELAY_BRIDGE", state, message);
   },
 
   handler: async (
@@ -508,21 +491,6 @@ export const relayBridgeAction: Action = {
         callback({ text: currentStatus });
       }
 
-      // Helper to serialize BigInt for logging
-      const serializeBigInt = (obj: any): any => {
-        if (obj === null || obj === undefined) return obj;
-        if (typeof obj === 'bigint') return obj.toString();
-        if (Array.isArray(obj)) return obj.map(serializeBigInt);
-        if (typeof obj === 'object') {
-          const serialized: any = {};
-          for (const key in obj) {
-            serialized[key] = serializeBigInt(obj[key]);
-          }
-          return serialized;
-        }
-        return obj;
-      };
-
       // Track transaction hashes as they come in
       const collectedTxHashes: Array<{ txHash: string; chainId: number }> = [];
 
@@ -775,27 +743,6 @@ ${statusIndicator} **Bridge ${(status?.status || "PENDING").toUpperCase()}**
   }
 
   return response;
-}
-
-function getChainName(chainId: number): string {
-  const chains: Record<number, string> = {
-    1: "Ethereum",
-    8453: "Base",
-    42161: "Arbitrum",
-    137: "Polygon",
-    10: "Optimism",
-    7777777: "Zora",
-    81457: "Blast",
-    534352: "Scroll",
-    59144: "Linea",
-  };
-  return chains[chainId] || `Chain ${chainId}`;
-}
-
-function formatAmount(amount: string, currency: string): string {
-  const decimals = currency.toLowerCase().includes("usdc") || currency.toLowerCase().includes("usdt") ? 6 : 18;
-  const value = Number(amount) / Math.pow(10, decimals);
-  return `${value.toFixed(6)} ${currency.toUpperCase()}`;
 }
 
 export default relayBridgeAction;

@@ -17,3 +17,6 @@ export default relayPlugin;
 // Re-export types for external use
 export * from "./types";
 export { RelayService } from "./services/relay.service";
+
+// Re-export matcher for context-aware action activation
+export { shouldRelayPluginBeInContext, relayKeywordPatterns } from "../matcher";

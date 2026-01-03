@@ -15,6 +15,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 import type { EventFilters } from "../types";
 import {
   validatePolymarketService,
@@ -62,8 +63,8 @@ export const getEventsAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime, _message: Memory) => {
-    return validatePolymarketService(runtime, "GET_POLYMARKET_EVENTS");
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validatePolymarketService(runtime, "GET_POLYMARKET_EVENTS", state, message);
   },
 
   handler: async (

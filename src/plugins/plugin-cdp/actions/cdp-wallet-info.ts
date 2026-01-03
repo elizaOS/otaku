@@ -9,6 +9,7 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
+import { validateCdpService } from "../utils/actionHelpers";
 
 export const cdpWalletInfo: Action = {
   name: "USER_WALLET_INFO",
@@ -38,26 +39,8 @@ export const cdpWalletInfo: Action = {
     },
   },
   
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    try {
-      // Check if CDP service is available
-      const cdpService = _runtime.getService(
-        CdpService.serviceType,
-      ) as CdpService;
-
-      if (!cdpService) {
-        logger.warn("[USER_WALLET_INFO] CDP service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[USER_WALLET_INFO] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpService(_runtime, "USER_WALLET_INFO", state, message);
   },
   handler: async (
     runtime: IAgentRuntime,

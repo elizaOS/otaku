@@ -1,6 +1,7 @@
 import type { Plugin } from "@elizaos/core";
 import { EtherscanService } from "./services/etherscan.service";
 import { checkTransactionConfirmationAction } from "./actions/checkTransactionConfirmation.action";
+import { shouldEtherscanPluginBeInContext } from "../matcher";
 
 export const etherscanPlugin: Plugin = {
   name: "etherscan",
@@ -13,5 +14,6 @@ export const etherscanPlugin: Plugin = {
 };
 
 export default etherscanPlugin;
-export { EtherscanService, checkTransactionConfirmationAction };
+export { EtherscanService, checkTransactionConfirmationAction, shouldEtherscanPluginBeInContext };
+export * from "./utils/actionHelpers";
 

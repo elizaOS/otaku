@@ -6,6 +6,7 @@ import { getProtocolTvlHistoryAction } from "./actions/getProtocolTvlHistory.act
 import { getChainTvlHistoryAction } from "./actions/getChainTvlHistory.action";
 import { getYieldRatesAction } from "./actions/getYieldRates.action";
 import { getYieldHistoryAction } from "./actions/getYieldHistory.action";
+import { shouldDefiLlamaPluginBeActive } from "../matcher";
 
 export const defiLlamaPlugin: Plugin = {
   name: "plugin-defillama",
@@ -32,6 +33,7 @@ export {
   getChainTvlHistoryAction,
   getYieldRatesAction,
   getYieldHistoryAction,
+  shouldDefiLlamaPluginBeActive,
 };
 
 

@@ -36,7 +36,6 @@ otaku/
 ### Phase 1: Workspace Packages (Turbo)
 - `src/packages/api-client/` → `dist/` (ESM)
 - `src/packages/server/` → `dist/` (ESM)
-- `src/plugins/*/` → `dist/` (each plugin)
 - Orchestrated by dependency graph in `turbo.json`
 
 ### Phase 2: Backend Bundle (Bun.build)
@@ -130,8 +129,6 @@ plugin-name/
 │   ├── services/          # Service classes
 │   ├── providers/         # Context providers
 │   └── types.ts           # TypeScript types
-├── package.json           # Workspace package
-└── build.ts               # Build config
 ```
 
 Each plugin exports: `actions`, `services`, `providers`

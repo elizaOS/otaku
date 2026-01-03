@@ -23,6 +23,9 @@ import { walletStateProvider } from "./providers/walletState";
 // Types
 export type { CdpNetwork } from "./types";
 
+// Context Matching - re-export for external use
+export { shouldCdpPluginBeInContext, cdpKeywordPatterns } from "./matcher";
+
 /**
  * CDP Plugin
  * 

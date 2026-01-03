@@ -8,6 +8,7 @@ import {
   logger
 } from "@elizaos/core";
 import { getTxExplorerUrl } from "../../../constants/chains";
+import { validateCdpPluginContext } from "../utils/actionHelpers";
 
 export const cdpTxExplorerLink: Action = {
   name: "GET_TX_EXPLORER_LINK",
@@ -38,17 +39,8 @@ export const cdpTxExplorerLink: Action = {
     },
   },
   
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    try {
-      // This action doesn't require any services, just validates inputs
-      return true;
-    } catch (error) {
-      logger.error(
-        "[GET_TX_EXPLORER_LINK] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpPluginContext("TX_EXPLORER_LINK", state, message);
   },
   
   handler: async (

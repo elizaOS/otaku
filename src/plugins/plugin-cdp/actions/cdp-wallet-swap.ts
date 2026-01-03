@@ -9,6 +9,7 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
+import { validateCdpService } from "../utils/actionHelpers";
 import { getTokenMetadata, getTokenDecimals, resolveTokenSymbol } from "../utils/coingecko";
 import { type CdpNetwork } from "../types";
 
@@ -187,26 +188,8 @@ export const cdpWalletSwap: Action = {
     },
   },
   
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    try {
-      // Check if services are available
-      const cdpService = _runtime.getService(
-        CdpService.serviceType,
-      ) as CdpService;
-
-      if (!cdpService) {
-        logger.warn("[USER_WALLET_SWAP] CDP service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[USER_WALLET_SWAP] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpService(_runtime, "USER_WALLET_SWAP", state, message);
   },
   handler: async (
     runtime: IAgentRuntime,

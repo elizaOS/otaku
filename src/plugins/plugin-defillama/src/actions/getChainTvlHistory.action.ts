@@ -13,13 +13,14 @@ import {
   type ChainTvlHistoryOptions,
   type ChainTvlPoint,
 } from "../services/defillama.service";
+import { validateDefillamaService, getDefillamaService, extractActionParams } from "../utils/actionHelpers";
 import {
   limitSeries,
   parsePositiveInteger,
   respondWithError,
   sanitizeChainName,
   sanitizeFilterSegment,
-} from "../utils/action-helpers";
+} from "../utils/actionHelpers";
 
 const DEFAULT_CHAIN_HISTORY_WINDOW = 365;
 
@@ -48,13 +49,8 @@ export const getChainTvlHistoryAction: Action = {
       required: false,
     },
   },
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
-    if (!svc) {
-      logger.error("DefiLlamaService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateDefillamaService(runtime, "GET_CHAIN_TVL_HISTORY", state, message);
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -64,13 +60,12 @@ export const getChainTvlHistoryAction: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
-      const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
+      const svc = getDefillamaService(runtime);
       if (!svc) {
         throw new Error("DefiLlamaService not available");
       }
 
-      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
-      const params = composedState?.data?.actionParams ?? {};
+      const params = await extractActionParams<{ chain?: string; filter?: string; days?: number }>(runtime, message);
 
       const chainParamRaw = typeof params?.chain === "string" ? params.chain.trim() : "";
       const chainParam = sanitizeChainName(chainParamRaw);

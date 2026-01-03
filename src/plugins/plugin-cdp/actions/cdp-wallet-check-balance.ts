@@ -9,6 +9,7 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
+import { validateCdpService } from "../utils/actionHelpers";
 
 interface CheckBalanceParams {
   token: string;
@@ -79,25 +80,8 @@ export const cdpWalletCheckBalance: Action = {
     },
   },
   
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    try {
-      const cdpService = _runtime.getService(
-        CdpService.serviceType,
-      ) as CdpService;
-
-      if (!cdpService) {
-        logger.warn("[CHECK_TOKEN_BALANCE] CDP service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[CHECK_TOKEN_BALANCE] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpService(_runtime, "USER_WALLET_CHECK_BALANCE", state, message);
   },
 
   handler: async (

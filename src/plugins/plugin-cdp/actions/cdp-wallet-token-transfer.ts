@@ -10,6 +10,7 @@ import {
 import { parseUnits } from "viem";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
+import { validateCdpService } from "../utils/actionHelpers";
 import { type CdpNetwork } from "../types";
 
 // WETH contract address on Polygon (bridged from Ethereum via PoS Bridge)
@@ -87,26 +88,8 @@ export const cdpWalletTokenTransfer: Action = {
     },
   },
   
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    try {
-      // Check if CDP service is available
-      const cdpService = _runtime.getService(
-        CdpService.serviceType,
-      ) as CdpService;
-
-      if (!cdpService) {
-        logger.warn("[USER_WALLET_TOKEN_TRANSFER] CDP service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[USER_WALLET_TOKEN_TRANSFER] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpService(_runtime, "USER_WALLET_TOKEN_TRANSFER", state, message);
   },
   handler: async (
     runtime: IAgentRuntime,

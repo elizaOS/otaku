@@ -9,6 +9,7 @@ import {
 } from "@elizaos/core";
 import { RelayService } from "../services/relay.service";
 import type { StatusRequest, RelayStatus } from "../types";
+import { validateRelayService, getChainName } from "../utils/actionHelpers";
 
 interface StatusParams {
   requestId?: string;
@@ -47,25 +48,7 @@ export const relayStatusAction: Action = {
   },
 
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
-    try {
-      // Check if services are available
-      const relayService = runtime.getService(
-        RelayService.serviceType,
-      ) as RelayService;
-
-      if (!relayService) {
-        logger.warn("[CHECK_RELAY_STATUS] Relay service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[CHECK_RELAY_STATUS] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+    return validateRelayService(runtime, "CHECK_RELAY_STATUS", state, message);
   },
 
   handler: async (
@@ -394,21 +377,6 @@ function getStatusIndicator(status: string): string {
     processing: "",
   };
   return indicators[status.toLowerCase()] || "?";
-}
-
-function getChainName(chainId: number): string {
-  const chains: Record<number, string> = {
-    1: "Ethereum",
-    8453: "Base",
-    42161: "Arbitrum",
-    137: "Polygon",
-    10: "Optimism",
-    7777777: "Zora",
-    81457: "Blast",
-    534352: "Scroll",
-    59144: "Linea",
-  };
-  return chains[chainId] || `Chain ${chainId}`;
 }
 
 export default relayStatusAction;
