@@ -52,3 +52,5 @@ packages/*/tsconfig.tsbuildinfo
 
 .claude/cache/
 /thoughts
+/strix_runs
+/scripts

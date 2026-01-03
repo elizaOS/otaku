@@ -28,11 +28,21 @@ class SocketManager {
     
     this.userId = userId;
     this.userName = userName || null;
+    
+    // Get auth token from localStorage for Socket.IO authentication
+    const token = localStorage.getItem('auth-token');
+    if (!token) {
+      console.warn('No auth token found for socket connection');
+    }
+    
     this.socket = io(window.location.origin + '/', {
       autoConnect: true,
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 5,
+      auth: {
+        token, // Pass JWT for server-side authentication
+      },
     });
 
     this.socket.on('connect', () => {

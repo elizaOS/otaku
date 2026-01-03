@@ -6,7 +6,6 @@
 
 import { type IAgentRuntime, type Memory, type State, logger } from "@elizaos/core";
 import { CdpService } from "../services/cdp.service";
-import { shouldCdpPluginBeInContext } from "../matcher";
 
 /**
  * Validate that CDP service is available and plugin context is active
@@ -20,14 +19,12 @@ import { shouldCdpPluginBeInContext } from "../matcher";
 export function validateCdpService(
   runtime: IAgentRuntime,
   actionName: string,
-  state?: State,
-  message?: Memory
+  _state?: State,
+  _message?: Memory
 ): boolean {
   try {
-    // Check plugin context first
-    if (!shouldCdpPluginBeInContext(state, message)) {
-      return false;
-    }
+    // CDP plugin always active - no context matching required
+    // This ensures wallet operations are always available to the agent
 
     const service = runtime.getService(
       CdpService.serviceType
@@ -50,31 +47,20 @@ export function validateCdpService(
 
 /**
  * Validate plugin context only (for actions that don't require CDP service)
+ * CDP plugin always active - no context matching required
  *
  * @param actionName - Name of action for logging
  * @param state - Optional state for plugin context check
  * @param message - Optional message for plugin context check
- * @returns True if plugin context is active
+ * @returns Always true - CDP plugin is always available
  */
 export function validateCdpPluginContext(
-  actionName: string,
-  state?: State,
-  message?: Memory
+  _actionName: string,
+  _state?: State,
+  _message?: Memory
 ): boolean {
-  try {
-    // Check plugin context first
-    if (!shouldCdpPluginBeInContext(state, message)) {
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    logger.error(
-      `[${actionName}] Error validating action:`,
-      error instanceof Error ? error.message : String(error)
-    );
-    return false;
-  }
+  // CDP plugin always active - no context matching required
+  return true;
 }
 
 /**

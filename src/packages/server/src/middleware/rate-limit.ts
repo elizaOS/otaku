@@ -3,6 +3,38 @@ import { logger } from '@elizaos/core';
 import { validateChannelId } from '../api/shared/validation';
 
 /**
+ * Strict rate limiting for authentication endpoints
+ * Prevents credential stuffing and brute force attacks
+ */
+export const createAuthRateLimit = () => {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // Limit each IP to 10 login attempts per 15 minutes
+    message: {
+      success: false,
+      error: {
+        code: 'AUTH_RATE_LIMIT_EXCEEDED',
+        message: 'Too many authentication attempts. Please try again later.',
+      },
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false, // Count all requests, not just failures
+    handler: (req, res) => {
+      const clientIp = req.ip || 'unknown';
+      logger.warn(`[SECURITY] Auth rate limit exceeded for IP: ${clientIp}`);
+      res.status(429).json({
+        success: false,
+        error: {
+          code: 'AUTH_RATE_LIMIT_EXCEEDED',
+          message: 'Too many authentication attempts. Please try again later.',
+        },
+      });
+    },
+  });
+};
+
+/**
  * General API rate limiting middleware
  * With trust proxy set to 1, express-rate-limit automatically handles X-Forwarded-For headers
  */

@@ -246,10 +246,12 @@ export const cdpWalletNftTransfer: Action = {
 
       logger.info(`[USER_WALLET_NFT_TRANSFER] NFT transfer parameters: ${JSON.stringify(transferParams)}`);
 
-      // Verify the user owns this NFT
-      logger.info(`[USER_WALLET_NFT_TRANSFER] Verifying NFT ownership in wallet`);
+      // SECURITY: Force fresh NFT data fetch to prevent TOCTOU race conditions
+      // where an NFT could be transferred out between the check and the transfer.
+      // This minimizes the window for double-sale attacks.
+      logger.info(`[USER_WALLET_NFT_TRANSFER] Verifying NFT ownership with fresh data fetch`);
       // Pass wallet address to avoid CDP account lookup (prevents "account not initialized" errors)
-      const walletInfo = await cdpService.getWalletInfoCached(accountName, undefined, walletResult.walletAddress);
+      const walletInfo = await cdpService.fetchWalletInfo(accountName, transferParams.network, walletResult.walletAddress);
       
       const nftInWallet = walletInfo.nfts.find(
         nft => nft.contractAddress.toLowerCase() === transferParams.contractAddress.toLowerCase() &&

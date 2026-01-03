@@ -4,10 +4,10 @@ import express from 'express';
 import { cleanupUploadedFile } from '../shared/file-utils.js';
 import { sendError, sendSuccess } from '../shared/response-utils.js';
 import { agentAudioUpload, validateAudioFile } from '../shared/uploads/index.js';
-import { createFileSystemRateLimit, createUploadRateLimit } from '../../middleware/index.js';
+import { createFileSystemRateLimit, createUploadRateLimit, requireAuth, type AuthenticatedRequest } from '../../middleware/index.js';
 import { MAX_FILE_SIZE, MAX_FILE_SIZE_DISPLAY } from '../shared/constants.js';
 
-interface AudioRequest extends express.Request {
+interface AudioRequest extends AuthenticatedRequest {
   file?: Express.Multer.File;
   params: {
     agentId: string;
@@ -21,15 +21,26 @@ interface AudioRequest extends express.Request {
 
 /**
  * Audio processing functionality - upload and transcription
+ * 
+ * Security:
+ * - All endpoints require authentication to prevent resource abuse
+ * - Rate limited per IP
+ * - File size and type validation
  */
 export function createAudioProcessingRouter(elizaOS: ElizaOS): express.Router {
   const router = express.Router();
 
-  // Apply rate limiting to all audio processing routes
+  // Apply rate limiting and authentication to all audio processing routes
   router.use(createUploadRateLimit());
   router.use(createFileSystemRateLimit());
+  router.use(requireAuth);
 
-  // Audio messages endpoints
+  /**
+   * Audio messages endpoint
+   * POST /api/agents/:agentId/audio-messages
+   * 
+   * Security: Requires authentication to prevent abuse of AI transcription services
+   */
   router.post('/:agentId/audio-messages', agentAudioUpload().single('file'), async (req, res) => {
     const audioReq = req as AudioRequest;
     logger.debug('[AUDIO MESSAGE] Processing audio message');

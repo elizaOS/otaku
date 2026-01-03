@@ -27,6 +27,7 @@ import {
   SessionNotFoundError,
   SessionExpiredError,
   SessionCreationError,
+  SessionAuthorizationError,
   AgentNotFoundError,
   InvalidUuidError,
   MissingFieldsError,
@@ -219,6 +220,34 @@ const MAX_CONTENT_LENGTH = 4000;
 const MAX_METADATA_SIZE = 1024 * 10; // 10KB
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 50;
+
+/**
+ * Ensures the authenticated user owns the session
+ * @param session - The session to check ownership of
+ * @param req - The authenticated request
+ * @throws SessionAuthorizationError if the user doesn't own the session
+ */
+function ensureSessionOwner(session: Session, req: AuthenticatedRequest): void {
+  const requestingUserId = req.userId;
+  const isServerAuth = req.isServerAuthenticated;
+  
+  // Server-authenticated requests (via API key) bypass ownership checks
+  if (isServerAuth) {
+    return;
+  }
+  
+  // Admin users can access any session
+  if (req.isAdmin) {
+    logger.debug(`[Sessions API] Admin user ${requestingUserId?.substring(0, 8)}... accessing session ${session.id}`);
+    return;
+  }
+  
+  // Check if the requesting user is the session owner
+  if (!requestingUserId || session.userId !== requestingUserId) {
+    logger.warn(`[Sessions API] Authorization denied: user ${(requestingUserId || 'unknown').substring(0, 8)}... attempted to access session ${session.id}`);
+    throw new SessionAuthorizationError(session.id, requestingUserId);
+  }
+}
 
 /**
  * Gets the timeout configuration for an agent
@@ -666,6 +695,9 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * Get session details
    * GET /api/messaging/sessions/:sessionId
+   * 
+   * Security: Only the session owner, admin users, or server-authenticated 
+   * requests can access session details.
    */
   router.get(
     '/sessions/:sessionId',
@@ -684,6 +716,9 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         throw new SessionExpiredError(sessionId, session.expiresAt);
       }
 
+      // Verify the requesting user owns this session
+      ensureSessionOwner(session, req);
+
       const response = createSessionInfoResponse(session);
       res.json(response);
     })
@@ -692,6 +727,10 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * Send a message in a session
    * POST /api/messaging/sessions/:sessionId/messages
+   * 
+   * Security: Only the session owner can send messages in their session.
+   * The authorId is ALWAYS set to the authenticated user's ID to prevent
+   * impersonation attacks.
    */
   router.post(
     '/sessions/:sessionId/messages',
@@ -715,6 +754,9 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         sessions.delete(sessionId);
         throw new SessionExpiredError(sessionId, session.expiresAt);
       }
+
+      // Verify the requesting user owns this session
+      ensureSessionOwner(session, req);
 
       // Validate content
       validateContent(body.content);
@@ -751,6 +793,10 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         // In a real implementation, you might want to send a notification to the client here
       }
 
+      // SECURITY: Always use the authenticated user's ID as the authorId
+      // This prevents impersonation by ensuring messages are attributed to the actual sender
+      const authenticatedUserId = req.userId as UUID;
+
       let message;
       try {
         // Fetch the channel to get its metadata (which includes session metadata)
@@ -775,9 +821,11 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
 
         // Create message in database
         // Note: createMessage automatically broadcasts to the internal message bus
+        // SECURITY: Use authenticatedUserId instead of session.userId to ensure
+        // the message author is always the authenticated user
         message = await serverInstance.createMessage({
           channelId: session.channelId,
-          authorId: session.userId,
+          authorId: authenticatedUserId,
           content: body.content,
           rawMessage: {
             content: body.content,
@@ -814,10 +862,14 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * Get messages from a session
    * GET /api/messaging/sessions/:sessionId/messages
+   * 
+   * Security: Only the session owner, admin users, or server-authenticated
+   * requests can read messages from a session.
    */
   router.get(
     '/sessions/:sessionId/messages',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       // Parse query parameters with proper type handling
       const query: GetMessagesQuery = {
@@ -836,6 +888,9 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         sessions.delete(sessionId);
         throw new SessionExpiredError(sessionId, session.expiresAt);
       }
+
+      // Verify the requesting user owns this session
+      ensureSessionOwner(session, req);
 
       // Parse and validate query parameters
       let messageLimit = DEFAULT_LIMIT;
@@ -997,10 +1052,13 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * Renew a session manually
    * POST /api/messaging/sessions/:sessionId/renew
+   * 
+   * Security: Only the session owner can renew their session.
    */
   router.post(
     '/sessions/:sessionId/renew',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const session = sessions.get(sessionId);
 
@@ -1013,6 +1071,9 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         sessions.delete(sessionId);
         throw new SessionExpiredError(sessionId, session.expiresAt);
       }
+
+      // Verify the requesting user owns this session
+      ensureSessionOwner(session, req);
 
       // Check if auto-renew is disabled (manual renewal is always allowed)
       const previousAutoRenew = session.timeoutConfig.autoRenew;
@@ -1039,10 +1100,13 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * Update session timeout configuration
    * PATCH /api/messaging/sessions/:sessionId/timeout
+   * 
+   * Security: Only the session owner can update timeout configuration.
    */
   router.patch(
     '/sessions/:sessionId/timeout',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const newConfig: SessionTimeoutConfig = req.body;
 
@@ -1056,6 +1120,9 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         sessions.delete(sessionId);
         throw new SessionExpiredError(sessionId, session.expiresAt);
       }
+
+      // Verify the requesting user owns this session
+      ensureSessionOwner(session, req);
 
       // Validate the new config structure
       if (!isValidTimeoutConfig(newConfig)) {
@@ -1101,10 +1168,13 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * Keep session alive with heartbeat
    * POST /api/messaging/sessions/:sessionId/heartbeat
+   * 
+   * Security: Only the session owner can send heartbeats.
    */
   router.post(
     '/sessions/:sessionId/heartbeat',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const session = sessions.get(sessionId);
 
@@ -1117,6 +1187,9 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         sessions.delete(sessionId);
         throw new SessionExpiredError(sessionId, session.expiresAt);
       }
+
+      // Verify the requesting user owns this session
+      ensureSessionOwner(session, req);
 
       // Update last activity
       session.lastActivity = new Date();
@@ -1140,16 +1213,22 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * Delete a session
    * DELETE /api/messaging/sessions/:sessionId
+   * 
+   * Security: Only the session owner or admin can delete a session.
    */
   router.delete(
     '/sessions/:sessionId',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const session = sessions.get(sessionId);
 
       if (!session) {
         throw new SessionNotFoundError(sessionId);
       }
+
+      // Verify the requesting user owns this session
+      ensureSessionOwner(session, req);
 
       // Remove session from memory
       sessions.delete(sessionId);
@@ -1174,23 +1253,42 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   /**
    * List active sessions (admin endpoint)
    * GET /api/messaging/sessions
+   * 
+   * Security: Only admin users or server-authenticated requests can list all sessions.
+   * Regular users can only see their own sessions.
    */
   router.get(
     '/sessions',
-    asyncHandler(async (_req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const now = Date.now();
-      const activeSessions = Array.from(sessions.values())
-        .filter((session) => isValidSession(session) && session.expiresAt.getTime() > now)
-        .map((session) => createSessionInfoResponse(session));
+      const requestingUserId = req.userId;
+      const isAdmin = req.isAdmin;
+      const isServerAuth = req.isServerAuthenticated;
+      
+      let activeSessions = Array.from(sessions.values())
+        .filter((session) => isValidSession(session) && session.expiresAt.getTime() > now);
+      
+      // Non-admin users can only see their own sessions
+      if (!isAdmin && !isServerAuth) {
+        activeSessions = activeSessions.filter(
+          (session) => session.userId === requestingUserId
+        );
+      }
+      
+      const sessionResponses = activeSessions.map((session) => createSessionInfoResponse(session));
 
       res.json({
-        sessions: activeSessions,
-        total: activeSessions.length,
-        stats: {
-          totalSessions: sessions.size,
-          activeSessions: activeSessions.length,
-          expiredSessions: sessions.size - activeSessions.length,
-        },
+        sessions: sessionResponses,
+        total: sessionResponses.length,
+        // Only include full stats for admin/server requests
+        ...(isAdmin || isServerAuth ? {
+          stats: {
+            totalSessions: sessions.size,
+            activeSessions: sessionResponses.length,
+            expiredSessions: sessions.size - sessionResponses.length,
+          },
+        } : {}),
       });
     })
   );

@@ -167,6 +167,20 @@ export class InvalidTimeoutConfigError extends ValidationError {
 }
 
 /**
+ * Error thrown when a user doesn't have permission to access a session
+ */
+export class SessionAuthorizationError extends SessionError {
+  constructor(sessionId: string, requestingUserId?: string) {
+    super(
+      'SESSION_FORBIDDEN',
+      `You do not have permission to access session '${sessionId}'`,
+      403,
+      { sessionId, requestingUserId }
+    );
+  }
+}
+
+/**
  * Error thrown when a session cannot be renewed
  */
 export class SessionRenewalError extends SessionError {

@@ -11,35 +11,120 @@ import {
 import type { Socket, Server as SocketIOServer } from 'socket.io';
 import type { AgentServer } from '../index';
 import { attachmentsToApiUrls } from '../utils/media-transformer';
+import jwt from 'jsonwebtoken';
 
 const DEFAULT_SERVER_ID = '00000000-0000-0000-0000-000000000000' as UUID; // Single default server
+
+/**
+ * Extended Socket interface with authenticated user data
+ */
+interface AuthenticatedSocket extends Socket {
+  data: {
+    userId?: string;
+    email?: string;
+    username?: string;
+    isAdmin?: boolean;
+    authenticated?: boolean;
+  };
+}
+
+/**
+ * Verify JWT token for Socket.IO authentication
+ */
+function verifySocketToken(token: string): { userId: string; email: string; username: string; isAdmin?: boolean } | null {
+  const JWT_SECRET = process.env.JWT_SECRET;
+  if (!JWT_SECRET) {
+    logger.error('[SocketIO] JWT_SECRET not configured - cannot verify tokens');
+    return null;
+  }
+  
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    return {
+      userId: decoded.userId,
+      email: decoded.email,
+      username: decoded.username,
+      isAdmin: decoded.isAdmin || false,
+    };
+  } catch (error: any) {
+    logger.warn(`[SocketIO] Token verification failed: ${error.message}`);
+    return null;
+  }
+}
+
 export class SocketIORouter {
   private elizaOS: ElizaOS;
   private connections: Map<string, UUID>; // socket.id -> agentId (for agent-specific interactions like log streaming, if any)
   private logStreamConnections: Map<string, { agentName?: string; level?: string }>;
   private serverInstance: AgentServer;
+  private authenticatedUsers: Map<string, string>; // socket.id -> userId (for authenticated connections)
 
   constructor(elizaOS: ElizaOS, serverInstance: AgentServer) {
     this.elizaOS = elizaOS;
     this.connections = new Map();
     this.logStreamConnections = new Map();
     this.serverInstance = serverInstance;
+    this.authenticatedUsers = new Map();
     logger.info(`[SocketIO] Router initialized with ${this.elizaOS.getAgents().length} agents`);
   }
 
+  /**
+   * Set up Socket.IO with authentication middleware
+   * 
+   * Security:
+   * - JWT authentication required for all connections
+   * - Token can be passed via auth.token or query.token
+   * - Unauthenticated connections are rejected
+   */
   setupListeners(io: SocketIOServer) {
-    logger.info(`[SocketIO] Setting up Socket.IO event listeners`);
+    logger.info(`[SocketIO] Setting up Socket.IO event listeners with authentication`);
     const messageTypes = Object.keys(SOCKET_MESSAGE_TYPE).map(
       (key) => `${key}: ${SOCKET_MESSAGE_TYPE[key as keyof typeof SOCKET_MESSAGE_TYPE]}`
     );
     logger.info(`[SocketIO] Registered message types: ${messageTypes.join(', ')}`);
+    
+    // Authentication middleware
+    io.use((socket: AuthenticatedSocket, next) => {
+      // Try to get token from auth object or query params
+      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      
+      if (!token || typeof token !== 'string') {
+        logger.warn(`[SocketIO] Connection rejected - no token provided: ${socket.id}`);
+        return next(new Error('Authentication required'));
+      }
+      
+      const user = verifySocketToken(token);
+      if (!user) {
+        logger.warn(`[SocketIO] Connection rejected - invalid token: ${socket.id}`);
+        return next(new Error('Invalid or expired token'));
+      }
+      
+      // Store authenticated user info in socket.data
+      socket.data.userId = user.userId;
+      socket.data.email = user.email;
+      socket.data.username = user.username;
+      socket.data.isAdmin = user.isAdmin;
+      socket.data.authenticated = true;
+      
+      logger.info(`[SocketIO] Authenticated connection: ${socket.id} (user: ${user.username})`);
+      next();
+    });
+    
     io.on('connection', (socket: Socket) => {
-      this.handleNewConnection(socket, io);
+      this.handleNewConnection(socket as AuthenticatedSocket, io);
     });
   }
 
-  private handleNewConnection(socket: Socket, _io: SocketIOServer) {
-    logger.info(`[SocketIO] New connection: ${socket.id}`);
+  private handleNewConnection(socket: AuthenticatedSocket, _io: SocketIOServer) {
+    const userId = socket.data.userId;
+    const username = socket.data.username;
+    
+    logger.info(`[SocketIO] New authenticated connection: ${socket.id} (user: ${username}, id: ${userId?.substring(0, 8)}...)`);
+    
+    // Track authenticated user
+    if (userId) {
+      this.authenticatedUsers.set(socket.id, userId);
+    }
 
     socket.on(String(SOCKET_MESSAGE_TYPE.ROOM_JOINING), (payload) => {
       logger.debug(
@@ -54,7 +139,7 @@ export class SocketIORouter {
       const channelId = payload.channelId || payload.roomId;
       logger.info(
         `[SocketIO] SEND_MESSAGE event received directly: ${JSON.stringify({
-          senderId: payload.senderId,
+          senderId: socket.data.userId, // Use authenticated user ID, not payload
           channelId: channelId,
           messagePreview,
         })}`
@@ -89,10 +174,12 @@ export class SocketIORouter {
     socket.emit('connection_established', {
       message: 'Connected to Eliza Socket.IO server',
       socketId: socket.id,
+      userId: socket.data.userId,
+      username: socket.data.username,
     });
   }
 
-  private handleGenericMessage(socket: Socket, data: any) {
+  private handleGenericMessage(socket: AuthenticatedSocket, data: any) {
     try {
       if (!(data && typeof data === 'object' && 'type' in data && 'payload' in data)) {
         logger.warn(
@@ -125,9 +212,13 @@ export class SocketIORouter {
     }
   }
 
-  private handleChannelJoining(socket: Socket, payload: any) {
+  private handleChannelJoining(socket: AuthenticatedSocket, payload: any) {
     const channelId = payload.channelId || payload.roomId; // Support both for backward compatibility
-    const { agentId, entityId, serverId, metadata } = payload;
+    const { agentId, serverId, metadata } = payload;
+    
+    // SECURITY: Use authenticated user ID, not the entityId from payload
+    const authenticatedUserId = socket.data.userId;
+    const entityId = authenticatedUserId || payload.entityId;
 
     logger.debug(
       `[SocketIO] handleChannelJoining called with payload:`,
@@ -138,6 +229,12 @@ export class SocketIORouter {
       this.sendErrorResponse(socket, `channelId is required for joining.`);
       return;
     }
+    
+    // Validate channelId format
+    if (!validateUuid(channelId)) {
+      this.sendErrorResponse(socket, `Invalid channelId format.`);
+      return;
+    }
 
     if (agentId) {
       const agentUuid = validateUuid(agentId);
@@ -146,6 +243,11 @@ export class SocketIORouter {
         logger.info(`[SocketIO] Socket ${socket.id} associated with agent ${agentUuid}`);
       }
     }
+
+    // TODO: Add channel authorization check here
+    // Verify the authenticated user has permission to join this channel
+    // For now, we allow joining but log the attempt
+    logger.info(`[SocketIO] User ${authenticatedUserId?.substring(0, 8)}... joining channel ${channelId}`);
 
     socket.join(channelId);
     logger.info(`[SocketIO] Socket ${socket.id} joined Socket.IO channel: ${channelId}`);
@@ -197,14 +299,34 @@ export class SocketIORouter {
     logger.info(`[SocketIO] ${successMessage}`);
   }
 
-  private async handleMessageSubmission(socket: Socket, payload: any) {
+  private async handleMessageSubmission(socket: AuthenticatedSocket, payload: any) {
     const channelId = payload.channelId || payload.roomId; // Support both for backward compatibility
-    const { senderId, senderName, message, serverId, source, metadata, attachments } = payload;
+    const { senderName, message, serverId, source, metadata, attachments } = payload;
+    
+    // SECURITY: Always use the authenticated user's ID as the senderId
+    // This prevents impersonation by ensuring messages are attributed to the actual sender
+    const authenticatedUserId = socket.data.userId;
+    const authenticatedUsername = socket.data.username || senderName;
+    
+    if (!authenticatedUserId) {
+      this.sendErrorResponse(socket, `Authentication required to send messages.`);
+      return;
+    }
+    
+    // Log if there's a mismatch between payload senderId and authenticated user
+    if (payload.senderId && payload.senderId !== authenticatedUserId) {
+      logger.warn(
+        `[SocketIO ${socket.id}] SECURITY: senderId mismatch - payload: ${payload.senderId}, authenticated: ${authenticatedUserId}. Using authenticated ID.`
+      );
+    }
+    
+    // Use authenticated user ID as the sender
+    const senderId = authenticatedUserId;
 
     logger.info(
-      `[SocketIO ${socket.id}] Received SEND_MESSAGE for central submission: channel ${channelId} from ${senderName || senderId}`
+      `[SocketIO ${socket.id}] Received SEND_MESSAGE for central submission: channel ${channelId} from ${authenticatedUsername} (${senderId.substring(0, 8)}...)`
     );
-    logger.info(
+    logger.debug(
       `[SocketIO ${socket.id}] Full payload for debugging:`,
       JSON.stringify(payload, null, 2)
     );
@@ -212,10 +334,10 @@ export class SocketIORouter {
     // Special handling for default server ID "0"
     const isValidServerId = serverId === DEFAULT_SERVER_ID || validateUuid(serverId);
 
-    if (!validateUuid(channelId) || !isValidServerId || !validateUuid(senderId) || !message) {
+    if (!validateUuid(channelId) || !isValidServerId || !message) {
       this.sendErrorResponse(
         socket,
-        `For SEND_MESSAGE: channelId, serverId (server_id), senderId (author_id), and message are required.`
+        `For SEND_MESSAGE: channelId, serverId (server_id), and message are required.`
       );
       return;
     }
@@ -351,7 +473,7 @@ export class SocketIORouter {
         rawMessage: payload,
         metadata: {
           ...(metadata || {}),
-          user_display_name: senderName,
+          user_display_name: authenticatedUsername, // Use authenticated username
           socket_id: socket.id,
           serverId: serverId as UUID,
           attachments,
@@ -372,7 +494,7 @@ export class SocketIORouter {
       const messageBroadcast = {
         id: createdRootMessage.id,
         senderId: senderId,
-        senderName: senderName || 'User',
+        senderName: authenticatedUsername || 'User', // Use authenticated username
         text: message,
         channelId: channelId,
         roomId: channelId, // Keep for backward compatibility
@@ -475,14 +597,21 @@ export class SocketIORouter {
     });
   }
 
-  private handleDisconnect(socket: Socket) {
+  private handleDisconnect(socket: AuthenticatedSocket) {
     const agentIdAssociated = this.connections.get(socket.id);
+    const userId = this.authenticatedUsers.get(socket.id);
+    
+    // Clean up all connection tracking
     this.connections.delete(socket.id);
     this.logStreamConnections.delete(socket.id);
+    this.authenticatedUsers.delete(socket.id);
+    
     if (agentIdAssociated) {
       logger.info(
-        `[SocketIO] Client ${socket.id} (associated with agent ${agentIdAssociated}) disconnected.`
+        `[SocketIO] Client ${socket.id} (user: ${userId?.substring(0, 8)}..., agent: ${agentIdAssociated}) disconnected.`
       );
+    } else if (userId) {
+      logger.info(`[SocketIO] Client ${socket.id} (user: ${userId.substring(0, 8)}...) disconnected.`);
     } else {
       logger.info(`[SocketIO] Client ${socket.id} disconnected.`);
     }

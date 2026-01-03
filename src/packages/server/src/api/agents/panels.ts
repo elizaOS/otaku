@@ -2,6 +2,7 @@ import type { ElizaOS } from '@elizaos/core';
 import { validateUuid, logger } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
+import { requireAuth, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Agent panels and plugin routes management
@@ -9,8 +10,8 @@ import { sendError, sendSuccess } from '../shared/response-utils';
 export function createAgentPanelsRouter(elizaOS: ElizaOS): express.Router {
   const router = express.Router();
 
-  // Get Agent Panels (public GET routes)
-  router.get('/:agentId/panels', async (req, res) => {
+  // Get Agent Panels (requires authentication)
+  router.get('/:agentId/panels', requireAuth, async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     if (!agentId) {
       return sendError(res, 400, 'INVALID_ID', 'Invalid agent ID format');

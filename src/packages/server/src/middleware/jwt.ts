@@ -48,7 +48,7 @@ export function generateAuthToken(userId: string, email: string, username: strin
   return jwt.sign(
     payload,
     JWT_SECRET,
-    { expiresIn: '7d' } // Token expires in 7 days
+    { expiresIn: '24h' } // Token expires in 24 hours - use refresh endpoint to extend
   );
 }
 

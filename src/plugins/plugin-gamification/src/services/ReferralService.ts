@@ -31,6 +31,9 @@ export class ReferralService extends Service {
 
   /**
    * Get or create referral code for user
+   * 
+   * SECURITY: Uses cryptographically random codes with collision checking
+   * to prevent prediction of referral codes.
    */
   async getOrCreateCode(userId: UUID): Promise<{ code: string; stats: ReferralStats }> {
     const db = this.getDb();
@@ -47,13 +50,15 @@ export class ReferralService extends Service {
       return { code: existing.code, stats };
     }
 
-    // Generate new code
-    const code = this.generateReferralCode(userId);
+    // Generate new cryptographically random code with collision checking
+    const code = await this.generateUniqueReferralCode(userId);
     await db.insert(referralCodesTable).values({
       userId,
       code,
       status: 'active',
     });
+    
+    logger.info(`[ReferralService] Created new referral code for user ${userId.substring(0, 8)}...`);
 
     const stats = await this.getReferralStats(userId);
     return { code, stats };
@@ -232,15 +237,62 @@ export class ReferralService extends Service {
   }
 
   /**
-   * Generate deterministic referral code from user ID using SHA-256 hash
-   * Same userId always produces the same code, making codes recoverable
+   * Generate a cryptographically random referral code
+   * 
+   * SECURITY: Uses crypto.randomBytes instead of deterministic hash to prevent
+   * prediction of referral codes from known userIds.
+   * 
+   * Format: 10-character alphanumeric code (base64url safe)
+   * Collision probability: ~1 in 2^60 per code (negligible for practical purposes)
    */
-  private generateReferralCode(userId: UUID): string {
+  private generateReferralCode(_userId: UUID): string {
     const crypto = require('crypto');
-    // Hash the userId to get deterministic output
-    const hash = crypto.createHash('sha256').update(userId).digest('hex').toUpperCase();
-    // Use first 12 characters of the hash for a compact, unique code
-    return hash.substring(0, 12);
+    // Generate 8 random bytes = 64 bits of entropy
+    // Convert to base64url (URL-safe base64) and take first 10 characters
+    const randomBytes = crypto.randomBytes(8);
+    const base64url = randomBytes.toString('base64url').toUpperCase();
+    // Return first 10 characters for a clean, readable code
+    return base64url.substring(0, 10);
+  }
+  
+  /**
+   * Check if a referral code already exists in the database
+   * Used for collision detection when generating new codes
+   */
+  private async codeExists(code: string): Promise<boolean> {
+    const db = this.getDb();
+    if (!db) throw new Error('Database not available');
+    
+    const [existing] = await db
+      .select()
+      .from(referralCodesTable)
+      .where(eq(referralCodesTable.code, code))
+      .limit(1);
+    
+    return !!existing;
+  }
+  
+  /**
+   * Generate a unique referral code with collision checking
+   * Retries up to 5 times if a collision is detected (extremely rare)
+   */
+  private async generateUniqueReferralCode(userId: UUID): Promise<string> {
+    const MAX_ATTEMPTS = 5;
+    
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const code = this.generateReferralCode(userId);
+      
+      // Check for collision (extremely rare with 64-bit entropy)
+      const exists = await this.codeExists(code);
+      if (!exists) {
+        return code;
+      }
+      
+      logger.warn(`[ReferralService] Referral code collision detected (attempt ${attempt + 1}/${MAX_ATTEMPTS}), regenerating...`);
+    }
+    
+    // This should essentially never happen
+    throw new Error('Failed to generate unique referral code after multiple attempts');
   }
 }
 

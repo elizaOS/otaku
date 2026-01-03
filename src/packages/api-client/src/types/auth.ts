@@ -1,5 +1,10 @@
 /**
  * Request body for login endpoint
+ * 
+ * Security: Server validates UUID↔email binding
+ * - First login: registers the binding (UUID claimed by this email)
+ * - Subsequent logins: email must match what was registered
+ * - Attacker needs BOTH correct UUID AND correct email to impersonate
  */
 export interface LoginRequest {
   email: string;
@@ -12,9 +17,9 @@ export interface LoginRequest {
  */
 export interface LoginResponse {
   token: string; // JWT authentication token
-  userId: string; // Secure user ID generated from email
+  userId: string; // CDP's user ID
   username: string; // User's display name
-  expiresIn: string; // Token expiration time (e.g., "7d")
+  expiresIn: string; // Token expiration time (e.g., "24h")
 }
 
 /**

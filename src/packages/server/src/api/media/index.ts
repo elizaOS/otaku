@@ -1,18 +1,18 @@
 import express from 'express';
-import { createAgentMediaRouter } from './agents';
-import { createChannelMediaRouter } from './channels';
+import { sendError } from '../shared/response-utils';
 
 /**
- * Creates the media router for file uploads and media handling
+ * Creates the media router - FILE UPLOADS DISABLED FOR SECURITY
+ * 
+ * All upload functionality has been disabled pending security review.
  */
 export function mediaRouter(): express.Router {
   const router = express.Router();
 
-  // Mount agent media uploads under /agents
-  router.use('/agents', createAgentMediaRouter());
-
-  // Mount channel media uploads under /channels
-  router.use('/channels', createChannelMediaRouter());
+  // SECURITY: All uploads disabled - reject any upload attempts
+  router.all('{*path}', (_req, res) => {
+    return sendError(res, 403, 'UPLOADS_DISABLED', 'File uploads are currently disabled for security reasons');
+  });
 
   return router;
 }

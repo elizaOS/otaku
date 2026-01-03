@@ -22,8 +22,10 @@ export function createAgentCrudRouter(
   const router = express.Router();
   const db = serverInstance?.database;
 
-  // List all agents with minimal details (public)
-  router.get('/', async (_: express.Request, res) => {
+  // List all agents with minimal details
+  // Public endpoint - returns basic info even without auth (for login screen)
+  // Authenticated users get full minimal details
+  router.get('/', async (req: AuthenticatedRequest, res) => {
     try {
       if (!db) {
         return sendError(res, 500, 'DB_ERROR', 'Database not available');
@@ -31,7 +33,7 @@ export function createAgentCrudRouter(
       const allAgents = await db.getAgents();
       const runtimes = elizaOS.getAgents().map((a) => a.agentId);
 
-      // Return only minimal agent data
+      // Return only minimal agent data (public - no secrets)
       const response = allAgents
         .map((agent: Partial<Agent>) => ({
           id: agent.id,
@@ -64,8 +66,9 @@ export function createAgentCrudRouter(
     }
   });
 
-  // Get specific agent details (public)
-  router.get('/:agentId', async (req: express.Request, res) => {
+  // Get specific agent details
+  // Public endpoint - returns safe data without secrets (for login screen)
+  router.get('/:agentId', async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     if (!agentId) {
       return sendError(res, 400, 'INVALID_ID', 'Invalid agent ID format');
@@ -82,7 +85,7 @@ export function createAgentCrudRouter(
 
       const runtime = elizaOS.getAgent(agentId);
       // Remove ALL settings to prevent exposure of secrets and API keys
-      const { settings, ...safeAgent } = agent as any;
+      const { settings, secrets, ...safeAgent } = agent as any;
 
       const response = {
         ...safeAgent,

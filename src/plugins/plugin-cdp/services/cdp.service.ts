@@ -124,8 +124,12 @@ export class CdpService extends Service {
 
   /**
    * Fetch fresh wallet information, bypassing cache
-   * Use this when you need the most up-to-date wallet state
+   * Use this when you need the most up-to-date wallet state (e.g., before transfers)
    * Delegates to transaction manager with forceSync=true
+   * 
+   * SECURITY: Use this before executing percentage-based transfers to prevent
+   * TOCTOU (Time-of-Check to Time-of-Use) race conditions with stale balance data.
+   * 
    * @param accountName User's account identifier
    * @param chain Optional specific chain to fetch (if not provided, fetches all chains)
    * @param address Optional wallet address to avoid CDP account lookup
@@ -133,11 +137,11 @@ export class CdpService extends Service {
   async fetchWalletInfo(accountName: string, chain?: string, address?: string): Promise<WalletInfo> {
     logger.info(`[CDP Service] Force fetching wallet info for ${accountName}${chain ? ` on chain: ${chain}` : ' (all chains)'}${address ? ` (address: ${address.substring(0, 10)}...)` : ''}`);
 
-    // Force sync - bypass manager's cache
+    // Force sync - bypass manager's cache (forceSync = true)
     // Pass address if available to avoid CDP account lookup
     const [tokensResult, nftsResult] = await Promise.all([
-      this.transactionManager.getTokenBalances(accountName, chain, false, address),
-      this.transactionManager.getNFTs(accountName, chain, false, address),
+      this.transactionManager.getTokenBalances(accountName, chain, true, address), // forceSync = true
+      this.transactionManager.getNFTs(accountName, chain, true, address), // forceSync = true
     ]);
 
     return {

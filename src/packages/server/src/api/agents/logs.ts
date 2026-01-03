@@ -2,15 +2,26 @@ import type { ElizaOS, UUID, Log } from '@elizaos/core';
 import { validateUuid, logger } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Agent logs management
+ * 
+ * Security:
+ * - All endpoints require authentication
+ * - GET logs requires auth (returns only user's relevant logs for regular users)
+ * - DELETE logs requires admin privileges
  */
 export function createAgentLogsRouter(elizaOS: ElizaOS): express.Router {
   const router = express.Router();
 
-  // Get Agent Logs
-  router.get('/:agentId/logs', async (req, res) => {
+  /**
+   * Get Agent Logs
+   * GET /api/agents/:agentId/logs
+   * 
+   * Security: Requires authentication. Logs contain sensitive operational data.
+   */
+  router.get('/:agentId/logs', requireAuth, async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     const { roomId, type, count, offset, excludeTypes } = req.query;
     if (!agentId) {
@@ -68,6 +79,21 @@ export function createAgentLogsRouter(elizaOS: ElizaOS): express.Router {
         });
       }
 
+      // For non-admin users, filter logs to only show their own interactions
+      const userId = req.userId;
+      if (!req.isAdmin && userId) {
+        filteredLogs = filteredLogs.filter((log) => {
+          // Keep logs that are related to this user
+          if (log.entityId === userId) return true;
+          if (log.body && typeof log.body === 'object') {
+            const body = log.body as any;
+            if (body.userId === userId || body.entityId === userId) return true;
+          }
+          return false;
+        });
+      }
+
+      logger.debug(`[AGENT LOGS] User ${userId?.substring(0, 8)}... retrieved ${filteredLogs.length} logs`);
       sendSuccess(res, filteredLogs);
     } catch (error) {
       logger.error(
@@ -84,8 +110,13 @@ export function createAgentLogsRouter(elizaOS: ElizaOS): express.Router {
     }
   });
 
-  // Delete specific log
-  router.delete('/:agentId/logs/:logId', async (req, res) => {
+  /**
+   * Delete specific log
+   * DELETE /api/agents/:agentId/logs/:logId
+   * 
+   * Security: Requires admin privileges to prevent log tampering
+   */
+  router.delete('/:agentId/logs/:logId', requireAuth, requireAdmin, async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     const logId = validateUuid(req.params.logId);
     if (!agentId || !logId) {
@@ -99,6 +130,7 @@ export function createAgentLogsRouter(elizaOS: ElizaOS): express.Router {
 
     try {
       await runtime.deleteLog(logId);
+      logger.info(`[LOG DELETE] Admin ${req.userId?.substring(0, 8)}... deleted log ${logId}`);
       res.status(204).send();
     } catch (error) {
       logger.error(

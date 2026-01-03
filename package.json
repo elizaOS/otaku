@@ -13,6 +13,7 @@
     "dev:watch": "turbo run dev --parallel",
     "prestart": "bun run scripts/setup-pg-cron.ts || true",
     "start": "bun run start-server.ts",
+    "postinstall": "bun run scripts/patch-plugin-sql.ts || true",
     "build": "turbo run build && bun run build:backend && bun run build:frontend",
     "build:all": "turbo run build",
     "build:backend": "bun run build.ts",

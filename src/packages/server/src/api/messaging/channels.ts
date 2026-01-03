@@ -912,62 +912,17 @@ export function createChannelsRouter(
     }
   );
 
-  // Upload media to channel
+  // Upload media to channel - DISABLED FOR SECURITY
   (router as any).post(
     '/channels/:channelId/upload-media',
-    createUploadRateLimit(),
-    createFileSystemRateLimit(),
-    channelUploadMiddleware.single('file'),
-    requireAuthenticated(),
-    requireChannelParticipant(getParticipants),
-    async (req: express.Request, res: express.Response) => {
-      const channelId = validateUuid(req.params.channelId);
-      if (!channelId) {
-        res.status(400).json({ success: false, error: 'Invalid channelId format' });
-        return;
-      }
-
-      if (!req.file) {
-        res.status(400).json({ success: false, error: 'No media file provided' });
-        return;
-      }
-
-      try {
-        // Additional filename security validation
-        if (
-          !req.file.originalname ||
-          req.file.originalname.includes('..') ||
-          req.file.originalname.includes('/')
-        ) {
-          res.status(400).json({ success: false, error: 'Invalid filename detected' });
-          return;
-        }
-
-        // Save the uploaded file
-        const result = await saveChannelUploadedFile(req.file, channelId);
-
-        logger.info(
-          `[MessagesRouter /upload-media] Secure file uploaded for channel ${channelId}: ${result.filename}. URL: ${result.url}`
-        );
-
-        res.json({
-          success: true,
-          data: {
-            url: result.url, // Relative URL, client prepends server origin
-            type: req.file.mimetype,
-            filename: result.filename,
-            originalName: req.file.originalname,
-            size: req.file.size,
-          },
-        });
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(
-          `[MessagesRouter /upload-media] Error processing upload for channel ${channelId}: ${errorMessage}`,
-          error instanceof Error ? error.message : String(error)
-        );
-        res.status(500).json({ success: false, error: 'Failed to process media upload' });
-      }
+    (_req: express.Request, res: express.Response) => {
+      res.status(403).json({ 
+        success: false, 
+        error: { 
+          code: 'UPLOADS_DISABLED', 
+          message: 'File uploads are currently disabled for security reasons' 
+        } 
+      });
     }
   );
 

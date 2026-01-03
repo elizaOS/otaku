@@ -7,7 +7,7 @@ import {
   type ActionResult,
   logger,
 } from "@elizaos/core";
-import { parseUnits } from "viem";
+import { parseUnits, formatUnits } from "viem";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
 import { validateCdpService } from "../utils/actionHelpers";
@@ -354,9 +354,24 @@ export const cdpWalletTokenTransfer: Action = {
         `[USER_WALLET_TOKEN_TRANSFER] Looking up token in wallet: ${transferParams.token} on ${transferParams.network}`,
       );
 
-      // Get user's wallet info to find the token (use cached data if available)
+      // SECURITY: For percentage-based transfers, force a fresh balance fetch to prevent
+      // TOCTOU (Time-of-Check to Time-of-Use) race conditions where cached balance data
+      // could lead to transferring more than available.
+      // For fixed-amount transfers, cached data is acceptable since the on-chain transfer
+      // will fail if balance is insufficient.
+      const isPercentageTransfer = transferParams.percentage !== undefined;
+      
+      // Get user's wallet info to find the token
       // Pass wallet address to avoid CDP account lookup (prevents "account not initialized" errors)
-      const walletInfo = await cdpService.getWalletInfoCached(accountName, undefined, walletResult.walletAddress);
+      const walletInfo = isPercentageTransfer
+        ? await cdpService.fetchWalletInfo(accountName, transferParams.network, walletResult.walletAddress) // Fresh fetch for percentage transfers
+        : await cdpService.getWalletInfoCached(accountName, undefined, walletResult.walletAddress); // Cached is OK for fixed amounts
+        
+      if (isPercentageTransfer) {
+        logger.info(
+          `[USER_WALLET_TOKEN_TRANSFER] Used fresh balance fetch for ${transferParams.percentage}% transfer`,
+        );
+      }
 
       const resolvedNetwork = transferParams.network;
       let tokenAddress: string;
@@ -464,33 +479,53 @@ export const cdpWalletTokenTransfer: Action = {
       // Calculate amount based on percentage or use provided amount
       let amountToTransfer: string;
       let valueUsd = 0;
+      let amount: bigint; // Raw amount in token units
       
       if (transferParams.percentage !== undefined) {
-        // Calculate amount from percentage
+        // SECURITY: High-precision percentage calculation to prevent precision loss
+        // 
+        // Use 6 decimal places for percentage (supports 0.000001% precision)
+        // This allows accurate calculations for percentages like 33.333333%
+        //
+        // Formula: amount = balance * (percentage * PRECISION_FACTOR) / (100 * PRECISION_FACTOR)
+        // Using PRECISION_FACTOR = 1,000,000 for 6 decimal places
+        const PERCENTAGE_PRECISION = 1000000n; // 6 decimal places
+        const HUNDRED_SCALED = 100n * PERCENTAGE_PRECISION; // 100 * 1,000,000 = 100,000,000
+        
+        // Parse balance to raw units (BigInt)
         const balanceRaw = parseUnits(resolvedWalletToken.balanceFormatted, decimals);
-        const percentageAmount =
-          (balanceRaw * BigInt(Math.floor(transferParams.percentage * 100))) /
-          BigInt(10000);
+        
+        // Scale percentage to avoid floating-point precision loss
+        // e.g., 33.333333% becomes 33333333n (33.333333 * 1,000,000)
+        const percentageScaled = BigInt(Math.round(transferParams.percentage * Number(PERCENTAGE_PRECISION)));
+        
+        // Calculate amount: balance * scaled_percentage / (100 * precision)
+        // This keeps all arithmetic in BigInt to avoid precision loss
+        const percentageAmount = (balanceRaw * percentageScaled) / HUNDRED_SCALED;
 
         logger.info(
-          `[USER_WALLET_TOKEN_TRANSFER] Calculated ${transferParams.percentage}% of ${resolvedWalletToken.balanceFormatted} = ${percentageAmount.toString()} raw units`,
+          `[USER_WALLET_TOKEN_TRANSFER] High-precision calculation: ${transferParams.percentage}% of ${resolvedWalletToken.balanceFormatted} ` +
+          `= ${percentageAmount.toString()} raw units (scaled percentage: ${percentageScaled.toString()})`,
         );
 
         if (percentageAmount === 0n) {
           throw new Error(`Insufficient balance: ${transferParams.percentage}% of your ${transferParams.token.toUpperCase()} is 0`);
         }
         
-        // Convert back to formatted string for display
-        const formattedAmount = Number(percentageAmount) / Math.pow(10, decimals);
-        amountToTransfer = formattedAmount.toString();
+        // Use formatUnits from viem to convert BigInt to string without precision loss
+        amountToTransfer = formatUnits(percentageAmount, decimals);
+        amount = percentageAmount;
         
         // Calculate USD value from already-available wallet token data (no extra fetch)
         if (resolvedWalletToken.usdValue && parseFloat(resolvedWalletToken.balanceFormatted) > 0) {
           const tokenBalance = parseFloat(resolvedWalletToken.balanceFormatted);
-          valueUsd = (formattedAmount / tokenBalance) * resolvedWalletToken.usdValue;
+          const amountNum = parseFloat(amountToTransfer);
+          valueUsd = (amountNum / tokenBalance) * resolvedWalletToken.usdValue;
         }
       } else {
         amountToTransfer = transferParams.amount!;
+        // Parse amount to proper units
+        amount = parseUnits(amountToTransfer, decimals);
         
         // Calculate USD value from already-available wallet token data (no extra fetch)
         if (resolvedWalletToken.usdValue && parseFloat(resolvedWalletToken.balanceFormatted) > 0) {
@@ -499,9 +534,6 @@ export const cdpWalletTokenTransfer: Action = {
           valueUsd = (amountNum / tokenBalance) * resolvedWalletToken.usdValue;
         }
       }
-      
-      // Parse amount to proper units
-      const amount = parseUnits(amountToTransfer, decimals);
 
       const displayToken = transferParams.token.startsWith("0x")
         ? originalTokenInput

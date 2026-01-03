@@ -661,6 +661,11 @@ export class AgentServer {
             return;
           }
 
+          // SECURITY: Force download instead of inline rendering to prevent XSS
+          // User-uploaded content should never execute in the browser
+          res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          
           res.sendFile(sanitizedFilename, { root: agentUploadsPath }, (err) => {
             if (err) {
               if (err.message === 'Request aborted') {
@@ -753,6 +758,10 @@ export class AgentServer {
             return;
           }
 
+          // SECURITY: Force download instead of inline rendering to prevent XSS
+          res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          
           res.sendFile(filePath, (err) => {
             if (err) {
               logger.warn({ err, filePath }, `[STATIC] Channel media file not found: ${filePath}`);
