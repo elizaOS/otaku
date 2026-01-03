@@ -2,6 +2,7 @@ import type { ElizaOS, UUID, Log } from '@elizaos/core';
 import { validateUuid, logger } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
+import { requireAuth, requireAdmin, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Agent logs management
@@ -9,8 +10,8 @@ import { sendError, sendSuccess } from '../shared/response-utils';
 export function createAgentLogsRouter(elizaOS: ElizaOS): express.Router {
   const router = express.Router();
 
-  // Get Agent Logs
-  router.get('/:agentId/logs', async (req, res) => {
+  // Get Agent Logs (authenticated users only)
+  router.get('/:agentId/logs', requireAuth, async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     const { roomId, type, count, offset, excludeTypes } = req.query;
     if (!agentId) {
@@ -84,8 +85,8 @@ export function createAgentLogsRouter(elizaOS: ElizaOS): express.Router {
     }
   });
 
-  // Delete specific log
-  router.delete('/:agentId/logs/:logId', async (req, res) => {
+  // Delete specific log (admin only)
+  router.delete('/:agentId/logs/:logId', requireAuth, requireAdmin, async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     const logId = validateUuid(req.params.logId);
     if (!agentId || !logId) {

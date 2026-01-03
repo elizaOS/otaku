@@ -44,3 +44,19 @@ export const ALLOWED_MEDIA_MIME_TYPES = [
   'application/pdf',
   'text/plain',
 ] as const;
+
+/**
+ * Dangerous file extensions that could enable XSS attacks
+ * These are blocked regardless of MIME type to prevent MIME type bypass attacks
+ */
+export const DANGEROUS_FILE_EXTENSIONS = [
+  '.html',
+  '.htm',
+  '.js',
+  '.mjs',
+  '.jsx',
+  '.svg',
+  '.xml',
+  '.xhtml',
+  '.shtml',
+] as const;

@@ -6,7 +6,8 @@ import {
 } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { ALLOWED_MEDIA_MIME_TYPES, MAX_FILE_SIZE } from '../shared/constants';
+import { ALLOWED_MEDIA_MIME_TYPES, MAX_FILE_SIZE, DANGEROUS_FILE_EXTENSIONS } from '../shared/constants';
+import { requireAuth } from '../../middleware';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -61,7 +62,8 @@ export function createAgentMediaRouter(): express.Router {
   const router = express.Router();
 
   // Media upload endpoint for images and videos using multer
-  router.post('/:agentId/upload-media', upload.single('file'), async (req, res) => {
+  // Requires authentication to prevent unauthenticated file uploads (XSS prevention)
+  router.post('/:agentId/upload-media', requireAuth, upload.single('file'), async (req, res) => {
     logger.debug('[MEDIA UPLOAD] Processing media upload with multer');
 
     const agentId = validateUuid(req.params.agentId);
@@ -71,6 +73,12 @@ export function createAgentMediaRouter(): express.Router {
 
     if (!req.file) {
       return sendError(res, 400, 'INVALID_REQUEST', 'No media file provided');
+    }
+
+    // Block dangerous file extensions to prevent XSS via MIME type bypass
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    if (DANGEROUS_FILE_EXTENSIONS.includes(ext as any)) {
+      return sendError(res, 400, 'INVALID_FILE_TYPE', 'This file type is not allowed');
     }
 
     const mediaType = getContentTypeFromMimeType(req.file.mimetype);

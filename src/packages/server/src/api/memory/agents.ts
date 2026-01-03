@@ -199,6 +199,18 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
         }
       }
 
+      // SECURITY: Verify memory ownership - user can only modify their own memories or agent responses
+      // Being a room participant is not sufficient - prevent IDOR across users in same room
+      if (!req.isAdmin) {
+        const isOwnMemory = existingMemory.entityId === req.userId;
+        const isAgentMemory = existingMemory.entityId === agentId;
+
+        if (!isOwnMemory && !isAgentMemory) {
+          logger.warn(`[MEMORY UPDATE] User ${req.userId} denied - memory ${memoryId} belongs to entity ${existingMemory.entityId}`);
+          return sendError(res, 403, 'FORBIDDEN', 'You can only modify your own memories');
+        }
+      }
+
       // Construct memoryToUpdate ensuring it satisfies Partial<Memory> & { id: UUID }
       const memoryToUpdate: Partial<Memory> & { id: UUID; metadata?: MemoryMetadata } = {
         // Explicitly set the required id using the validated path parameter
@@ -376,6 +388,18 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
         if (!authResult.authorized) {
           logger.warn(`[DELETE MEMORY] User ${req.userId} denied access to delete memory ${memoryId}`);
           return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
+        }
+      }
+
+      // SECURITY: Verify memory ownership - user can only delete their own memories or agent responses
+      // Being a room participant is not sufficient - prevent IDOR across users in same room
+      if (!req.isAdmin) {
+        const isOwnMemory = existingMemory.entityId === req.userId;
+        const isAgentMemory = existingMemory.entityId === agentId;
+
+        if (!isOwnMemory && !isAgentMemory) {
+          logger.warn(`[DELETE MEMORY] User ${req.userId} denied - memory ${memoryId} belongs to entity ${existingMemory.entityId}`);
+          return sendError(res, 403, 'FORBIDDEN', 'You can only delete your own memories');
         }
       }
 

@@ -3,8 +3,11 @@ import jwt from 'jsonwebtoken';
 import { logger } from '@elizaos/core';
 import { sendError, sendSuccess } from '../shared/response-utils';
 import { generateAuthToken, type AuthenticatedRequest } from '../../middleware';
-export function createAuthRouter(): express.Router {
+import type { AgentServer } from '../../index';
+
+export function createAuthRouter(serverInstance?: AgentServer): express.Router {
   const router = express.Router();
+  const db = serverInstance?.database;
   
   /**
    * POST /api/auth/login
@@ -52,10 +55,36 @@ export function createAuthRouter(): express.Router {
       if (!uuidRegex.test(cdpUserId)) {
         return sendError(res, 400, 'INVALID_CDP_USER_ID', 'CDP userId must be a valid UUID');
       }
-      
-      // Use CDP's userId directly (no generation needed)
+
+      // SECURITY: Verify that the cdpUserId corresponds to an existing entity in the database
+      // This prevents arbitrary credential injection - users must have a valid entity first
+      if (!db) {
+        logger.error('[Auth] Database not available for entity verification');
+        return sendError(res, 500, 'SERVER_ERROR', 'Authentication service unavailable');
+      }
+
+      try {
+        const entities = await db.getEntitiesByIds([cdpUserId as `${string}-${string}-${string}-${string}-${string}`]);
+
+        if (!entities || entities.length === 0) {
+          logger.warn(`[Auth] Login attempt with non-existent entity: ${cdpUserId.substring(0, 8)}...`);
+          return sendError(
+            res,
+            401,
+            'ENTITY_NOT_FOUND',
+            'No account found for this CDP user. Please ensure you have connected to an agent first.'
+          );
+        }
+
+        logger.debug(`[Auth] Entity verified for cdpUserId: ${cdpUserId.substring(0, 8)}...`);
+      } catch (entityError: any) {
+        logger.error('[Auth] Error verifying entity:', entityError);
+        return sendError(res, 500, 'AUTH_ERROR', 'Failed to verify user credentials');
+      }
+
+      // Use CDP's userId directly (verified to exist)
       const userId = cdpUserId;
-      
+
       // Generate JWT token with email and username
       const token = generateAuthToken(userId, email, username);
       

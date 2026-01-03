@@ -661,6 +661,10 @@ export class AgentServer {
             return;
           }
 
+          // Force download for user-uploaded files to prevent XSS attacks
+          // This ensures browsers won't execute HTML/JS content inline
+          res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
+
           res.sendFile(sanitizedFilename, { root: agentUploadsPath }, (err) => {
             if (err) {
               if (err.message === 'Request aborted') {
@@ -752,6 +756,10 @@ export class AgentServer {
             res.status(403).json({ error: 'Access denied' });
             return;
           }
+
+          // Force download for user-uploaded files to prevent XSS attacks
+          // This ensures browsers won't execute HTML/JS content inline
+          res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFilename}"`);
 
           res.sendFile(filePath, (err) => {
             if (err) {

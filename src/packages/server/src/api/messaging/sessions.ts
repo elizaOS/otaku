@@ -678,6 +678,15 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
         throw new SessionNotFoundError(sessionId);
       }
 
+      // Verify ownership - user can only access their own sessions
+      if (session.userId !== req.userId) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: 'You do not have access to this session',
+        });
+        return;
+      }
+
       // Check if session is expired
       if (session.expiresAt.getTime() <= Date.now()) {
         sessions.delete(sessionId);
@@ -708,6 +717,15 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
       const session = sessions.get(sessionId);
       if (!session) {
         throw new SessionNotFoundError(sessionId);
+      }
+
+      // Verify ownership - user can only send messages in their own sessions
+      if (session.userId !== req.userId) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: 'You do not have access to this session',
+        });
+        return;
       }
 
       // Check if session is expired
@@ -817,7 +835,8 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
    */
   router.get(
     '/sessions/:sessionId/messages',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       // Parse query parameters with proper type handling
       const query: GetMessagesQuery = {
@@ -829,6 +848,15 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
       const session = sessions.get(sessionId);
       if (!session) {
         throw new SessionNotFoundError(sessionId);
+      }
+
+      // Verify ownership - user can only read messages from their own sessions
+      if (session.userId !== req.userId) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: 'You do not have access to this session',
+        });
+        return;
       }
 
       // Check if session is expired
@@ -1000,12 +1028,22 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
    */
   router.post(
     '/sessions/:sessionId/renew',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const session = sessions.get(sessionId);
 
       if (!session) {
         throw new SessionNotFoundError(sessionId);
+      }
+
+      // Verify ownership - user can only renew their own sessions
+      if (session.userId !== req.userId) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: 'You do not have access to this session',
+        });
+        return;
       }
 
       // Check if session is expired
@@ -1042,13 +1080,23 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
    */
   router.patch(
     '/sessions/:sessionId/timeout',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const newConfig: SessionTimeoutConfig = req.body;
 
       const session = sessions.get(sessionId);
       if (!session) {
         throw new SessionNotFoundError(sessionId);
+      }
+
+      // Verify ownership - user can only update their own sessions
+      if (session.userId !== req.userId) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: 'You do not have access to this session',
+        });
+        return;
       }
 
       // Check if session is expired
@@ -1104,12 +1152,22 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
    */
   router.post(
     '/sessions/:sessionId/heartbeat',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const session = sessions.get(sessionId);
 
       if (!session || !isValidSession(session)) {
         throw new SessionNotFoundError(sessionId);
+      }
+
+      // Verify ownership - user can only send heartbeats to their own sessions
+      if (session.userId !== req.userId) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: 'You do not have access to this session',
+        });
+        return;
       }
 
       // Check if session is expired
@@ -1143,12 +1201,22 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
    */
   router.delete(
     '/sessions/:sessionId',
-    asyncHandler(async (req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const { sessionId } = req.params;
       const session = sessions.get(sessionId);
 
       if (!session) {
         throw new SessionNotFoundError(sessionId);
+      }
+
+      // Verify ownership - user can only delete their own sessions
+      if (session.userId !== req.userId) {
+        res.status(403).json({
+          error: 'FORBIDDEN',
+          message: 'You do not have access to this session',
+        });
+        return;
       }
 
       // Remove session from memory
@@ -1172,25 +1240,27 @@ export function createSessionsRouter(elizaOS: ElizaOS, serverInstance: AgentServ
   );
 
   /**
-   * List active sessions (admin endpoint)
+   * List active sessions for the authenticated user
    * GET /api/messaging/sessions
    */
   router.get(
     '/sessions',
-    asyncHandler(async (_req: express.Request, res: express.Response) => {
+    requireAuthOrApiKey,
+    asyncHandler(async (req: AuthenticatedRequest, res: express.Response) => {
       const now = Date.now();
-      const activeSessions = Array.from(sessions.values())
-        .filter((session) => isValidSession(session) && session.expiresAt.getTime() > now)
+      // Only return sessions belonging to the authenticated user
+      const userSessions = Array.from(sessions.values())
+        .filter(
+          (session) =>
+            isValidSession(session) &&
+            session.expiresAt.getTime() > now &&
+            session.userId === req.userId
+        )
         .map((session) => createSessionInfoResponse(session));
 
       res.json({
-        sessions: activeSessions,
-        total: activeSessions.length,
-        stats: {
-          totalSessions: sessions.size,
-          activeSessions: activeSessions.length,
-          expiredSessions: sessions.size - activeSessions.length,
-        },
+        sessions: userSessions,
+        total: userSessions.length,
       });
     })
   );
