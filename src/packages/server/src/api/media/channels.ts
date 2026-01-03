@@ -1,7 +1,8 @@
 import { validateUuid, logger, getUploadsChannelsDir } from '@elizaos/core';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { ALLOWED_MEDIA_MIME_TYPES, MAX_FILE_SIZE } from '../shared/constants';
+import { ALLOWED_MEDIA_MIME_TYPES, MAX_FILE_SIZE, DANGEROUS_FILE_EXTENSIONS } from '../shared/constants';
+import { requireAuth } from '../../middleware';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -65,8 +66,10 @@ export function createChannelMediaRouter(): express.Router {
   });
 
   // Upload media to channel
+  // Requires authentication to prevent unauthenticated file uploads (XSS prevention)
   router.post(
     '/:channelId/upload-media',
+    requireAuth, // Authentication required
     uploadMediaRateLimiter, // Apply rate limiter
     upload.single('file'),
     async (req, res) => {
@@ -78,6 +81,13 @@ export function createChannelMediaRouter(): express.Router {
 
       if (!req.file) {
         res.status(400).json({ success: false, error: 'No media file provided' });
+        return;
+      }
+
+      // Block dangerous file extensions to prevent XSS via MIME type bypass
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (DANGEROUS_FILE_EXTENSIONS.includes(ext as any)) {
+        res.status(400).json({ success: false, error: 'This file type is not allowed' });
         return;
       }
 

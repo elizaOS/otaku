@@ -64,7 +64,7 @@ export function createAgentCrudRouter(
     }
   });
 
-  // Get specific agent details (public)
+  // Get specific agent details (public - but sensitive fields stripped)
   router.get('/:agentId', async (req: express.Request, res) => {
     const agentId = validateUuid(req.params.agentId);
     if (!agentId) {

@@ -393,7 +393,7 @@ export function createApiRouter(
   router.use('/entities', entitiesRouter(serverInstance));
 
   // Mount auth router at /auth - handles JWT authentication (MUST be before authenticated routes)
-  router.use('/auth', createAuthRouter());
+  router.use('/auth', createAuthRouter(serverInstance));
 
   // Mount CDP router at /cdp - handles CDP wallet operations (requires authentication)
   router.use('/cdp', cdpRouter(serverInstance));

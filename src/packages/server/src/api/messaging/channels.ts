@@ -419,6 +419,7 @@ export function createChannelsRouter(
   });
 
   // GET /dm-channel?targetUserId=<target_user_id>
+  // Returns deterministic channel ID for DM between two users
   (router as any).get('/dm-channel', requireAuthenticated(), async (req: AuthenticatedRequest, res: express.Response) => {
     const targetUserId = validateUuid(req.query.targetUserId as string);
     const currentUserId = validateUuid((req.userId || '') as string);
@@ -441,14 +442,13 @@ export function createChannelsRouter(
     try {
       if (providedDmServerId) {
         // Check if the provided server ID exists
-        const existingServer = await serverInstance.getServerById(providedDmServerId); // Assumes AgentServer has getServerById
+        const existingServer = await serverInstance.getServerById(providedDmServerId);
         if (existingServer) {
           dmServerIdToUse = providedDmServerId;
         } else {
           logger.warn(
             `Provided dmServerId ${providedDmServerId} not found, using default DM server logic.`
           );
-          // Use default server if provided ID is invalid
           dmServerIdToUse = DEFAULT_SERVER_ID;
         }
       }
@@ -458,6 +458,11 @@ export function createChannelsRouter(
         targetUserId,
         dmServerIdToUse
       );
+      
+      logger.info(
+        `[DM Channel] Got/created DM channel ${channel.id} for ${currentUserId.substring(0, 8)}... and ${targetUserId.substring(0, 8)}...`
+      );
+      
       res.json({ success: true, data: channel });
     } catch (error: unknown) {
       const errorDetails =
