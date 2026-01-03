@@ -599,11 +599,26 @@ export class MessageBusService extends Service {
           const serverId = this.resolveServerId(world, room, message);
           await this.notifyMessageComplete(channelId, serverId);
         })
-        .catch((error: Error) => {
+        .catch(async (error: Error) => {
           logger.error(
             `[${this.runtime.character.name}] MessageBusService: Error in messageService.handleMessage:`,
             error.message
           );
+          
+          // Send error message back to the user so they know something went wrong
+          // This ensures async processing errors are communicated, not silently dropped
+          try {
+            await this.sendErrorResponseToBus(
+              message.channel_id,
+              message.server_id,
+              error.message || 'Failed to process message'
+            );
+          } catch (sendError) {
+            logger.error(
+              `[${this.runtime.character.name}] MessageBusService: Failed to send error response:`,
+              sendError instanceof Error ? sendError.message : String(sendError)
+            );
+          }
         });
 
       console.log(' [MessageBusService] messageService.handleMessage called successfully');
