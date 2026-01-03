@@ -1,10 +1,10 @@
-import type { ElizaOS, Room } from '@elizaos/core';
+import type { ElizaOS, Room, UUID } from '@elizaos/core';
 import { validateUuid, logger, createUniqueUuid, ChannelType } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuthenticated } from '../../middleware';
+import { requireAuthenticated, requireRoomParticipant, type AuthenticatedRequest } from '../../middleware';
 
-interface CustomRequest extends express.Request {
+interface CustomRequest extends AuthenticatedRequest {
   params: {
     agentId: string;
     roomId?: string;
@@ -18,7 +18,8 @@ export function createRoomManagementRouter(elizaOS: ElizaOS): express.Router {
   const router = express.Router();
 
   // Create a new room for an agent
-  router.post('/:agentId/rooms', requireAuthenticated(), async (req, res) => {
+  // Authorization: Any authenticated user can create a room (they become a participant)
+  router.post('/:agentId/rooms', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     if (!agentId) {
       return sendError(res, 400, 'INVALID_ID', 'Invalid agent ID format');
@@ -61,12 +62,23 @@ export function createRoomManagementRouter(elizaOS: ElizaOS): express.Router {
         channelId: roomId,
         serverId: serverId,
         worldId: resolvedWorldId,
-        metadata: metadata,
+        metadata: {
+          ...metadata,
+          createdBy: req.userId, // Track who created the room
+        },
       });
 
+      // Add the agent as a participant
       await runtime.addParticipant(runtime.agentId, roomId);
       await runtime.ensureParticipantInRoom(runtime.agentId, roomId);
       await runtime.setParticipantUserState(roomId, runtime.agentId, 'FOLLOWED');
+
+      // Add the creating user as a participant
+      if (req.userId) {
+        await runtime.addParticipant(req.userId as UUID, roomId);
+        await runtime.ensureParticipantInRoom(req.userId as UUID, roomId);
+        logger.info(`[ROOM CREATE] Added user ${req.userId} as participant to room ${roomId}`);
+      }
 
       sendSuccess(
         res,
@@ -98,8 +110,9 @@ export function createRoomManagementRouter(elizaOS: ElizaOS): express.Router {
     }
   });
 
-  // Get all rooms where an agent is a participant
-  router.get('/:agentId/rooms', requireAuthenticated(), async (req, res) => {
+  // Get all rooms where the authenticated user is a participant
+  // Authorization: Users can only see rooms they are a participant of (or admin sees all)
+  router.get('/:agentId/rooms', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     if (!agentId) {
       return sendError(res, 400, 'INVALID_ID', 'Invalid agent ID format');
@@ -112,13 +125,21 @@ export function createRoomManagementRouter(elizaOS: ElizaOS): express.Router {
 
     try {
       const worlds = await runtime.getAllWorlds();
-      const participantRoomIds = await runtime.getRoomsForParticipant(agentId);
       const agentRooms: Room[] = [];
+
+      // Get rooms where the USER is a participant (not just the agent)
+      const userRoomIds = req.userId 
+        ? await runtime.getRoomsForParticipant(req.userId as UUID)
+        : [];
 
       for (const world of worlds) {
         const worldRooms = await runtime.getRooms(world.id);
         for (const room of worldRooms) {
-          if (participantRoomIds.includes(room.id)) {
+          // Authorization: Only include rooms where user is a participant (or admin)
+          const isParticipant = userRoomIds.includes(room.id);
+          const isCreator = room.metadata?.createdBy === req.userId;
+          
+          if (req.isAdmin || isParticipant || isCreator) {
             agentRooms.push({
               ...room,
             });
@@ -143,6 +164,7 @@ export function createRoomManagementRouter(elizaOS: ElizaOS): express.Router {
   });
 
   // Get room details
+  // Authorization: User must be a participant of the room (or admin)
   router.get('/:agentId/rooms/:roomId', requireAuthenticated(), async (req: CustomRequest, res: express.Response) => {
     const agentId = validateUuid(req.params.agentId);
     const roomId = validateUuid(req.params.roomId);
@@ -161,6 +183,19 @@ export function createRoomManagementRouter(elizaOS: ElizaOS): express.Router {
       const room = await runtime.getRoom(roomId);
       if (!room) {
         return sendError(res, 404, 'NOT_FOUND', 'Room not found');
+      }
+
+      // Authorization: Check if user is a participant (or admin)
+      if (!req.isAdmin && req.userId) {
+        const participants = await runtime.getParticipantsForRoom(roomId);
+        const participantIds = participants.map(p => p.id);
+        const isParticipant = participantIds.includes(req.userId as UUID);
+        const isCreator = room.metadata?.createdBy === req.userId;
+
+        if (!isParticipant && !isCreator) {
+          logger.warn(`[ROOM DETAILS] User ${req.userId} denied access to room ${roomId} - not a participant`);
+          return sendError(res, 403, 'FORBIDDEN', 'You are not a participant of this room');
+        }
       }
 
       // Enrich room data with world name

@@ -37,3 +37,13 @@ export {
   requireChannelParticipant,
   requireAuthenticated,
 } from './validation';
+
+// Authorization middleware (resource-based access control)
+export {
+  requireSelfOrAdmin,
+  requireRoomParticipant,
+  requireResourceOwner,
+  requireOwnEntity,
+  requireAll,
+  requireAny,
+} from './authorization';

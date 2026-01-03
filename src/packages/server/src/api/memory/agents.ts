@@ -3,7 +3,54 @@ import { MemoryType, createUniqueUuid } from '@elizaos/core';
 import { validateUuid, logger } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuthenticated } from '../../middleware';
+import { requireAuthenticated, type AuthenticatedRequest } from '../../middleware';
+
+/**
+ * Helper to check if user is authorized to access a room's memories
+ */
+async function checkRoomAuthorization(
+  req: AuthenticatedRequest,
+  elizaOS: ElizaOS,
+  agentId: UUID,
+  roomId: UUID
+): Promise<{ authorized: boolean; error?: string }> {
+  // Admins can access everything
+  if (req.isAdmin) {
+    return { authorized: true };
+  }
+
+  if (!req.userId) {
+    return { authorized: false, error: 'Authentication required' };
+  }
+
+  const runtime = elizaOS.getAgent(agentId);
+  if (!runtime) {
+    return { authorized: false, error: 'Agent not found' };
+  }
+
+  try {
+    // Check if room exists
+    const room = await runtime.getRoom(roomId);
+    if (!room) {
+      return { authorized: false, error: 'Room not found' };
+    }
+
+    // Check if user is a participant
+    const participants = await runtime.getParticipantsForRoom(roomId);
+    const participantIds = participants.map(p => p.id);
+    const isParticipant = participantIds.includes(req.userId as UUID);
+    const isCreator = room.metadata?.createdBy === req.userId;
+
+    if (isParticipant || isCreator) {
+      return { authorized: true };
+    }
+
+    return { authorized: false, error: 'You are not a participant of this room' };
+  } catch (error) {
+    logger.error('[Memory Auth] Error checking room authorization:', error);
+    return { authorized: false, error: 'Unable to verify room access' };
+  }
+}
 
 /**
  * Agent memory management functionality
@@ -12,12 +59,20 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
   const router = express.Router();
 
   // Get memories for a specific room
-  router.get('/:agentId/rooms/:roomId/memories', requireAuthenticated(), async (req, res) => {
+  // Authorization: User must be a participant of the room (or admin)
+  router.get('/:agentId/rooms/:roomId/memories', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     const roomId = validateUuid(req.params.roomId);
 
     if (!agentId || !roomId) {
       return sendError(res, 400, 'INVALID_ID', 'Invalid agent ID or room ID format');
+    }
+
+    // Authorization check
+    const authResult = await checkRoomAuthorization(req, elizaOS, agentId, roomId);
+    if (!authResult.authorized) {
+      logger.warn(`[MEMORIES GET] User ${req.userId} denied access to room ${roomId} memories`);
+      return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
     }
 
     const runtime = elizaOS.getAgent(agentId);
@@ -65,7 +120,8 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
   });
 
   // Get all memories for an agent
-  router.get('/:agentId/memories', requireAuthenticated(), async (req, res) => {
+  // Authorization: If roomId/channelId specified, user must be participant. Otherwise, only returns memories from user's rooms.
+  router.get('/:agentId/memories', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
 
     if (!agentId) {
@@ -104,11 +160,28 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
         roomIdToUse = roomId;
       }
 
-      const memories = await runtime.getMemories({
+      // Authorization: If specific room requested, check access
+      if (roomIdToUse) {
+        const authResult = await checkRoomAuthorization(req, elizaOS, agentId, roomIdToUse);
+        if (!authResult.authorized) {
+          logger.warn(`[AGENT MEMORIES] User ${req.userId} denied access to room ${roomIdToUse} memories`);
+          return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
+        }
+      }
+
+      // Get memories
+      let memories = await runtime.getMemories({
         agentId,
         tableName,
         roomId: roomIdToUse,
       });
+
+      // Authorization: If no specific room, filter to only user's rooms (unless admin)
+      if (!roomIdToUse && !req.isAdmin && req.userId) {
+        const userRoomIds = await runtime.getRoomsForParticipant(req.userId as UUID);
+        memories = memories.filter(m => m.roomId && userRoomIds.includes(m.roomId));
+        logger.debug(`[AGENT MEMORIES] Filtered memories to ${memories.length} from user's ${userRoomIds.length} rooms`);
+      }
 
       const cleanMemories = includeEmbedding
         ? memories
@@ -133,7 +206,8 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
   });
 
   // Update a specific memory for an agent
-  router.patch('/:agentId/memories/:memoryId', requireAuthenticated(), async (req, res) => {
+  // Authorization: User must be a participant of the memory's room (or admin)
+  router.patch('/:agentId/memories/:memoryId', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     const agentId = validateUuid(req.params.agentId);
     const memoryId = validateUuid(req.params.memoryId);
 
@@ -149,6 +223,23 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
     }
 
     try {
+      // First, get the memory to check authorization
+      const existingMemories = await runtime.getMemories({ agentId });
+      const existingMemory = existingMemories.find(m => m.id === memoryId);
+      
+      if (!existingMemory) {
+        return sendError(res, 404, 'NOT_FOUND', 'Memory not found');
+      }
+
+      // Authorization: Check if user can access the memory's room
+      if (existingMemory.roomId) {
+        const authResult = await checkRoomAuthorization(req, elizaOS, agentId, existingMemory.roomId);
+        if (!authResult.authorized) {
+          logger.warn(`[MEMORY UPDATE] User ${req.userId} denied access to update memory ${memoryId}`);
+          return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
+        }
+      }
+
       // Construct memoryToUpdate ensuring it satisfies Partial<Memory> & { id: UUID }
       const memoryToUpdate: Partial<Memory> & { id: UUID; metadata?: MemoryMetadata } = {
         // Explicitly set the required id using the validated path parameter
@@ -203,12 +294,19 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
   });
 
   // Delete all memories for an agent
-  router.delete('/:agentId/memories', requireAuthenticated(), async (req, res) => {
+  // Authorization: ADMIN ONLY - this is a destructive operation across all rooms
+  router.delete('/:agentId/memories', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     try {
       const agentId = validateUuid(req.params.agentId);
 
       if (!agentId) {
         return sendError(res, 400, 'INVALID_ID', 'Invalid agent ID');
+      }
+
+      // Authorization: Admin only for bulk delete
+      if (!req.isAdmin) {
+        logger.warn(`[DELETE ALL AGENT MEMORIES] Non-admin user ${req.userId} attempted bulk memory delete`);
+        return sendError(res, 403, 'FORBIDDEN', 'Administrator privileges required to delete all agent memories');
       }
 
       const runtime = elizaOS.getAgent(agentId);
@@ -219,6 +317,7 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
       const deleted = (await runtime.getAllMemories()).length;
       await runtime.clearAllAgentMemories();
 
+      logger.info(`[DELETE ALL AGENT MEMORIES] Admin ${req.username} deleted ${deleted} memories for agent ${agentId}`);
       sendSuccess(res, { deleted, message: 'All agent memories cleared successfully' });
     } catch (error) {
       logger.error(
@@ -236,7 +335,8 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
   });
 
   // Delete all memories for a room
-  router.delete('/:agentId/memories/all/:roomId', requireAuthenticated(), async (req, res) => {
+  // Authorization: User must be a participant of the room (or admin)
+  router.delete('/:agentId/memories/all/:roomId', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     try {
       const agentId = validateUuid(req.params.agentId);
       const roomId = validateUuid(req.params.roomId);
@@ -249,6 +349,13 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
         return sendError(res, 400, 'INVALID_ID', 'Invalid room ID');
       }
 
+      // Authorization check
+      const authResult = await checkRoomAuthorization(req, elizaOS, agentId, roomId);
+      if (!authResult.authorized) {
+        logger.warn(`[DELETE ALL MEMORIES] User ${req.userId} denied access to delete room ${roomId} memories`);
+        return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
+      }
+
       const runtime = elizaOS.getAgent(agentId);
       if (!runtime) {
         return sendError(res, 404, 'NOT_FOUND', 'Agent not found');
@@ -257,6 +364,7 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
       await runtime.deleteAllMemories(roomId, MemoryType.MESSAGE);
       await runtime.deleteAllMemories(roomId, MemoryType.DOCUMENT);
 
+      logger.info(`[DELETE ALL MEMORIES] User ${req.userId} deleted all memories for room ${roomId}`);
       res.status(204).send();
     } catch (error) {
       logger.error(
@@ -274,7 +382,8 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
   });
 
   // Delete a specific memory for an agent
-  router.delete('/:agentId/memories/:memoryId', requireAuthenticated(), async (req, res) => {
+  // Authorization: User must be a participant of the memory's room (or admin)
+  router.delete('/:agentId/memories/:memoryId', requireAuthenticated(), async (req: AuthenticatedRequest, res) => {
     try {
       const agentId = validateUuid(req.params.agentId);
       const memoryId = validateUuid(req.params.memoryId);
@@ -288,9 +397,27 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
         return sendError(res, 404, 'NOT_FOUND', 'Agent not found');
       }
 
+      // First, get the memory to check authorization
+      const existingMemories = await runtime.getMemories({ agentId });
+      const existingMemory = existingMemories.find(m => m.id === memoryId);
+      
+      if (!existingMemory) {
+        return sendError(res, 404, 'NOT_FOUND', 'Memory not found');
+      }
+
+      // Authorization: Check if user can access the memory's room
+      if (existingMemory.roomId) {
+        const authResult = await checkRoomAuthorization(req, elizaOS, agentId, existingMemory.roomId);
+        if (!authResult.authorized) {
+          logger.warn(`[DELETE MEMORY] User ${req.userId} denied access to delete memory ${memoryId}`);
+          return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
+        }
+      }
+
       // Delete the specific memory
       await runtime.deleteMemory(memoryId);
 
+      logger.info(`[DELETE MEMORY] User ${req.userId} deleted memory ${memoryId}`);
       sendSuccess(res, { message: 'Memory deleted successfully' });
     } catch (error) {
       logger.error(
