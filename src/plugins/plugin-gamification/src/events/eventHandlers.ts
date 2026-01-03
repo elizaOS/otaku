@@ -382,10 +382,9 @@ const SWAP_ACTIONS = ['USER_WALLET_SWAP', 'MEE_FUSION_SWAP'];
 
 /**
  * Action names that trigger bridge points
- * - EXECUTE_RELAY_BRIDGE, RELAY_BRIDGE: Legacy Relay bridge
- * - MEE_CCIP_BRIDGE: Biconomy CCIP bridge
+ * - EXECUTE_RELAY_BRIDGE, RELAY_BRIDGE: Relay bridge actions
  */
-const BRIDGE_ACTIONS = ['EXECUTE_RELAY_BRIDGE', 'RELAY_BRIDGE', 'MEE_CCIP_BRIDGE'];
+const BRIDGE_ACTIONS = ['EXECUTE_RELAY_BRIDGE', 'RELAY_BRIDGE'];
 
 /**
  * Action names that trigger transfer points

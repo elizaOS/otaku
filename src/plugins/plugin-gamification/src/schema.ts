@@ -39,10 +39,12 @@ export const pointBalancesTable = gamificationPgSchema.table('point_balances', {
   streakDays: integer('streak_days').notNull().default(0),
   lastLoginDate: timestamp('last_login_date'),
   level: integer('level').notNull().default(0),
+  isAgent: boolean('is_agent').notNull().default(false), // Exclude from leaderboards
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => ({
   allTimePointsIdx: index('point_balances_all_time_points_idx').on(table.allTimePoints),
   weeklyPointsIdx: index('point_balances_weekly_points_idx').on(table.weeklyPoints),
+  isAgentIdx: index('point_balances_is_agent_idx').on(table.isAgent),
 }));
 
 /**

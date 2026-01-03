@@ -17,21 +17,21 @@ const gamificationClient = (elizaClient as any).gamification;
 
 interface LeaderboardPageProps {
   agentId: UUID;
-  userId?: UUID;
 }
 
-export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProps) {
+export default function LeaderboardPage({ agentId }: LeaderboardPageProps) {
   const [scope, setScope] = useState<'weekly' | 'all_time'>('weekly');
   const [copied, setCopied] = useState(false);
 
   const { data: leaderboardData, isLoading, error, refetch } = useQuery({
-    queryKey: ['leaderboard', agentId, scope, userId],
+    queryKey: ['leaderboard', agentId, scope],
     queryFn: async () => {
       if (!gamificationClient) {
         throw new Error('Gamification service not available');
       }
       try {
-        return await gamificationClient.getLeaderboard(agentId, scope, 50, userId);
+        // Auth token is automatically included by elizaClient for userRank
+        return await gamificationClient.getLeaderboard(agentId, scope, 50);
       } catch (err: any) {
         console.error('[LeaderboardPage] Error fetching leaderboard:', err);
         // If 404, return empty data instead of throwing
@@ -59,12 +59,12 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
     '/avatars/user_pek.png',
   ];
 
-  // Simple hash function to deterministically select avatar based on userId
-  const getRandomAvatar = (userId: string): string => {
-    // Use userId as seed for deterministic randomization
+  // Simple hash function to deterministically select avatar based on username
+  const getRandomAvatar = (username: string): string => {
+    // Use username as seed for deterministic randomization
     let hash = 0;
-    for (let i = 0; i < userId.length; i++) {
-      const char = userId.charCodeAt(i);
+    for (let i = 0; i < username.length; i++) {
+      const char = username.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
       hash = hash & hash; // Convert to 32-bit integer
     }
@@ -79,12 +79,12 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
   };
 
   // Transform leaderboard entries to RebelRanking format
-  // API already limits to 50 entries
+  // API already limits to 50 entries - entries no longer contain userId (privacy)
   const rebels: RebelRanking[] = (leaderboardData?.entries || []).map((entry: LeaderboardEntry, index: number) => {
-      const username = entry.username || `User ${entry.userId.substring(0, 8)}`;
+      const username = entry.username;
       // Randomize if no avatar or if avatar is the default krimson avatar
       const avatar = (!entry.avatar || isKrimsonAvatar(entry.avatar)) 
-        ? getRandomAvatar(entry.userId)
+        ? getRandomAvatar(username)
         : entry.avatar;
       return {
         id: entry.rank,
@@ -102,16 +102,17 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
     refetch();
   };
 
-  // Query for referral code
+  // Query for referral code (requires authentication via Bearer token)
   const { data: referralData, isLoading: isLoadingReferral, refetch: refetchReferral } = useQuery({
-    queryKey: ['referralCode', agentId, userId],
+    queryKey: ['referralCode', agentId],
     queryFn: async () => {
-      if (!gamificationClient || !userId) {
-        throw new Error('Gamification service or userId not available');
+      if (!gamificationClient) {
+        throw new Error('Gamification service not available');
       }
-      return await gamificationClient.getReferralCode(agentId, userId);
+      // Auth token is automatically included by elizaClient
+      return await gamificationClient.getReferralCode(agentId);
     },
-    enabled: !!userId && !!agentId,
+    enabled: !!agentId,
     staleTime: Infinity, // Referral code doesn't change
   });
 
@@ -129,7 +130,7 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
 
   // Calculate if we need to account for "Your Rank" card and referral card in height
   const hasUserRank = leaderboardData?.userRank != null && leaderboardData.userRank > 0;
-  const hasReferralCard = !!userId;
+  const hasReferralCard = !!agentId; // Referral card shown if agent context available (auth required)
   
   // Calculate max-height for leaderboard: viewport height minus header, tabs, user rank card, referral card, and spacing
   // Approximate heights: header ~80px, tabs ~60px, user rank ~100px, referral ~200px, spacing ~100px
@@ -269,16 +270,14 @@ export default function LeaderboardPage({ agentId, userId }: LeaderboardPageProp
                     {scope === 'weekly' ? 'Weekly Ranking' : 'All-Time Ranking'}
                   </div>
                 </div>
-                <Badge variant="default" className="text-lg px-4 py-2">
-                  {leaderboardData.entries.find((e: LeaderboardEntry) => e.userId === userId)?.points.toLocaleString() || 0} POINTS
-                </Badge>
+                {/* Points are shown on user's account page - no userId in entries for privacy */}
               </div>
             </DashboardCard>
           </div>
         )}
 
-        {/* Referral Link Card */}
-        {userId && (
+        {/* Referral Link Card - requires authentication */}
+        {agentId && (
           <DashboardCard title="Referral Link">
             {isLoadingReferral ? (
               <div className="space-y-3">

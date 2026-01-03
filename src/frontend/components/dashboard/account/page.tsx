@@ -156,25 +156,27 @@ export default function AccountPage({ totalBalance = 0, userProfile, onUpdatePro
   const loadingPanelId = 'account-page'; // Unique ID for this component's loading panels
   const avatarPickerModalId = 'avatar-picker-modal';
 
-  // Fetch user summary from gamification service
+  // Fetch user summary from gamification service (requires authentication)
   const { data: userSummary, isLoading: isLoadingSummary } = useQuery({
-    queryKey: ['userSummary', agentId, userId],
+    queryKey: ['userSummary', agentId],
     queryFn: async () => {
-      if (!agentId || !userId) {
+      if (!agentId) {
         return null;
       }
       try {
-        return await elizaClient.gamification.getUserSummary(agentId, userId);
+        // Auth token is automatically included by elizaClient
+        return await elizaClient.gamification.getUserSummary(agentId);
       } catch (err: any) {
         console.error('[AccountPage] Error fetching user summary:', err);
-        // If 404, return null (user might not have any points yet)
-        if (err?.response?.status === 404 || err?.status === 404) {
+        // If 401/404, return null (user not authenticated or no points yet)
+        if (err?.response?.status === 404 || err?.status === 404 ||
+            err?.response?.status === 401 || err?.status === 401) {
           return null;
         }
         throw err;
       }
     },
-    enabled: !!agentId && !!userId,
+    enabled: !!agentId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     retry: 1,
   });

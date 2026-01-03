@@ -796,10 +796,7 @@ function AppContent({
             />
           ) : currentView === 'leaderboard' ? (
             agentId ? (
-              <LeaderboardPage 
-                agentId={agentId as UUID}
-                userId={userId as UUID | undefined}
-              />
+              <LeaderboardPage agentId={agentId as UUID} />
             ) : (
               <div className="flex items-center justify-center h-full">
                 <p className="text-muted-foreground">Loading agent...</p>

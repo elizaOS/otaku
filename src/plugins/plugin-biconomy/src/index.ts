@@ -4,7 +4,6 @@ import {
   meeSupertransactionRebalanceAction,
   meeSupertransactionStatusAction,
   biconomyWithdrawAllAction,
-  meeCcipBridgeAction
 } from "./actions/index";
 import { BiconomyService } from "./services/biconomy.service";
 
@@ -15,11 +14,9 @@ import { BiconomyService } from "./services/biconomy.service";
  * - Gasless swaps - gas is paid from the input token
  * - Cross-chain token swaps and bridges via Fusion
  * - Multi-output portfolio rebalancing via Supertransactions
- * - CCIP token bridging via Chainlink
  * 
  * Actions:
  * - MEE_FUSION_SWAP: Gasless cross-chain token swap (single input → single output)
- * - MEE_CCIP_BRIDGE: Bridge tokens across chains using Chainlink CCIP
  * - MEE_SUPERTRANSACTION_REBALANCE: Gasless multi-chain portfolio rebalancing (single input → multiple weighted outputs)
  * - MEE_SUPERTRANSACTION_STATUS: Track supertransaction status
  * - BICONOMY_WITHDRAW_ALL: Withdraw all tokens from Nexus companion wallet to user address
@@ -33,7 +30,7 @@ import { BiconomyService } from "./services/biconomy.service";
 export const meePlugin: Plugin = {
   name: "mee",
   description:
-    "Biconomy MEE (Modular Execution Environment) plugin for gasless cross-chain swaps, CCIP bridging, and portfolio rebalancing",
+    "Biconomy MEE (Modular Execution Environment) plugin for gasless cross-chain swaps and portfolio rebalancing",
   actions: [meeFusionSwapAction, biconomyWithdrawAllAction, meeSupertransactionRebalanceAction, meeSupertransactionStatusAction],
   services: [BiconomyService],
   evaluators: [],
