@@ -22,8 +22,8 @@ export function createAgentCrudRouter(
   const router = express.Router();
   const db = serverInstance?.database;
 
-  // List all agents with minimal details (authenticated users only)
-  router.get('/', requireAuth, async (_: AuthenticatedRequest, res) => {
+  // List all agents with minimal details (public)
+  router.get('/', async (_: express.Request, res) => {
     try {
       if (!db) {
         return sendError(res, 500, 'DB_ERROR', 'Database not available');
@@ -64,8 +64,8 @@ export function createAgentCrudRouter(
     }
   });
 
-  // Get specific agent details (authenticated users only)
-  router.get('/:agentId', requireAuth, async (req: AuthenticatedRequest, res) => {
+  // Get specific agent details (public - but sensitive fields stripped)
+  router.get('/:agentId', async (req: express.Request, res) => {
     const agentId = validateUuid(req.params.agentId);
     if (!agentId) {
       return sendError(res, 400, 'INVALID_ID', 'Invalid agent ID format');
