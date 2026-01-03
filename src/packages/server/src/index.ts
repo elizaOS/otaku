@@ -1380,7 +1380,8 @@ export class AgentServer {
   }
 
   async getChannelsForServer(serverId: UUID): Promise<MessageChannel[]> {
-    return (this.database as any).getChannelsForServer(serverId);
+    // The @elizaos/plugin-sql adapter uses getChannelsForMessageServer
+    return (this.database as any).getChannelsForMessageServer(serverId);
   }
 
   async getChannelDetails(channelId: UUID): Promise<MessageChannel | null> {
@@ -1494,6 +1495,8 @@ export class AgentServer {
 
   /**
    * Add an agent to a server
+   * Note: The database adapter doesn't natively support server-agent associations,
+   * so this is a no-op that logs the association for debugging purposes.
    * @param {UUID} serverId - The server ID
    * @param {UUID} agentId - The agent ID to add
    */
@@ -1504,43 +1507,58 @@ export class AgentServer {
       throw new Error(`Server ${serverId} not found`);
     }
 
-    return (this.database as any).addAgentToServer(serverId, agentId);
+    // The @elizaos/plugin-sql database adapter doesn't have addAgentToServer method
+    // Agent registration is already complete at this point, so we just log the association
+    logger.debug(
+      `[AgentServer] Agent ${agentId} associated with server ${serverId} (server-agent tracking not persisted)`
+    );
   }
 
   /**
    * Remove an agent from a server
+   * Note: The database adapter doesn't natively support server-agent associations.
    * @param {UUID} serverId - The server ID
    * @param {UUID} agentId - The agent ID to remove
    */
   async removeAgentFromServer(serverId: UUID, agentId: UUID): Promise<void> {
-    return (this.database as any).removeAgentFromServer(serverId, agentId);
+    // The @elizaos/plugin-sql database adapter doesn't have removeAgentFromServer method
+    logger.debug(
+      `[AgentServer] Agent ${agentId} disassociated from server ${serverId} (server-agent tracking not persisted)`
+    );
   }
 
   /**
    * Get all agents associated with a server
+   * Note: Returns registered agents from ElizaOS since database adapter doesn't track server-agent associations.
    * @param {UUID} serverId - The server ID
    * @returns {Promise<UUID[]>} Array of agent IDs
    */
   async getAgentsForServer(serverId: UUID): Promise<UUID[]> {
-    return (this.database as any).getAgentsForServer(serverId);
+    // The @elizaos/plugin-sql database adapter doesn't have getAgentsForServer method
+    // Return all registered agents from ElizaOS as a fallback
+    if (this.elizaOS) {
+      const agents = this.elizaOS.getAgents();
+      return agents.map((agent) => agent.agentId);
+    }
+    return [];
   }
 
   /**
    * Get all servers an agent belongs to
+   * Note: Returns all servers since database adapter doesn't track server-agent associations.
    * @param {UUID} agentId - The agent ID
    * @returns {Promise<UUID[]>} Array of server IDs
    */
   async getServersForAgent(agentId: UUID): Promise<UUID[]> {
-    // This method isn't directly supported in the adapter, so we need to implement it differently
-    const servers = await (this.database as any).getMessageServers();
-    const serverIds: UUID[] = [];
-    for (const server of servers) {
-      const agents = await (this.database as any).getAgentsForServer(server.id);
-      if (agents.includes(agentId)) {
-        serverIds.push(server.id as UUID);
-      }
+    // The @elizaos/plugin-sql database adapter doesn't track server-agent associations
+    // Return all servers as a fallback (in single-server setups, this is just the default server)
+    try {
+      const servers = await (this.database as any).getMessageServers();
+      return servers.map((server: any) => server.id as UUID);
+    } catch (error) {
+      logger.warn(`[AgentServer] Failed to get servers for agent ${agentId}:`, error);
+      return [DEFAULT_SERVER_ID];
     }
-    return serverIds;
   }
 
   /**

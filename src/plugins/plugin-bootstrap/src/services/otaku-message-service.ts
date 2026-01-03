@@ -22,6 +22,7 @@ import {
   type ResponseDecision,
   type Room,
   type MentionContext,
+  type Media,
   type Action,
   ChannelType,
   EventType,
@@ -37,6 +38,69 @@ import {
 
 import { multiStepDecisionTemplate, multiStepSummaryTemplate } from '../templates/index.js';
 import { refreshStateAfterAction } from '../utils/index.js';
+
+/**
+ * Template for LLM-based shouldRespond evaluation
+ * Used when rules-based shouldRespond returns skipEvaluation: false
+ */
+const shouldRespondTemplate = `<task>Decide on behalf of {{agentName}} whether they should respond to the message, ignore it or stop the conversation.</task>
+
+<providers>
+{{providers}}
+</providers>
+
+<instructions>Decide if {{agentName}} should respond to or interact with the conversation.
+
+IMPORTANT RULES FOR RESPONDING:
+- If YOUR name ({{agentName}}) is directly mentioned → RESPOND
+- If someone uses a DIFFERENT name (not {{agentName}}) → IGNORE (they're talking to someone else)
+- If you're actively participating in a conversation and the message continues that thread → RESPOND
+- If someone tells you to stop or be quiet → STOP
+- Otherwise → IGNORE
+
+The key distinction is:
+- "Talking TO {{agentName}}" (your name mentioned, replies to you, continuing your conversation) → RESPOND
+- "Talking ABOUT {{agentName}}" or to someone else → IGNORE
+</instructions>
+
+<output>
+Do NOT include any thinking, reasoning, or <think> sections in your response.
+Go directly to the XML response format without any preamble or explanation.
+
+Respond using XML format like this:
+<response>
+  <name>{{agentName}}</name>
+  <reasoning>Your reasoning here</reasoning>
+  <action>RESPOND | IGNORE | STOP</action>
+</response>
+
+IMPORTANT: Your response must ONLY contain the <response></response> XML block above. Do not include any text, thinking, or reasoning before or after this XML block. Start your response immediately with <response> and end with </response>.
+</output>`;
+
+/**
+ * Template for single-shot message handling (non-multi-step mode)
+ */
+const singleShotTemplate = `<task>Generate dialog and actions for the character {{agentName}}.</task>
+
+<providers>
+{{providers}}
+</providers>
+
+<instructions>
+Write a thought and plan for {{agentName}} and decide what actions to take. Also include the providers that {{agentName}} will use to have the right context for responding and acting, if any.
+
+Available actions: {{actionNames}}
+</instructions>
+
+<output>
+Respond using XML format like this:
+<response>
+  <thought>Your reasoning here</thought>
+  <actions>ACTION1,ACTION2</actions>
+  <providers>PROVIDER1,PROVIDER2</providers>
+  <text>Your response text here</text>
+</response>
+</output>`;
 
 /**
  * Multi-step workflow execution result
@@ -262,6 +326,99 @@ export class OtakuMessageService implements IMessageService {
         };
       }
 
+      // Process attachments if any (images, documents)
+      if (message.content.attachments && message.content.attachments.length > 0) {
+        runtime.logger.debug(
+          `[OtakuMessageService] Processing ${message.content.attachments.length} attachments`
+        );
+        message.content.attachments = await this.processAttachments(
+          runtime,
+          message.content.attachments
+        );
+      }
+
+      // Get room context for shouldRespond decision
+      const room = await runtime.getRoom(message.roomId);
+      
+      // Extract mention context from message metadata
+      const metadata = message.content.metadata as Record<string, unknown> | undefined;
+      const mentionContext: MentionContext | undefined = metadata
+        ? {
+            isMention: !!metadata.isMention,
+            isReply: !!metadata.isReply,
+            isThread: !!metadata.isThread,
+            mentionType: metadata.mentionType as MentionContext['mentionType'],
+          }
+        : undefined;
+
+      // Check if we should respond based on rules
+      const respondDecision = this.shouldRespond(runtime, message, room ?? undefined, mentionContext);
+      runtime.logger.debug(
+        `[OtakuMessageService] shouldRespond decision: ${respondDecision.shouldRespond} (${respondDecision.reason})`
+      );
+
+      // Determine if we should respond, using LLM evaluation if needed
+      let shouldRespondToMessage = true;
+      
+      if (respondDecision.skipEvaluation) {
+        // Rules gave a definitive answer - use it directly
+        runtime.logger.debug(
+          `[OtakuMessageService] Skipping LLM evaluation: ${respondDecision.reason}`
+        );
+        shouldRespondToMessage = respondDecision.shouldRespond;
+      } else {
+        // Compose state for LLM evaluation
+        const evalState = await runtime.composeState(
+          message,
+          ['RECENT_MESSAGES', 'CHARACTER', 'ENTITIES'],
+          true
+        );
+        
+        // Need LLM evaluation - compose prompt and call model
+        runtime.logger.debug(
+          `[OtakuMessageService] Using LLM evaluation: ${respondDecision.reason}`
+        );
+        
+        const shouldRespondPrompt = composePromptFromState({
+          state: evalState,
+          template: runtime.character.templates?.shouldRespondTemplate || shouldRespondTemplate,
+        });
+        
+        const response = await runtime.useModel(ModelType.TEXT_SMALL, {
+          prompt: shouldRespondPrompt,
+        });
+        
+        runtime.logger.debug(
+          { response: String(response).substring(0, 200) },
+          '[OtakuMessageService] LLM evaluation result'
+        );
+        
+        const responseObject = parseKeyValueXml(String(response));
+        const nonResponseActions = ['IGNORE', 'NONE', 'STOP'];
+        const actionValue = responseObject?.action;
+        
+        shouldRespondToMessage = 
+          typeof actionValue === 'string' && 
+          !nonResponseActions.includes(actionValue.toUpperCase());
+        
+        runtime.logger.debug(
+          `[OtakuMessageService] LLM decided: ${shouldRespondToMessage ? 'RESPOND' : 'IGNORE'} (action=${actionValue})`
+        );
+      }
+
+      // Exit if we shouldn't respond
+      if (!shouldRespondToMessage) {
+        runtime.logger.debug(`[OtakuMessageService] Not responding based on evaluation`);
+        await this.emitRunEnded(runtime, runId, message, startTime, 'shouldRespond:no');
+        return {
+          didRespond: false,
+          responseContent: null,
+          responseMessages: [],
+          state: { values: {}, data: {}, text: '' } as State,
+          mode: 'none',
+        };
+      }
+
       // Compose initial state
       let state = await runtime.composeState(
         message,
@@ -269,8 +426,27 @@ export class OtakuMessageService implements IMessageService {
         true
       );
 
-      // Run multi-step core processing
-      const result = await this.runMultiStepCore(runtime, message, state, callback);
+      // Determine processing mode from options or settings
+      const useMultiStep = options?.useMultiStep ?? 
+        parseBooleanFromText(String(runtime.getSetting('USE_MULTI_STEP') ?? 'true'));
+      
+      // Streaming is not yet supported - log warning if requested
+      // TODO: Implement streaming by passing onStreamChunk to model calls
+      if (options?.onStreamChunk) {
+        runtime.logger.warn(
+          '[OtakuMessageService] Streaming (onStreamChunk) is not yet supported - responses will be sent in full'
+        );
+      }
+
+      // Run appropriate processing strategy
+      let result: StrategyResult;
+      if (useMultiStep) {
+        runtime.logger.debug('[OtakuMessageService] Using multi-step processing');
+        result = await this.runMultiStepCore(runtime, message, state, callback, options);
+      } else {
+        runtime.logger.debug('[OtakuMessageService] Using single-shot processing');
+        result = await this.runSingleShotCore(runtime, message, state, callback, options);
+      }
 
       let responseContent = result.responseContent;
       const responseMessages = result.responseMessages;
@@ -456,11 +632,15 @@ export class OtakuMessageService implements IMessageService {
     runtime: IAgentRuntime,
     message: Memory,
     state: State,
-    callback?: HandlerCallback
+    callback?: HandlerCallback,
+    options?: MessageProcessingOptions
   ): Promise<StrategyResult> {
     const traceActionResult: MultiStepActionResult[] = [];
     let accumulatedState: State = state;
-    const maxIterations = parseInt(String(runtime.getSetting('MAX_MULTISTEP_ITERATIONS') ?? '6'));
+    
+    // Use options.maxMultiStepIterations if provided, otherwise fall back to setting or default
+    const maxIterations = options?.maxMultiStepIterations 
+      ?? parseInt(String(runtime.getSetting('MAX_MULTISTEP_ITERATIONS') ?? '6'));
     let iterationCount = 0;
 
     // Compose initial state including wallet data
@@ -771,6 +951,106 @@ export class OtakuMessageService implements IMessageService {
   }
 
   /**
+   * Single-shot response generation (non-multi-step mode)
+   * Generates a response in a single LLM call without iterative action execution
+   */
+  private async runSingleShotCore(
+    runtime: IAgentRuntime,
+    message: Memory,
+    state: State,
+    callback?: HandlerCallback,
+    options?: MessageProcessingOptions
+  ): Promise<StrategyResult> {
+    // Compose state with actions for the prompt
+    let currentState = await runtime.composeState(message, ['ACTIONS']);
+    
+    if (!currentState.values?.actionNames) {
+      runtime.logger.warn('[OtakuMessageService] actionNames missing from state');
+    }
+
+    // Generate response using single-shot template
+    const prompt = composePromptFromState({
+      state: currentState,
+      template: runtime.character.templates?.messageHandlerTemplate || singleShotTemplate,
+    });
+
+    const maxRetries = options?.maxRetries ?? 3;
+    let response: string | null = null;
+    let parsedResponse: Record<string, unknown> | null = null;
+    
+    // Retry loop for parsing failures
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        response = String(await runtime.useModel(ModelType.TEXT_LARGE, { prompt }));
+        parsedResponse = parseKeyValueXml(response);
+        
+        if (parsedResponse?.text || parsedResponse?.thought) {
+          break; // Successfully parsed
+        }
+        
+        runtime.logger.warn(
+          `[OtakuMessageService] Single-shot attempt ${attempt + 1}/${maxRetries} - missing required fields`
+        );
+      } catch (error) {
+        runtime.logger.error(
+          { error, attempt },
+          '[OtakuMessageService] Single-shot generation failed'
+        );
+      }
+    }
+
+    if (!parsedResponse) {
+      runtime.logger.error('[OtakuMessageService] All single-shot attempts failed');
+      return {
+        responseContent: null,
+        responseMessages: [],
+        state: currentState,
+        mode: 'none',
+      };
+    }
+
+    // Build response content
+    const responseContent: Content = {
+      text: String(parsedResponse.text || ''),
+      thought: String(parsedResponse.thought || ''),
+      actions: parsedResponse.actions
+        ? String(parsedResponse.actions).split(',').map((a: string) => a.trim()).filter(Boolean)
+        : [],
+      providers: parsedResponse.providers
+        ? String(parsedResponse.providers).split(',').map((p: string) => p.trim()).filter(Boolean)
+        : [],
+      source: message.content.source,
+      inReplyTo: message.id ? createUniqueUuid(runtime, message.id) : undefined,
+    };
+
+    // Create response memory
+    const responseMessages: Memory[] = responseContent.text
+      ? [
+          {
+            id: asUUID(v4()),
+            entityId: runtime.agentId,
+            agentId: runtime.agentId,
+            roomId: message.roomId,
+            content: responseContent,
+            createdAt: Date.now(),
+          },
+        ]
+      : [];
+
+    runtime.logger.debug(
+      { text: responseContent.text?.substring(0, 100), actions: responseContent.actions },
+      '[OtakuMessageService] Single-shot response generated'
+    );
+
+    return {
+      responseContent: responseContent.text ? responseContent : null,
+      responseMessages,
+      state: currentState,
+      mode: responseContent.actions?.length ? 'actions' : 'simple',
+    };
+  }
+
+  /**
    * Determines whether the agent should respond to a message.
    */
   shouldRespond(
@@ -846,6 +1126,85 @@ export class OtakuMessageService implements IMessageService {
 
     // 4. All other cases: let the LLM decide
     return { shouldRespond: false, skipEvaluation: false, reason: 'needs LLM evaluation' };
+  }
+
+  /**
+   * Processes attachments in a message (images, documents, etc.)
+   * Generates descriptions for images and extracts text from documents.
+   */
+  async processAttachments(runtime: IAgentRuntime, attachments: Media[]): Promise<Media[]> {
+    if (!attachments || attachments.length === 0) {
+      return attachments;
+    }
+
+    const processedAttachments: Media[] = [];
+
+    for (const attachment of attachments) {
+      try {
+        // If attachment already has a description, keep it
+        if (attachment.description) {
+          processedAttachments.push(attachment);
+          continue;
+        }
+
+        // Process based on content type
+        const contentType = attachment.contentType || '';
+        
+        if (contentType.startsWith('image/')) {
+          // For images, use vision model to generate description
+          runtime.logger.debug(
+            `[OtakuMessageService] Processing image attachment: ${attachment.url}`
+          );
+          
+          try {
+            // Try to use vision model to describe the image
+            const result = await runtime.useModel('IMAGE_DESCRIPTION', {
+              imageUrl: attachment.url,
+              prompt: 'Describe this image in detail.',
+            });
+            
+            attachment.description = typeof result === 'string' 
+              ? result 
+              : (result as { description?: string })?.description || 'Image attachment';
+          } catch {
+            // If vision model fails, use a generic description
+            attachment.description = `Image: ${attachment.title || attachment.url}`;
+          }
+        } else if (
+          contentType.startsWith('text/') ||
+          contentType.includes('pdf') ||
+          contentType.includes('document')
+        ) {
+          // For text documents, try to extract text
+          runtime.logger.debug(
+            `[OtakuMessageService] Processing document attachment: ${attachment.url}`
+          );
+          
+          // Use the text field if available
+          if (attachment.text) {
+            attachment.description = `Document content: ${attachment.text.substring(0, 500)}${
+              attachment.text.length > 500 ? '...' : ''
+            }`;
+          } else {
+            attachment.description = `Document: ${attachment.title || attachment.url}`;
+          }
+        } else {
+          // For other types, use generic description
+          attachment.description = `Attachment: ${attachment.title || attachment.url}`;
+        }
+
+        processedAttachments.push(attachment);
+      } catch (error) {
+        runtime.logger.warn(
+          { error, attachment: attachment.url },
+          '[OtakuMessageService] Failed to process attachment'
+        );
+        // Still include the attachment even if processing failed
+        processedAttachments.push(attachment);
+      }
+    }
+
+    return processedAttachments;
   }
 
   /**

@@ -13,6 +13,7 @@ import {
   PluginEvents,
   Role,
   type RunEventPayload,
+  Service,
   type UUID,
   type WorldPayload,
 } from '@elizaos/core';
@@ -414,24 +415,45 @@ const events: PluginEvents = {
   CONTROL_MESSAGE: [controlMessageHandler],
 };
 
+/**
+ * Service that installs OtakuMessageService after runtime.initialize() completes.
+ * 
+ * IMPORTANT: This must be a service (not plugin.init) because:
+ * - Plugin.init runs during runtime.initialize()
+ * - runtime.initialize() overwrites messageService with DefaultMessageService AFTER all plugins init
+ * - Service.start() runs AFTER runtime.initialize() completes
+ * 
+ * This ensures our custom message service is the final assignment and isn't overwritten.
+ */
+class MessageServiceInstaller extends Service {
+  static serviceType = 'otaku-message-installer';
+  capabilityDescription = 'Installs the custom OtakuMessageService after runtime initialization';
+
+  static async start(runtime: IAgentRuntime): Promise<Service> {
+    const service = new MessageServiceInstaller(runtime);
+    
+    // Replace DefaultMessageService with our custom implementation
+    // This runs AFTER runtime.initialize() so it won't be overwritten
+    runtime.logger.info('[Bootstrap] Installing OtakuMessageService (post-initialization)');
+    runtime.messageService = new OtakuMessageService();
+    runtime.logger.info('[Bootstrap] OtakuMessageService installed successfully');
+    
+    return service;
+  }
+
+  static async stop(_runtime: IAgentRuntime): Promise<void> {
+    // Nothing to clean up
+  }
+
+  // Instance stop method required by Service abstract class
+  async stop(): Promise<void> {
+    // Nothing to clean up
+  }
+}
+
 export const bootstrapPlugin: Plugin = {
   name: 'bootstrap',
   description: 'Agent bootstrap with basic actions and evaluators',
-  
-  /**
-   * Initialize the plugin and register the OtakuMessageService.
-   * This replaces the default message service with our custom implementation
-   * that includes x402 job request handling and custom multi-step workflows.
-   */
-  init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
-    runtime.logger.info('[Bootstrap] Initializing with OtakuMessageService');
-    
-    // Replace the default message service with our custom implementation
-    // This ensures our x402 job bypass logic and multi-step workflow runs
-    runtime.messageService = new OtakuMessageService();
-    
-    runtime.logger.info('[Bootstrap] OtakuMessageService registered successfully');
-  },
   
   actions: [
     // actions.replyAction,
@@ -448,7 +470,8 @@ export const bootstrapPlugin: Plugin = {
     providers.characterProvider,
     providers.recentMessagesProvider,
   ],
-  services: [TaskService, EmbeddingGenerationService],
+  // MessageServiceInstaller MUST be first to install our custom service before other services start
+  services: [MessageServiceInstaller, TaskService, EmbeddingGenerationService],
 };
 
 export default bootstrapPlugin;
