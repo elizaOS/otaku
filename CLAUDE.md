@@ -228,6 +228,30 @@ See: [Troubleshooting Guide](docs/troubleshooting.md)
 
 See: [Character Config Guide](docs/character-config.md#network-specific-rules)
 
+### Import Path Aliases
+
+Use clean path aliases instead of relative `../` imports. Configured in `tsconfig.json`:
+
+| Alias | Maps To | Use For |
+|-------|---------|---------|
+| `@/frontend/*` | `./src/frontend/*` | All frontend code |
+| `@/constants/*` | `./src/constants/*` | Backend/shared constants |
+| `@/utils/*` | `./src/utils/*` | Backend utilities |
+| `@/managers/*` | `./src/managers/*` | Manager classes |
+| `@/plugins/*` | `./src/plugins/*` | Plugin code |
+
+**Frontend imports** should always use `@/frontend/`:
+```typescript
+// ✅ Correct
+import { Button } from '@/frontend/components/ui/button';
+import { cn } from '@/frontend/lib/utils';
+import { useModal } from '@/frontend/contexts/ModalContext';
+
+// ❌ Avoid relative paths
+import { Button } from '../../ui/button';
+import { cn } from '../../../lib/utils';
+```
+
 ## Key Files
 
 | File | Purpose |
