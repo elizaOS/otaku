@@ -1,0 +1,37 @@
+name: Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    # Only run on trusted PRs - not hardened against prompt injection
+    # Consider requiring maintainer approval for external contributors
+    if: |
+      github.event.pull_request.author_association == 'OWNER' ||
+      github.event.pull_request.author_association == 'MEMBER' ||
+      github.event.pull_request.author_association == 'COLLABORATOR'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Run Claude Security Review
+        uses: anthropics/claude-code-security-review@main
+        with:
+          comment-pr: true
+          upload-results: true
+          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          # Exclude non-code directories from scanning
+          exclude-directories: "node_modules,dist,docs,.github"
+          # 20 minute timeout for large PRs
+          claudecode-timeout: 20

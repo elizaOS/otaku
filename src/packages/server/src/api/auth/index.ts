@@ -163,7 +163,34 @@ export function createAuthRouter(serverInstance: AgentServer): express.Router {
         };
       }
       
-      // New user - generate server-side entityId and register
+      // Check if email already exists with a DIFFERENT cdpUserId
+      // This handles: same user, different CDP auth method (email vs Google login)
+      // Return existing account instead of creating duplicate
+      const emailResult = await db.execute(`
+        SELECT entity_id, cdp_user_id, username FROM user_registry 
+        WHERE email = '${escapeSql(normalizedEmail)}'
+        ORDER BY registered_at ASC
+        LIMIT 1
+      `);
+      
+      if (emailResult.rows?.length > 0) {
+        const entityId = emailResult.rows[0].entity_id as string;
+        const existingCdpId = emailResult.rows[0].cdp_user_id as string;
+        
+        // Return existing account, keep original cdp_user_id (auth method)
+        // Only update last login and username
+        await db.execute(`
+          UPDATE user_registry SET last_login_at = NOW(), username = '${escapeSql(username)}'
+          WHERE entity_id = '${escapeSql(entityId)}'::uuid
+        `);
+        
+        logger.info(
+          `[Auth] Returning existing account for email=${normalizedEmail} (original cdp: ${existingCdpId.substring(0, 8)}..., login cdp: ${cdpUserId.substring(0, 8)}...)`
+        );
+        return { verified: true, entityId, isNewUser: false };
+      }
+      
+      // Truly new user - generate server-side entityId and register
       const entityId = generateEntityId();
       
       await db.execute(`
