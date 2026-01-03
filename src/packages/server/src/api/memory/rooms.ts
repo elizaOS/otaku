@@ -2,7 +2,7 @@ import type { ElizaOS, Room, UUID } from '@elizaos/core';
 import { validateUuid, logger, createUniqueUuid, ChannelType } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuthenticated, requireRoomParticipant, type AuthenticatedRequest } from '../../middleware';
+import { requireAuthenticated, checkRoomAccess, type AuthenticatedRequest } from '../../middleware';
 
 interface CustomRequest extends AuthenticatedRequest {
   params: {
@@ -180,22 +180,16 @@ export function createRoomManagementRouter(elizaOS: ElizaOS): express.Router {
     }
 
     try {
+      // Authorization check using centralized utility
+      const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, roomId, { isAdmin: req.isAdmin });
+      if (!authResult.authorized) {
+        logger.warn(`[ROOM DETAILS] User ${req.userId} denied access to room ${roomId} - ${authResult.error}`);
+        return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
+      }
+
       const room = await runtime.getRoom(roomId);
       if (!room) {
         return sendError(res, 404, 'NOT_FOUND', 'Room not found');
-      }
-
-      // Authorization: Check if user is a participant (or admin)
-      if (!req.isAdmin && req.userId) {
-        const participants = await runtime.getParticipantsForRoom(roomId);
-        const participantIds = participants.map(p => p.id);
-        const isParticipant = participantIds.includes(req.userId as UUID);
-        const isCreator = room.metadata?.createdBy === req.userId;
-
-        if (!isParticipant && !isCreator) {
-          logger.warn(`[ROOM DETAILS] User ${req.userId} denied access to room ${roomId} - not a participant`);
-          return sendError(res, 403, 'FORBIDDEN', 'You are not a participant of this room');
-        }
       }
 
       // Enrich room data with world name

@@ -95,11 +95,14 @@ export class SocketIORouter {
 
   /**
    * Check if user is authorized to access a channel
+   * 
+   * @param allowCreation - If true, allows access to non-existent channels (for channel creation flows)
    */
   private async checkChannelAuthorization(
     socket: AuthenticatedSocket,
-    channelId: UUID
-  ): Promise<{ authorized: boolean; error?: string }> {
+    channelId: UUID,
+    options: { allowCreation?: boolean } = {}
+  ): Promise<{ authorized: boolean; error?: string; channelExists?: boolean }> {
     // Admins can access everything
     if (socket.isAdmin) {
       return { authorized: true };
@@ -114,15 +117,27 @@ export class SocketIORouter {
       // Check if user is a participant of the channel
       const participants = await this.serverInstance.getChannelParticipants(channelId);
       if (participants.includes(socket.userId as UUID)) {
-        return { authorized: true };
+        return { authorized: true, channelExists: true };
       }
 
-      return { authorized: false, error: 'You are not a participant of this channel' };
+      return { authorized: false, error: 'You are not a participant of this channel', channelExists: true };
     } catch (error: any) {
-      // If channel doesn't exist yet, allow (it will be created)
-      if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
-        return { authorized: true };
+      // Channel doesn't exist
+      const isNotFoundError = error.message?.includes('not found') || error.message?.includes('does not exist');
+      
+      if (isNotFoundError) {
+        // Only allow non-existent channel access if explicitly permitted (for creation flows)
+        // This prevents attackers from joining arbitrary channel IDs before legitimate users
+        if (options.allowCreation) {
+          logger.debug(`[SocketIO] Allowing access to non-existent channel ${channelId} (creation flow)`);
+          return { authorized: true, channelExists: false };
+        }
+        
+        // For regular access attempts, deny access to non-existent channels
+        logger.warn(`[SocketIO] User ${socket.userId} attempted to access non-existent channel ${channelId}`);
+        return { authorized: false, error: 'Channel does not exist', channelExists: false };
       }
+      
       logger.error(`[SocketIO] Error checking channel authorization: ${error.message}`);
       return { authorized: false, error: 'Unable to verify channel access' };
     }
@@ -242,7 +257,13 @@ export class SocketIORouter {
     }
 
     // Authorization: Check if user can access this channel
-    const authResult = await this.checkChannelAuthorization(socket, validChannelId);
+    // Allow channel creation only for DMs or when explicitly creating a new channel
+    // This prevents attackers from joining arbitrary channel IDs before legitimate users
+    const isCreatingNewChannel = metadata?.isDm || metadata?.channelType === ChannelType.DM || metadata?.createIfNotExists === true;
+    const authResult = await this.checkChannelAuthorization(socket, validChannelId, { 
+      allowCreation: isCreatingNewChannel 
+    });
+    
     if (!authResult.authorized) {
       logger.warn(`[SocketIO] User ${socket.userId || 'unauthenticated'} denied access to channel ${channelId}`);
       this.sendErrorResponse(socket, authResult.error || 'Access denied to this channel');
@@ -345,9 +366,15 @@ export class SocketIORouter {
     }
 
     // Authorization: Check if user can send to this channel
+    // For DMs, allow channel creation during first message (initiated by user)
     const validChannelId = validateUuid(channelId);
+    const isDmChannel = metadata?.isDm || metadata?.channelType === ChannelType.DM;
+    
     if (validChannelId) {
-      const authResult = await this.checkChannelAuthorization(socket, validChannelId);
+      const authResult = await this.checkChannelAuthorization(socket, validChannelId, {
+        allowCreation: isDmChannel, // Only allow creation for DM channels
+      });
+      
       if (!authResult.authorized) {
         logger.warn(`[SocketIO ${socket.id}] User ${socket.userId || senderId} denied sending to channel ${channelId}`);
         this.sendErrorResponse(socket, authResult.error || 'Not authorized to send to this channel');

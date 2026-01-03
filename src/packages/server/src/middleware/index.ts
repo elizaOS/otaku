@@ -44,6 +44,7 @@ export {
   requireRoomParticipant,
   requireResourceOwner,
   requireOwnEntity,
-  requireAll,
-  requireAny,
+  // Utility functions for in-handler authorization
+  checkRoomAccess,
+  type RoomAuthorizationResult,
 } from './authorization';

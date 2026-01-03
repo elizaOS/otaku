@@ -3,54 +3,7 @@ import { MemoryType, createUniqueUuid } from '@elizaos/core';
 import { validateUuid, logger } from '@elizaos/core';
 import express from 'express';
 import { sendError, sendSuccess } from '../shared/response-utils';
-import { requireAuthenticated, type AuthenticatedRequest } from '../../middleware';
-
-/**
- * Helper to check if user is authorized to access a room's memories
- */
-async function checkRoomAuthorization(
-  req: AuthenticatedRequest,
-  elizaOS: ElizaOS,
-  agentId: UUID,
-  roomId: UUID
-): Promise<{ authorized: boolean; error?: string }> {
-  // Admins can access everything
-  if (req.isAdmin) {
-    return { authorized: true };
-  }
-
-  if (!req.userId) {
-    return { authorized: false, error: 'Authentication required' };
-  }
-
-  const runtime = elizaOS.getAgent(agentId);
-  if (!runtime) {
-    return { authorized: false, error: 'Agent not found' };
-  }
-
-  try {
-    // Check if room exists
-    const room = await runtime.getRoom(roomId);
-    if (!room) {
-      return { authorized: false, error: 'Room not found' };
-    }
-
-    // Check if user is a participant
-    const participants = await runtime.getParticipantsForRoom(roomId);
-    const participantIds = participants.map(p => p.id);
-    const isParticipant = participantIds.includes(req.userId as UUID);
-    const isCreator = room.metadata?.createdBy === req.userId;
-
-    if (isParticipant || isCreator) {
-      return { authorized: true };
-    }
-
-    return { authorized: false, error: 'You are not a participant of this room' };
-  } catch (error) {
-    logger.error('[Memory Auth] Error checking room authorization:', error);
-    return { authorized: false, error: 'Unable to verify room access' };
-  }
-}
+import { requireAuthenticated, checkRoomAccess, type AuthenticatedRequest } from '../../middleware';
 
 /**
  * Agent memory management functionality
@@ -69,7 +22,7 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
     }
 
     // Authorization check
-    const authResult = await checkRoomAuthorization(req, elizaOS, agentId, roomId);
+    const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, roomId, { isAdmin: req.isAdmin });
     if (!authResult.authorized) {
       logger.warn(`[MEMORIES GET] User ${req.userId} denied access to room ${roomId} memories`);
       return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
@@ -162,7 +115,7 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
 
       // Authorization: If specific room requested, check access
       if (roomIdToUse) {
-        const authResult = await checkRoomAuthorization(req, elizaOS, agentId, roomIdToUse);
+        const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, roomIdToUse, { isAdmin: req.isAdmin });
         if (!authResult.authorized) {
           logger.warn(`[AGENT MEMORIES] User ${req.userId} denied access to room ${roomIdToUse} memories`);
           return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
@@ -233,7 +186,7 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
 
       // Authorization: Check if user can access the memory's room
       if (existingMemory.roomId) {
-        const authResult = await checkRoomAuthorization(req, elizaOS, agentId, existingMemory.roomId);
+        const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, existingMemory.roomId, { isAdmin: req.isAdmin });
         if (!authResult.authorized) {
           logger.warn(`[MEMORY UPDATE] User ${req.userId} denied access to update memory ${memoryId}`);
           return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
@@ -350,7 +303,7 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
       }
 
       // Authorization check
-      const authResult = await checkRoomAuthorization(req, elizaOS, agentId, roomId);
+      const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, roomId, { isAdmin: req.isAdmin });
       if (!authResult.authorized) {
         logger.warn(`[DELETE ALL MEMORIES] User ${req.userId} denied access to delete room ${roomId} memories`);
         return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');
@@ -407,7 +360,7 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
 
       // Authorization: Check if user can access the memory's room
       if (existingMemory.roomId) {
-        const authResult = await checkRoomAuthorization(req, elizaOS, agentId, existingMemory.roomId);
+        const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, existingMemory.roomId, { isAdmin: req.isAdmin });
         if (!authResult.authorized) {
           logger.warn(`[DELETE MEMORY] User ${req.userId} denied access to delete memory ${memoryId}`);
           return sendError(res, 403, 'FORBIDDEN', authResult.error || 'Access denied');

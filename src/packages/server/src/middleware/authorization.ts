@@ -70,6 +70,81 @@ function sendBadRequest(res: Response, message: string): void {
 }
 
 // ============================================================================
+// Utility Functions (for in-handler authorization checks)
+// ============================================================================
+
+/**
+ * Result of a room authorization check
+ */
+export interface RoomAuthorizationResult {
+  authorized: boolean;
+  error?: string;
+}
+
+/**
+ * Check if a user is authorized to access a room.
+ * 
+ * Use this utility function for in-handler authorization checks when you need
+ * more control than the middleware provides.
+ * 
+ * @param elizaOS - The ElizaOS instance
+ * @param userId - The user ID to check
+ * @param agentId - The agent ID for the room
+ * @param roomId - The room ID to check access for
+ * @param options - Authorization options
+ * 
+ * @example
+ * const authResult = await checkRoomAccess(elizaOS, req.userId, agentId, roomId);
+ * if (!authResult.authorized) {
+ *   return sendError(res, 403, 'FORBIDDEN', authResult.error);
+ * }
+ */
+export async function checkRoomAccess(
+  elizaOS: ElizaOS,
+  userId: string | undefined,
+  agentId: UUID,
+  roomId: UUID,
+  options: { isAdmin?: boolean } = {}
+): Promise<RoomAuthorizationResult> {
+  // Admins can access everything
+  if (options.isAdmin) {
+    return { authorized: true };
+  }
+
+  if (!userId) {
+    return { authorized: false, error: 'Authentication required' };
+  }
+
+  const runtime = elizaOS.getAgent(agentId);
+  if (!runtime) {
+    return { authorized: false, error: 'Agent not found' };
+  }
+
+  try {
+    // Check if room exists
+    const room = await runtime.getRoom(roomId);
+    if (!room) {
+      return { authorized: false, error: 'Room not found' };
+    }
+
+    // Check if user is a participant
+    const participants = await runtime.getParticipantsForRoom(roomId);
+    const participantIds = participants.map(p => p.id);
+    const isParticipant = participantIds.includes(userId as UUID);
+    const isCreator = room.metadata?.createdBy === userId;
+
+    if (isParticipant || isCreator) {
+      return { authorized: true };
+    }
+
+    return { authorized: false, error: 'You are not a participant of this room' };
+  } catch (error) {
+    logger.error('[Authorization] Error checking room access:', error);
+    return { authorized: false, error: 'Unable to verify room access' };
+  }
+}
+
+// ============================================================================
 // Core Authorization Middleware
 // ============================================================================
 
@@ -316,108 +391,6 @@ export function requireOwnEntity(
   });
 }
 
-/**
- * Compose multiple authorization checks - ALL must pass.
- * 
- * @param checks - Array of authorization middleware functions
- * 
- * @example
- * router.post('/rooms/:roomId/admin-action',
- *   requireAuth,
- *   requireAll([
- *     requireRoomParticipant(elizaOS),
- *     requireAdmin,
- *   ]),
- *   handler
- * );
- */
-export function requireAll(
-  checks: Array<(req: AuthenticatedRequest, res: Response, next: NextFunction) => void | Promise<void>>
-) {
-  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    for (const check of checks) {
-      let passed = false;
-      let errorSent = false;
-
-      await new Promise<void>((resolve) => {
-        check(req, res, () => {
-          passed = true;
-          resolve();
-        });
-        
-        // Check if response was sent (authorization failed)
-        if (res.headersSent) {
-          errorSent = true;
-          resolve();
-        }
-        
-        // Timeout to handle async checks
-        setTimeout(() => {
-          if (!passed && !errorSent) {
-            resolve();
-          }
-        }, 100);
-      });
-
-      if (errorSent || (!passed && res.headersSent)) {
-        return; // Response already sent by the check
-      }
-
-      if (!passed) {
-        return sendForbidden(res, 'Authorization check failed');
-      }
-    }
-
-    next();
-  };
-}
-
-/**
- * Compose multiple authorization checks - ANY must pass.
- * 
- * @param checks - Array of authorization middleware functions
- * 
- * @example
- * // Allow if user is room participant OR is admin
- * router.get('/rooms/:roomId/data',
- *   requireAuth,
- *   requireAny([
- *     requireRoomParticipant(elizaOS),
- *     requireAdmin,
- *   ]),
- *   handler
- * );
- */
-export function requireAny(
-  checks: Array<(req: AuthenticatedRequest, res: Response, next: NextFunction) => void | Promise<void>>
-) {
-  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    for (const check of checks) {
-      let passed = false;
-
-      await new Promise<void>((resolve) => {
-        // Create a mock response to capture if check would pass
-        const mockRes = {
-          ...res,
-          headersSent: false,
-          status: () => mockRes,
-          json: () => mockRes,
-        } as unknown as Response;
-
-        check(req, mockRes, () => {
-          passed = true;
-          resolve();
-        });
-
-        // Timeout for async checks
-        setTimeout(resolve, 100);
-      });
-
-      if (passed) {
-        return next();
-      }
-    }
-
-    return sendForbidden(res, 'None of the authorization checks passed');
-  };
-}
+// Note: requireAll/requireAny were removed as they added complexity with mock responses.
+// For composing authorization checks, use the utility functions (checkRoomAccess, etc.)
+// directly in your handlers, or chain middleware in route definitions.
