@@ -4,7 +4,7 @@ import {
   type IAgentRuntime,
   type UUID,
 } from '@elizaos/core';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gt, isNull, or } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import { leaderboardSnapshotsTable, pointBalancesTable } from '../schema';
 
@@ -142,6 +142,8 @@ export class LeaderboardService extends Service {
   /**
    * Manual aggregation - useful for testing or one-off runs
    * In production, pg_cron handles this every 5 minutes
+   * 
+   * Uses same filtering as pg_cron: is_agent = FALSE OR is_agent IS NULL
    */
   async aggregateSnapshots(): Promise<void> {
     const db = this.getDb();
@@ -151,31 +153,33 @@ export class LeaderboardService extends Service {
     }
 
     try {
-      // Aggregate all-time leaderboard (excluding agents)
-      const allTimeBalancesRaw = await db
+      // Filter: exclude agents (is_agent = FALSE OR is_agent IS NULL) - matches pg_cron behavior
+      const notAgentFilter = or(
+        eq(pointBalancesTable.isAgent, false),
+        isNull(pointBalancesTable.isAgent)
+      );
+
+      // Aggregate all-time leaderboard (excluding agents, points > 0)
+      const allTimeBalances = await db
         .select({
           userId: pointBalancesTable.userId,
           points: pointBalancesTable.allTimePoints,
         })
         .from(pointBalancesTable)
-        .orderBy(desc(pointBalancesTable.allTimePoints));
+        .where(and(gt(pointBalancesTable.allTimePoints, 0), notAgentFilter))
+        .orderBy(desc(pointBalancesTable.allTimePoints))
+        .limit(100);
 
-      const allTimeBalances = allTimeBalancesRaw
-        .filter((balance) => !this.isAgent(balance.userId as UUID))
-        .slice(0, 100);
-
-      // Aggregate weekly leaderboard (excluding agents)
-      const weeklyBalancesRaw = await db
+      // Aggregate weekly leaderboard (excluding agents, points > 0)
+      const weeklyBalances = await db
         .select({
           userId: pointBalancesTable.userId,
           points: pointBalancesTable.weeklyPoints,
         })
         .from(pointBalancesTable)
-        .orderBy(desc(pointBalancesTable.weeklyPoints));
-
-      const weeklyBalances = weeklyBalancesRaw
-        .filter((balance) => !this.isAgent(balance.userId as UUID))
-        .slice(0, 100);
+        .where(and(gt(pointBalancesTable.weeklyPoints, 0), notAgentFilter))
+        .orderBy(desc(pointBalancesTable.weeklyPoints))
+        .limit(100);
 
       // Prepare batch inserts
       const allTimeSnapshots = allTimeBalances.map((balance, i) => ({

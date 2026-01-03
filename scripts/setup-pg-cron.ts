@@ -67,6 +67,7 @@ async function main() {
             console.log('   • Neon: Extensions panel in dashboard');
             console.log('   See: src/plugins/plugin-gamification/migrations/README.md\n');
           }
+          await sql.end();
           process.exit(0);
         } else {
           // Other error - might be unsupported
@@ -74,6 +75,7 @@ async function main() {
             console.log('⏭️  pg_cron not available on this database');
             console.log(`   Error: ${err.message}\n`);
           }
+          await sql.end();
           process.exit(0);
         }
       }
