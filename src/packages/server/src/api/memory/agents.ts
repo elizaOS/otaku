@@ -130,7 +130,12 @@ export function createAgentMemoryRouter(elizaOS: ElizaOS, _serverInstance?: any)
       });
 
       // Authorization: If no specific room, filter to only user's rooms (unless admin)
-      if (!roomIdToUse && !req.isAdmin && req.userId) {
+      // Fail-safe: Deny access if userId is missing rather than returning unfiltered results
+      if (!roomIdToUse && !req.isAdmin) {
+        if (!req.userId) {
+          logger.warn('[AGENT MEMORIES] Missing userId for non-admin user - denying access');
+          return sendError(res, 401, 'UNAUTHORIZED', 'User ID required for memory access');
+        }
         const userRoomIds = await runtime.getRoomsForParticipant(req.userId as UUID);
         memories = memories.filter(m => m.roomId && userRoomIds.includes(m.roomId));
         logger.debug(`[AGENT MEMORIES] Filtered memories to ${memories.length} from user's ${userRoomIds.length} rooms`);
