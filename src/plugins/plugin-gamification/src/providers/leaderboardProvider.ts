@@ -24,10 +24,11 @@ export const leaderboardProvider: Provider = {
         values: { topUsers, userRank },
         data: {
           topUsers: topUsers.map((user) => ({
-            userId: user.userId,
+            rank: user.rank,
             points: user.points,
             level: user.level,
             levelName: user.levelName,
+            username: user.username || `User #${user.rank}`,
           })),
           userRank,
         },
