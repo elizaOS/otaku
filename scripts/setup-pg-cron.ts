@@ -53,8 +53,12 @@ async function main() {
         await sql`CREATE EXTENSION IF NOT EXISTS pg_cron`;
         if (verbose) console.log('✅ pg_cron extension installed successfully\n');
       } catch (err: any) {
-        // Permission denied - need superuser or cloud provider dashboard
-        if (err.code === '42501' || err.message?.includes('permission denied')) {
+        // Handle race condition: concurrent processes may both try to create extension
+        if (err.code === '42710') {
+          // Extension already exists (created by concurrent process) - OK
+          if (verbose) console.log('✅ pg_cron extension already installed (concurrent)\n');
+        } else if (err.code === '42501' || err.message?.includes('permission denied')) {
+          // Permission denied - need superuser or cloud provider dashboard
           if (verbose) {
             console.log('⏭️  Cannot install pg_cron (requires superuser privileges)');
             console.log('   For managed databases, enable via provider dashboard:');
@@ -64,13 +68,14 @@ async function main() {
             console.log('   See: src/plugins/plugin-gamification/migrations/README.md\n');
           }
           process.exit(0);
+        } else {
+          // Other error - might be unsupported
+          if (verbose) {
+            console.log('⏭️  pg_cron not available on this database');
+            console.log(`   Error: ${err.message}\n`);
+          }
+          process.exit(0);
         }
-        // Other error - might be unsupported
-        if (verbose) {
-          console.log('⏭️  pg_cron not available on this database');
-          console.log(`   Error: ${err.message}\n`);
-        }
-        process.exit(0);
       }
     } else {
       if (verbose) console.log('✅ pg_cron extension is available\n');
@@ -86,7 +91,7 @@ async function main() {
     }
 
     // Helper to schedule a job (skip if same, warn if different, replace with --force)
-    async function scheduleJob(name: string, schedule: string, command: string): Promise<'created' | 'unchanged' | 'outdated' | 'replaced'> {
+    async function scheduleJob(name: string, schedule: string, command: string): Promise<'created' | 'unchanged' | 'outdated' | 'replaced' | 'error'> {
       const existing = existingJobMap.get(name);
       
       if (existing) {
@@ -99,15 +104,39 @@ async function main() {
         
         // Job exists but is different
         if (forceReplace) {
-          await sql`SELECT cron.unschedule(${name})`;
-          await sql`SELECT cron.schedule(${name}, ${schedule}, ${command})`;
-          return 'replaced';
+          // Atomic replacement: unschedule then schedule, restore on failure
+          try {
+            await sql`SELECT cron.unschedule(${name})`;
+            try {
+              await sql`SELECT cron.schedule(${name}, ${schedule}, ${command})`;
+              return 'replaced';
+            } catch (scheduleErr: any) {
+              // Schedule failed - restore old job to prevent job loss
+              console.error(`❌ Failed to schedule new job '${name}': ${scheduleErr.message}`);
+              console.log(`   Restoring previous job configuration...`);
+              try {
+                await sql`SELECT cron.schedule(${name}, ${existing.schedule}, ${existing.command})`;
+                console.log(`   ✅ Previous job restored`);
+              } catch (restoreErr: any) {
+                console.error(`   ❌ Failed to restore job: ${restoreErr.message}`);
+              }
+              return 'error';
+            }
+          } catch (unscheduleErr: any) {
+            console.error(`❌ Failed to unschedule job '${name}': ${unscheduleErr.message}`);
+            return 'error';
+          }
         }
         return 'outdated'; // Needs update but --force not provided
       }
       
-      await sql`SELECT cron.schedule(${name}, ${schedule}, ${command})`;
-      return 'created';
+      try {
+        await sql`SELECT cron.schedule(${name}, ${schedule}, ${command})`;
+        return 'created';
+      } catch (err: any) {
+        console.error(`❌ Failed to create job '${name}': ${err.message}`);
+        return 'error';
+      }
     }
 
     // Schedule leaderboard snapshot job (every 5 minutes)
@@ -140,6 +169,8 @@ async function main() {
         console.log('   ⚠️  Exists but differs - run with --force to update\n');
       } else if (leaderboardResult === 'replaced') {
         console.log('   🔄 Updated\n');
+      } else if (leaderboardResult === 'error') {
+        console.log('   ❌ Error (see above)\n');
       } else {
         console.log('   ✅ Created\n');
       }
@@ -159,6 +190,8 @@ async function main() {
         console.log('   ⚠️  Exists but differs - run with --force to update\n');
       } else if (weeklyResult === 'replaced') {
         console.log('   🔄 Updated\n');
+      } else if (weeklyResult === 'error') {
+        console.log('   ❌ Error (see above)\n');
       } else {
         console.log('   ✅ Created\n');
       }
@@ -207,6 +240,8 @@ async function main() {
         console.log('   ⚠️  Exists but differs - run with --force to update\n');
       } else if (dailyResult === 'replaced') {
         console.log('   🔄 Updated\n');
+      } else if (dailyResult === 'error') {
+        console.log('   ❌ Error (see above)\n');
       } else {
         console.log('   ✅ Created\n');
       }
@@ -216,9 +251,12 @@ async function main() {
     const results = [leaderboardResult, weeklyResult, dailyResult];
     const outdatedCount = results.filter(r => r === 'outdated').length;
     const createdCount = results.filter(r => r === 'created').length;
+    const errorCount = results.filter(r => r === 'error').length;
     
     // Always show if there are issues or new jobs created
-    if (outdatedCount > 0) {
+    if (errorCount > 0) {
+      console.log(`❌ pg_cron: ${errorCount} job(s) failed - check errors above`);
+    } else if (outdatedCount > 0) {
       console.log(`⚠️  pg_cron: ${outdatedCount} job(s) need update - run with --force`);
     } else if (createdCount > 0) {
       console.log(`✅ pg_cron: ${createdCount} job(s) created`);
