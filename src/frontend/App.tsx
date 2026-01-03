@@ -393,8 +393,10 @@ function App() {
     if (!userId) return; // Wait for userId to be initialized
     
     console.log(' Connecting socket with userId:', userId);
-    // Pass username if available from userProfile
-    const socket = socketManager.connect(userId, userProfile?.displayName);
+    // Get JWT token for WebSocket authentication
+    const token = localStorage.getItem('auth-token') || undefined;
+    // Pass username and token for authenticated WebSocket connection
+    const socket = socketManager.connect(userId, userProfile?.displayName, token);
     
     socket.on('connect', () => {
       setConnected(true);

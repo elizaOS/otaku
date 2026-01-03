@@ -16,7 +16,7 @@ class SocketManager {
   private userName: string | null = null;
   private activeChannels: Set<string> = new Set();
 
-  connect(userId: string, userName?: string) {
+  connect(userId: string, userName?: string, token?: string): Socket {
     if (this.socket?.connected) {
       console.log('Socket already connected');
       // Update username if provided (allows updating after initial connect)
@@ -33,6 +33,7 @@ class SocketManager {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 5,
+      auth: token ? { token } : undefined,
     });
 
     this.socket.on('connect', () => {
