@@ -181,7 +181,17 @@ async function main() {
     const weeklyResult = await scheduleJob(
       'weekly-points-reset',
       '0 0 * * 1',
-      `UPDATE gamification.point_balances SET weekly_points = 0, updated_at = NOW();`
+      `
+        UPDATE gamification.point_balances SET weekly_points = 0, updated_at = NOW();
+        
+        INSERT INTO gamification.gamification_events (user_id, action_type, points, metadata)
+        VALUES (
+          '00000000-0000-0000-0000-000000000000'::uuid,
+          'WEEKLY_RESET',
+          0,
+          jsonb_build_object('reset_at', NOW(), 'job', 'weekly-points-reset')
+        );
+      `
     );
     if (verbose) {
       if (weeklyResult === 'unchanged') {
