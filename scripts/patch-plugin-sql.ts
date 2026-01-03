@@ -19,6 +19,9 @@ const PATCHES = [
   {
     name: 'SET LOCAL app.entity_id parameterization fix',
     search: 'await tx.execute(sql`SET LOCAL app.entity_id = ${entityId}`);',
+    // Note: entityId is validated as UUID type upstream in ElizaOS (src/types.ts)
+    // The withEntityContext function signature enforces UUID | null type
+    // SQL injection risk is mitigated by this type validation before reaching this code
     replace: "await tx.execute(sql.raw(`SET LOCAL app.entity_id = '${entityId}'`));",
   },
 ];

@@ -257,11 +257,10 @@ export class SocketIORouter {
     }
 
     // Authorization: Check if user can access this channel
-    // Allow channel creation only for DMs or when explicitly creating a new channel
-    // This prevents attackers from joining arbitrary channel IDs before legitimate users
-    const isCreatingNewChannel = metadata?.isDm || metadata?.channelType === ChannelType.DM || metadata?.createIfNotExists === true;
+    // SECURITY: Never allow channel creation from join flow - prevents attackers from 
+    // pre-creating arbitrary channels. DMs must go through proper creation flow.
     const authResult = await this.checkChannelAuthorization(socket, validChannelId, { 
-      allowCreation: isCreatingNewChannel 
+      allowCreation: false  // Channels must exist before join - no client-controlled bypass
     });
     
     if (!authResult.authorized) {
@@ -373,27 +372,66 @@ export class SocketIORouter {
       return;
     }
 
-    // Authorization: Check if user can send to this channel
-    // For DMs, allow channel creation during first message (initiated by user)
-    const validChannelId = validateUuid(channelId);
+    // Determine channel type and resolve channel ID
     const isDmChannel = metadata?.isDm || metadata?.channelType === ChannelType.DM;
+    let resolvedChannelId: UUID;
     
-    if (validChannelId) {
-      const authResult = await this.checkChannelAuthorization(socket, validChannelId, {
-        allowCreation: isDmChannel, // Only allow creation for DM channels
-      });
-      
-      if (!authResult.authorized) {
-        logger.warn(`[SocketIO ${socket.id}] User ${socket.userId || senderId} denied sending to channel ${channelId}`);
-        this.sendErrorResponse(socket, authResult.error || 'Not authorized to send to this channel');
+    // SECURITY: For DMs, SERVER controls the channel - uses findOrCreateCentralDmChannel
+    // which handles deduplication. Client-provided channelId is ignored for DMs.
+    if (isDmChannel) {
+      const targetUserId = metadata?.targetUserId || metadata?.recipientId;
+      if (!targetUserId || !validateUuid(targetUserId)) {
+        this.sendErrorResponse(socket, 'DM requires targetUserId in metadata');
         return;
       }
+      
+      // Use server's findOrCreateCentralDmChannel to get consistent DM channel
+      try {
+        const dmChannel = await this.serverInstance.findOrCreateCentralDmChannel(
+          socket.userId as UUID,
+          targetUserId as UUID,
+          (serverId || DEFAULT_SERVER_ID) as UUID
+        );
+        resolvedChannelId = dmChannel.id as UUID;
+        logger.info(
+          `[SocketIO ${socket.id}] Using DM channel ${resolvedChannelId} for ${socket.userId} -> ${targetUserId}`
+        );
+      } catch (error: any) {
+        logger.error(`[SocketIO ${socket.id}] Failed to get/create DM channel: ${error.message}`);
+        this.sendErrorResponse(socket, 'Failed to initialize DM channel');
+        return;
+      }
+    } else {
+      // For non-DMs, use client-provided channelId (must already exist)
+      const validChannelId = validateUuid(channelId);
+      if (!validChannelId) {
+        this.sendErrorResponse(socket, 'Invalid channelId format');
+        return;
+      }
+      resolvedChannelId = validChannelId;
     }
+    
+    // Authorization check
+    const authResult = await this.checkChannelAuthorization(socket, resolvedChannelId, {
+      allowCreation: isDmChannel, // Only DMs can create channels on-the-fly
+    });
+    
+    if (isDmChannel && !authResult.channelExists) {
+      logger.info(`[SocketIO ${socket.id}] User ${socket.userId} creating new DM channel ${resolvedChannelId}`);
+    }
+    
+    if (!authResult.authorized) {
+      logger.warn(`[SocketIO ${socket.id}] User ${socket.userId || senderId} denied sending to channel ${resolvedChannelId}`);
+      this.sendErrorResponse(socket, authResult.error || 'Not authorized to send to this channel');
+      return;
+    }
+    
+    // Use resolvedChannelId from here on (replacing client's channelId for DMs)
+    const finalChannelId = resolvedChannelId;
 
     try {
       // Check if this is a DM channel and emit ENTITY_JOINED for proper world setup
-      const isDmForWorldSetup = metadata?.isDm || metadata?.channelType === ChannelType.DM;
-      if (isDmForWorldSetup && senderId) {
+      if (isDmChannel && senderId) {
         logger.info(
           `[SocketIO] Detected DM channel during message submission, emitting ENTITY_JOINED for proper world setup`
         );
@@ -404,7 +442,7 @@ export class SocketIORouter {
             entityId: senderId as UUID,
             runtime,
             worldId: serverId, // Use serverId as worldId identifier
-            roomId: channelId as UUID,
+            roomId: finalChannelId,
             metadata: {
               type: ChannelType.DM,
               isDm: true,
@@ -419,23 +457,28 @@ export class SocketIORouter {
 
       // Ensure the channel exists before creating the message
       logger.info(
-        `[SocketIO ${socket.id}] Checking if channel ${channelId} exists before creating message`
+        `[SocketIO ${socket.id}] Checking if channel ${finalChannelId} exists before creating message`
       );
       let channelExists = false;
       try {
-        const existingChannel = await this.serverInstance.getChannelDetails(channelId as UUID);
+        const existingChannel = await this.serverInstance.getChannelDetails(finalChannelId);
         channelExists = !!existingChannel;
-        logger.info(`[SocketIO ${socket.id}] Channel ${channelId} exists: ${channelExists}`);
+        logger.info(`[SocketIO ${socket.id}] Channel ${finalChannelId} exists: ${channelExists}`);
       } catch (error: any) {
         logger.info(
-          `[SocketIO ${socket.id}] Channel ${channelId} does not exist, will create it. Error: ${error.message}`
+          `[SocketIO ${socket.id}] Channel ${finalChannelId} does not exist, will create it. Error: ${error.message}`
         );
       }
 
       if (!channelExists) {
-        // Auto-create the channel if it doesn't exist
+        // Auto-create the channel if it doesn't exist (only allowed for DMs)
+        if (!isDmChannel) {
+          this.sendErrorResponse(socket, 'Channel does not exist and only DMs can be auto-created');
+          return;
+        }
+        
         logger.info(
-          `[SocketIO ${socket.id}] Auto-creating channel ${channelId} with serverId ${serverId}`
+          `[SocketIO ${socket.id}] Auto-creating DM channel ${finalChannelId} with serverId ${serverId}`
         );
         try {
           // First verify the server exists
@@ -453,22 +496,20 @@ export class SocketIORouter {
             return;
           }
 
-          // Determine if this is likely a DM based on the context
-          const isDmChannel = metadata?.isDm || metadata?.channelType === ChannelType.DM;
+          // Get target user from metadata (already validated above for DMs)
+          const targetUserId = metadata?.targetUserId || metadata?.recipientId;
 
           const channelData = {
-            id: channelId as UUID, // Use the specific channel ID from the client
+            id: finalChannelId, // Server-generated deterministic ID
             messageServerId: serverId as UUID,
-            name: isDmChannel
-              ? `DM ${channelId.substring(0, 8)}`
-              : `Chat ${channelId.substring(0, 8)}`,
-            type: isDmChannel ? ChannelType.DM : ChannelType.GROUP,
+            name: `DM ${finalChannelId.substring(0, 8)}`,
+            type: ChannelType.DM,
             sourceType: 'auto_created',
             metadata: {
               created_by: 'socketio_auto_creation',
               created_for_user: senderId,
               created_at: new Date().toISOString(),
-              channel_type: isDmChannel ? ChannelType.DM : ChannelType.GROUP,
+              channel_type: ChannelType.DM,
               ...metadata,
             },
           };
@@ -478,31 +519,19 @@ export class SocketIORouter {
             JSON.stringify(channelData, null, 2)
           );
 
-          // For DM channels, we need to determine the participants
-          let participants = [senderId as UUID];
-          if (isDmChannel) {
-            // Try to extract the other participant from metadata or payload
-            const otherParticipant =
-              metadata?.targetUserId || metadata?.recipientId || payload.targetUserId;
-            if (otherParticipant && validateUuid(otherParticipant)) {
-              participants.push(otherParticipant as UUID);
-              logger.info(
-                `[SocketIO ${socket.id}] DM channel will include participants: ${participants.join(', ')}`
-              );
-            } else {
-              logger.warn(
-                `[SocketIO ${socket.id}] DM channel missing second participant, only adding sender: ${senderId}`
-              );
-            }
-          }
+          // Both participants for DM channel
+          const participants = [senderId as UUID, targetUserId as UUID];
+          logger.info(
+            `[SocketIO ${socket.id}] DM channel participants: ${participants.join(', ')}`
+          );
 
           await this.serverInstance.createChannel(channelData, participants);
           logger.info(
-            `[SocketIO ${socket.id}] Auto-created ${isDmChannel ? ChannelType.DM : ChannelType.GROUP} channel ${channelId} for message submission with ${participants.length} participants`
+            `[SocketIO ${socket.id}] Auto-created DM channel ${finalChannelId} with ${participants.length} participants`
           );
         } catch (createError: any) {
           logger.error(
-            `[SocketIO ${socket.id}] Failed to auto-create channel ${channelId}:`,
+            `[SocketIO ${socket.id}] Failed to auto-create channel ${finalChannelId}:`,
             createError
           );
           this.sendErrorResponse(socket, `Failed to create channel: ${createError.message}`);
@@ -510,12 +539,12 @@ export class SocketIORouter {
         }
       } else {
         logger.info(
-          `[SocketIO ${socket.id}] Channel ${channelId} already exists, proceeding with message creation`
+          `[SocketIO ${socket.id}] Channel ${finalChannelId} already exists, proceeding with message creation`
         );
       }
 
       const newRootMessageData = {
-        channelId: channelId as UUID,
+        channelId: finalChannelId,
         authorId: senderId as UUID,
         content: message as string,
         rawMessage: payload,
@@ -539,21 +568,22 @@ export class SocketIORouter {
       const transformedAttachments = attachmentsToApiUrls(attachments);
 
       // Immediately broadcast the message to all clients in the channel
+      // IMPORTANT: Return the server-generated channelId so client knows the real ID
       const messageBroadcast = {
         id: createdRootMessage.id,
         senderId: senderId,
         senderName: senderName || 'User',
         text: message,
-        channelId: channelId,
-        roomId: channelId, // Keep for backward compatibility
-        serverId: serverId, // Use serverId at message server layer
+        channelId: finalChannelId, // Server-generated ID (may differ from client's for DMs)
+        roomId: finalChannelId, // Keep for backward compatibility
+        serverId: serverId,
         createdAt: new Date(createdRootMessage.createdAt).getTime(),
         source: source || 'socketio_client',
         attachments: transformedAttachments,
       };
 
       // Broadcast to everyone in the channel except the sender
-      socket.to(channelId).emit('messageBroadcast', messageBroadcast);
+      socket.to(finalChannelId).emit('messageBroadcast', messageBroadcast);
 
       // Also send back to the sender with the server-assigned ID
       socket.emit('messageBroadcast', {
@@ -561,12 +591,13 @@ export class SocketIORouter {
         clientMessageId: payload.messageId,
       });
 
+      // Acknowledge with the real channel ID (server-generated for DMs)
       socket.emit('messageAck', {
         clientMessageId: payload.messageId,
         messageId: createdRootMessage.id,
         status: 'received_by_server_and_processing',
-        channelId,
-        roomId: channelId, // Keep for backward compatibility
+        channelId: finalChannelId, // Server-generated ID
+        roomId: finalChannelId,
       });
     } catch (error: any) {
       logger.error(
