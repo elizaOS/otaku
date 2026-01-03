@@ -23,6 +23,7 @@ import {
   resolveTokenToAddress,
   getTokenDecimals,
 } from "../../../plugin-relay/src/utils/token-resolver";
+import { validateBiconomyService } from "../utils/actionHelpers";
 
 // CDP network mapping
 const CDP_NETWORK_MAP: Record<string, CdpNetwork> = {
@@ -109,19 +110,7 @@ Native gas tokens: ETH on Base/Ethereum/Arbitrum/Optimism, POL on Polygon. Treat
   },
 
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
-    try {
-      const biconomyService = runtime.getService(
-        BiconomyService.serviceType
-      ) as BiconomyService;
-      if (!biconomyService) {
-        logger.warn("[MEE_FUSION_SWAP] Biconomy service not available");
-        return false;
-      }
-      return true;
-    } catch (error) {
-      logger.error("[MEE_FUSION_SWAP] Validation error:", (error as Error).message);
-      return false;
-    }
+    return validateBiconomyService(runtime, "MEE_FUSION_SWAP", state, message);
   },
 
   handler: async (

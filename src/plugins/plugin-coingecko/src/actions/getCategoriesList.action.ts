@@ -7,7 +7,7 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { CoinGeckoService } from "../services/coingecko.service";
+import { validateCoingeckoService, getCoingeckoService } from "../utils/actionHelpers";
 
 export const getCategoriesListAction: Action = {
   name: "GET_CATEGORIES_LIST",
@@ -23,13 +23,8 @@ export const getCategoriesListAction: Action = {
   // No parameters needed
   parameters: {},
 
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
-    if (!svc) {
-      logger.error("CoinGeckoService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateCoingeckoService(runtime, "GET_CATEGORIES_LIST", state, message);
   },
 
   handler: async (
@@ -40,7 +35,7 @@ export const getCategoriesListAction: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
-      const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
+      const svc = getCoingeckoService(runtime);
       if (!svc) {
         throw new Error("CoinGeckoService not available");
       }

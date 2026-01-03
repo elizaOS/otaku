@@ -15,6 +15,7 @@ import {
   type ProtocolTvlHistory,
   type ProtocolTvlPoint,
 } from "../services/defillama.service";
+import { validateDefillamaService, getDefillamaService, extractActionParams } from "../utils/actionHelpers";
 import {
   limitSeries,
   parsePositiveInteger,
@@ -22,7 +23,7 @@ import {
   sanitizeChainName,
   downsampleSeries,
   calculateTvlSummary,
-} from "../utils/action-helpers";
+} from "../utils/actionHelpers";
 
 const MAX_SERIES_DEFAULT = 365;
 const MAX_POINTS_COMPACT = 30; // Maximum data points in compact mode
@@ -59,13 +60,8 @@ export const getProtocolTvlHistoryAction: Action = {
       required: false,
     },
   },
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
-    if (!svc) {
-      logger.error("DefiLlamaService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateDefillamaService(runtime, "GET_PROTOCOL_TVL_HISTORY", state, message);
   },
   handler: async (
     runtime: IAgentRuntime,
@@ -76,13 +72,12 @@ export const getProtocolTvlHistoryAction: Action = {
   ): Promise<ActionResult> => {
     let validatedChain: string | undefined;
     try {
-      const svc = runtime.getService(DefiLlamaService.serviceType) as DefiLlamaService | undefined;
+      const svc = getDefillamaService(runtime);
       if (!svc) {
         throw new Error("DefiLlamaService not available");
       }
 
-      const composedState = await runtime.composeState(message, ["ACTION_STATE"], true);
-      const params = composedState?.data?.actionParams ?? {};
+      const params = await extractActionParams<{ protocol?: string; chain?: string; days?: number; compact?: boolean }>(runtime, message);
 
       const protocolParam = typeof params?.protocol === "string" ? params.protocol.trim() : "";
       if (!protocolParam) {

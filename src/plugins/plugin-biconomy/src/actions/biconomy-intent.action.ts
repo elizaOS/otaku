@@ -23,6 +23,7 @@ import {
   validateSlippage,
   slippageToDecimal,
 } from "../utils/slippage";
+import { validateBiconomyService } from "../utils/actionHelpers";
 
 // CDP network mapping
 const CDP_NETWORK_MAP: Record<string, CdpNetwork> = {
@@ -111,17 +112,7 @@ Supports: Ethereum, Base, Arbitrum, Polygon, Optimism, BSC, Scroll, Gnosis, and 
   },
 
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
-    try {
-      const biconomyService = runtime.getService(BiconomyService.serviceType) as BiconomyService;
-      if (!biconomyService) {
-        logger.warn("[MEE_SUPERTX_REBALANCE] MEE service not available");
-        return false;
-      }
-      return true;
-    } catch (error) {
-      logger.error("[MEE_SUPERTX_REBALANCE] Validation error:", (error as Error).message);
-      return false;
-    }
+    return validateBiconomyService(runtime, "MEE_SUPERTRANSACTION_REBALANCE", state, message);
   },
 
   handler: async (

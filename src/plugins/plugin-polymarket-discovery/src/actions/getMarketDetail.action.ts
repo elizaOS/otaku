@@ -15,6 +15,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 
 interface GetMarketDetailParams {
   conditionId?: string;
@@ -49,8 +50,13 @@ export const getMarketDetailAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime, _message: Memory) => {
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
     try {
+      // Check plugin context first
+      if (!shouldPolymarketPluginBeInContext(state, message)) {
+        return false;
+      }
+
       const service = runtime.getService(
         PolymarketService.serviceType
       ) as PolymarketService;

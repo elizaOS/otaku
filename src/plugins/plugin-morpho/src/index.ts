@@ -12,6 +12,9 @@ export { MorphoService } from "./services";
 // Export actions
 export { marketInfoAction } from "./actions";
 
+// Export matcher
+export { shouldMorphoPluginBeInContext, morphoKeywordPatterns } from "../matcher";
+
 // Export types
 export * from "./types";
 

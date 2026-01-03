@@ -23,6 +23,7 @@ import {
   resolveTokenToAddress,
   getTokenDecimals,
 } from "../../../plugin-relay/src/utils/token-resolver";
+import { validateBiconomyService } from "../utils/actionHelpers";
 
 // CDP network mapping
 const CDP_NETWORK_MAP: Record<string, CdpNetwork> = {
@@ -109,19 +110,7 @@ CCIP fees are paid in the native token of the source chain (ETH, POL, etc.).`,
   },
 
   validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
-    try {
-      const biconomyService = runtime.getService(
-        BiconomyService.serviceType
-      ) as BiconomyService;
-      if (!biconomyService) {
-        logger.warn("[MEE_CCIP_BRIDGE] Biconomy service not available");
-        return false;
-      }
-      return true;
-    } catch (error) {
-      logger.error("[MEE_CCIP_BRIDGE] Validation error:", (error as Error).message);
-      return false;
-    }
+    return validateBiconomyService(runtime, "MEE_CCIP_BRIDGE", state, message);
   },
 
   handler: async (

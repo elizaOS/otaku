@@ -42,6 +42,7 @@ import {
 } from "@elizaos/core";
 import { getEntityWallet } from "../../../utils/entity";
 import { CdpService } from "../services/cdp.service";
+import { validateCdpService } from "../utils/actionHelpers";
 import { wrapFetchWithPayment, decodeXPaymentResponse } from "x402-fetch";
 import type { CdpNetwork } from "../types";
 
@@ -156,26 +157,8 @@ export const cdpWalletFetchWithPayment: Action = {
     },
   },
   
-  validate: async (_runtime: IAgentRuntime, message: Memory) => {
-    try {
-      // Check if CDP service is available
-      const cdpService = _runtime.getService(
-        CdpService.serviceType,
-      ) as CdpService;
-
-      if (!cdpService) {
-        logger.warn("[FETCH_WITH_PAYMENT] CDP service not available");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logger.error(
-        "[FETCH_WITH_PAYMENT] Error validating action:",
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    }
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpService(_runtime, "USER_WALLET_FETCH_WITH_PAYMENT", state, message);
   },
   
   handler: async (

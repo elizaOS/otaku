@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "turbo run build && bun run start-server.ts",
     "dev:watch": "turbo run dev --parallel",
+    "dev:hot": "trap 'kill %1 %2' SIGINT; bun run build.ts --watch & bun run --watch start-server.ts & wait",
     "start": "bun run start-server.ts",
     "build": "turbo run build && bun run build:backend && bun run build:frontend",
     "build:all": "turbo run build",
@@ -21,7 +22,6 @@
   },
   "packageManager": "bun@1.2.21",
   "workspaces": [
-    "src/plugins/*",
     "src/packages/*"
   ],
   "dependencies": {
@@ -43,6 +43,7 @@
     "@morpho-org/blue-sdk": "4.13.1",
     "@morpho-org/blue-sdk-viem": "3.2.0",
     "@morpho-org/morpho-ts": "2.4.5",
+    "@polymarket/sdk": "^6.0.1",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-avatar": "1.1.2",
     "@radix-ui/react-checkbox": "1.1.3",

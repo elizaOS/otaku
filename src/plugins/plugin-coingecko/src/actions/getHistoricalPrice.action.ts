@@ -7,69 +7,8 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { CoinGeckoService, nativeTokenIds } from "../services/coingecko.service";
-
-// Helper function to format market cap values
-function formatMarketCap(value: number): string {
-  if (value >= 1000000000) return `${(value / 1000000000).toFixed(2)}B`;
-  if (value >= 1000000) return `${(value / 1000000).toFixed(2)}M`;
-  if (value >= 1000) return `${(value / 1000).toFixed(2)}K`;
-  return value.toFixed(2);
-}
-
-// Helper function to convert natural date to dd-mm-yyyy format
-function parseDateToApiFormat(dateStr: string): string {
-  // Try parsing various date formats and convert to dd-mm-yyyy
-  const normalized = dateStr.trim().toLowerCase();
-  
-  // Check if already in dd-mm-yyyy format
-  if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) {
-    return dateStr;
-  }
-  
-  let date: Date;
-  
-  // Parse common formats
-  if (normalized === 'today') {
-    date = new Date();
-  } else if (normalized === 'yesterday') {
-    date = new Date();
-    date.setDate(date.getDate() - 1);
-  } else if (/^(\d+)\s*days?\s*ago$/.test(normalized)) {
-    const daysMatch = normalized.match(/^(\d+)\s*days?\s*ago$/);
-    const days = daysMatch ? parseInt(daysMatch[1]) : 0;
-    date = new Date();
-    date.setDate(date.getDate() - days);
-  } else if (/^(\d+)\s*weeks?\s*ago$/.test(normalized)) {
-    const weeksMatch = normalized.match(/^(\d+)\s*weeks?\s*ago$/);
-    const weeks = weeksMatch ? parseInt(weeksMatch[1]) : 0;
-    date = new Date();
-    date.setDate(date.getDate() - (weeks * 7));
-  } else if (/^(\d+)\s*months?\s*ago$/.test(normalized)) {
-    const monthsMatch = normalized.match(/^(\d+)\s*months?\s*ago$/);
-    const months = monthsMatch ? parseInt(monthsMatch[1]) : 0;
-    date = new Date();
-    date.setMonth(date.getMonth() - months);
-  } else if (/^(\d+)\s*years?\s*ago$/.test(normalized)) {
-    const yearsMatch = normalized.match(/^(\d+)\s*years?\s*ago$/);
-    const years = yearsMatch ? parseInt(yearsMatch[1]) : 0;
-    date = new Date();
-    date.setFullYear(date.getFullYear() - years);
-  } else {
-    // Try parsing as a date string (yyyy-mm-dd, mm/dd/yyyy, etc.)
-    date = new Date(dateStr);
-    if (isNaN(date.getTime())) {
-      throw new Error(`Unable to parse date: ${dateStr}`);
-    }
-  }
-  
-  // Convert to dd-mm-yyyy format
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  
-  return `${day}-${month}-${year}`;
-}
+import { nativeTokenIds } from "../services/coingecko.service";
+import { validateCoingeckoService, getCoingeckoService, formatMarketCap, parseDateToApiFormat } from "../utils/actionHelpers";
 
 export const getHistoricalPriceAction: Action = {
   name: "GET_HISTORICAL_PRICE",
@@ -101,13 +40,8 @@ export const getHistoricalPriceAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
-    if (!svc) {
-      logger.error("CoinGeckoService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateCoingeckoService(runtime, "GET_HISTORICAL_PRICE", state, message);
   },
 
   handler: async (
@@ -118,7 +52,7 @@ export const getHistoricalPriceAction: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
-      const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
+      const svc = getCoingeckoService(runtime);
       if (!svc) {
         throw new Error("CoinGeckoService not available");
       }

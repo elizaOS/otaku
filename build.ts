@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { rm, cp, mkdir } from 'node:fs/promises';
 import { $ } from 'bun';
 import { resolve, dirname } from 'node:path';
+import { watchFiles } from './src/build-utils';
 
 async function cleanBuild(outdir = 'dist') {
   if (existsSync(outdir)) {
@@ -64,13 +65,16 @@ async function copySharedModules() {
   }
 }
 
-async function build() {
+async function build(options: { clean?: boolean } = {}) {
+  const { clean = true } = options;
   const start = performance.now();
   console.log(' Building backend...');
 
   try {
     // Clean previous build
-    await cleanBuild('dist');
+    if (clean) {
+      await cleanBuild('dist');
+    }
 
     // Build backend
     const [buildResult, tscResult] = await Promise.all([
@@ -129,6 +133,7 @@ async function build() {
 
       // Task 2: Generate TypeScript declarations
       (async () => {
+        // Skip type generation in watch mode optimization (optional, but keep for now)
         console.log(' Generating TypeScript declarations...');
         try {
           await $`tsc --emitDeclarationOnly`.quiet();
@@ -157,15 +162,33 @@ async function build() {
   }
 }
 
-// Execute the build
-build()
-  .then((success) => {
+const isWatchMode = process.argv.includes('--watch');
+
+async function main() {
+  if (isWatchMode) {
+    console.log(' Starting watch mode...\n');
+
+    // Initial build
+    await build({ clean: true });
+
+    const srcDir = resolve(process.cwd(), 'src');
+
+    // Start watcher
+    watchFiles(srcDir, async () => {
+      // Rebuild without full clean for speed
+      await build({ clean: false });
+    });
+  } else {
+    const success = await build({ clean: true });
     if (!success) {
       process.exit(1);
     }
-  })
-  .catch((error) => {
-    console.error('Build script error:', error);
-    process.exit(1);
-  });
+  }
+}
+
+// Execute
+main().catch((error) => {
+  console.error('Build script error:', error);
+  process.exit(1);
+});
 

@@ -14,6 +14,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 import {
   validatePolymarketService,
   getPolymarketService,
@@ -53,8 +54,8 @@ export const getUserBalanceAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime, _message: Memory) => {
-    return validatePolymarketService(runtime, "GET_POLYMARKET_BALANCE");
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validatePolymarketService(runtime, "GET_POLYMARKET_BALANCE", state, message);
   },
 
   handler: async (

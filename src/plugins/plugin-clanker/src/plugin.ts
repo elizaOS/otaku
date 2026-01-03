@@ -7,6 +7,9 @@ import { ClankerService } from "./services";
 // Import actions
 import { tokenDeployAction } from "./actions";
 
+// Import matcher
+import { shouldClankerPluginBeInContext } from "../matcher";
+
 export const clankerPlugin: Plugin = {
   name: "plugin-clanker",
   description:

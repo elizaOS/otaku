@@ -7,7 +7,7 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { CoinGeckoService } from "../services/coingecko.service";
+import { validateCoingeckoService, getCoingeckoService } from "../utils/actionHelpers";
 
 export const getCategoriesWithMarketDataAction: Action = {
   name: "GET_CATEGORIES_WITH_MARKET_DATA",
@@ -29,13 +29,8 @@ export const getCategoriesWithMarketDataAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
-    if (!svc) {
-      logger.error("CoinGeckoService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateCoingeckoService(runtime, "GET_CATEGORIES_WITH_MARKET_DATA", state, message);
   },
 
   handler: async (
@@ -46,7 +41,7 @@ export const getCategoriesWithMarketDataAction: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
-      const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
+      const svc = getCoingeckoService(runtime);
       if (!svc) {
         throw new Error("CoinGeckoService not available");
       }
@@ -86,7 +81,7 @@ export const getCategoriesWithMarketDataAction: Action = {
         await callback({
           text,
           actions: ["GET_CATEGORIES_WITH_MARKET_DATA"],
-          content: categoriesData as Record<string, unknown>,
+          content: { categories: categoriesData },
           source: message.content.source,
         });
       }

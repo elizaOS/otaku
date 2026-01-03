@@ -116,7 +116,7 @@ otaku/
 │   ├── packages/             # Workspace packages
 │   │   ├── api-client/       # Type-safe REST client
 │   │   └── server/           # ElizaOS server runtime
-│   ├── plugins/              # Plugin workspace packages
+│   ├── plugins/              # Plugin directories
 │   │   ├── plugin-bootstrap/ # Multi-step orchestration
 │   │   ├── plugin-cdp/       # Coinbase wallet
 │   │   └── [11 more plugins]

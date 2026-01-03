@@ -7,15 +7,8 @@ import {
   State,
   logger,
 } from "@elizaos/core";
-import { CoinGeckoService, nativeTokenIds } from "../services/coingecko.service";
-
-// Helper function to format market cap values
-function formatMarketCap(value: number): string {
-  if (value >= 1000000000) return `${(value / 1000000000).toFixed(2)}B`;
-  if (value >= 1000000) return `${(value / 1000000).toFixed(2)}M`;
-  if (value >= 1000) return `${(value / 1000).toFixed(2)}K`;
-  return value.toFixed(2);
-}
+import { nativeTokenIds } from "../services/coingecko.service";
+import { validateCoingeckoService, getCoingeckoService, formatMarketCap } from "../utils/actionHelpers";
 
 export const getTokenPriceChartAction: Action = {
   name: "GET_TOKEN_PRICE_CHART",
@@ -47,13 +40,8 @@ export const getTokenPriceChartAction: Action = {
     },
   },
 
-  validate: async (runtime: IAgentRuntime): Promise<boolean> => {
-    const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
-    if (!svc) {
-      logger.error("CoinGeckoService not available");
-      return false;
-    }
-    return true;
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State): Promise<boolean> => {
+    return validateCoingeckoService(runtime, "GET_TOKEN_PRICE_CHART", state, message);
   },
 
   handler: async (
@@ -64,7 +52,7 @@ export const getTokenPriceChartAction: Action = {
     callback?: HandlerCallback,
   ): Promise<ActionResult> => {
     try {
-      const svc = runtime.getService(CoinGeckoService.serviceType) as CoinGeckoService | undefined;
+      const svc = getCoingeckoService(runtime);
       if (!svc) {
         throw new Error("CoinGeckoService not available");
       }

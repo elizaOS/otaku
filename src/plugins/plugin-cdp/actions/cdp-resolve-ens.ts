@@ -7,6 +7,7 @@ import {
   type State,
   logger,
 } from "@elizaos/core";
+import { validateCdpPluginContext } from "../utils/actionHelpers";
 
 interface ResolveEnsParams {
   query: string;
@@ -154,8 +155,8 @@ export const cdpResolveEns: Action = {
       required: false,
     },
   },
-  validate: async (_runtime: IAgentRuntime, _message: Memory) => {
-    return true;
+  validate: async (_runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validateCdpPluginContext("RESOLVE_ENS", state, message);
   },
   handler: async (
     runtime: IAgentRuntime,

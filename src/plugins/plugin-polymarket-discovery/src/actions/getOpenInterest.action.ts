@@ -14,6 +14,7 @@ import {
   logger,
 } from "@elizaos/core";
 import { PolymarketService } from "../services/polymarket.service";
+import { shouldPolymarketPluginBeInContext } from "../../matcher";
 import { validatePolymarketService, getPolymarketService } from "../utils/actionHelpers";
 
 type GetOpenInterestInput = Record<string, never>;
@@ -36,8 +37,8 @@ export const getOpenInterestAction: Action = {
 
   parameters: {},
 
-  validate: async (runtime: IAgentRuntime, _message: Memory) => {
-    return validatePolymarketService(runtime, "GET_POLYMARKET_OPEN_INTEREST");
+  validate: async (runtime: IAgentRuntime, message: Memory, state?: State) => {
+    return validatePolymarketService(runtime, "GET_POLYMARKET_OPEN_INTEREST", state, message);
   },
 
   handler: async (

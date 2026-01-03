@@ -45,4 +45,5 @@ export default meePlugin;
 // Re-export types and service for external use
 export { BiconomyService } from "./services/biconomy.service";
 export * from "./types";
+export { shouldBiconomyPluginBeInContext } from "./matcher";
 
