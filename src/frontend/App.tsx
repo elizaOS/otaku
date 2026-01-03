@@ -23,6 +23,47 @@ import { UUID } from '@elizaos/core';
 import { AboutModalContent } from '@/frontend/components/about/about-modal-content';
 import { getRandomAvatar } from '@/frontend/lib/utils';
 
+// Auth migration version - increment this when auth methodology changes
+// to force users to re-authenticate
+const AUTH_VERSION = 2;
+const AUTH_VERSION_KEY = 'auth-version';
+
+/**
+ * One-time migration to clear old auth data when auth methodology changes.
+ * This runs once per version bump and clears any stale tokens that would
+ * cause "Database error" on login attempts.
+ */
+function migrateAuthData() {
+  try {
+    const storedVersion = localStorage.getItem(AUTH_VERSION_KEY);
+    const currentVersion = storedVersion ? parseInt(storedVersion, 10) : 0;
+    
+    if (currentVersion < AUTH_VERSION) {
+      console.log(`🔄 Auth migration: v${currentVersion} → v${AUTH_VERSION}`);
+      
+      // Clear old auth token - users will need to re-authenticate
+      const oldToken = localStorage.getItem('auth-token');
+      if (oldToken) {
+        console.log('🗑️ Clearing old auth token (auth methodology changed)');
+        localStorage.removeItem('auth-token');
+      }
+      
+      // Clear any other auth-related data that might be stale
+      localStorage.removeItem('eliza-api-key');
+      
+      // Mark migration as complete
+      localStorage.setItem(AUTH_VERSION_KEY, AUTH_VERSION.toString());
+      console.log('✅ Auth migration complete - user will re-authenticate');
+    }
+  } catch (error) {
+    console.warn('⚠️ Auth migration failed:', error);
+    // Don't block app load on migration failure
+  }
+}
+
+// Run migration immediately on module load (before React renders)
+migrateAuthData();
+
 // Available default avatars for deterministic randomization
 const DEFAULT_AVATARS = [
   '/avatars/user_joyboy.png',
@@ -86,8 +127,19 @@ async function authenticateUser(
     elizaClient.setAuthToken(token);
     
     return { userId, token };
-  } catch (error) {
+  } catch (error: any) {
     console.error(' Authentication failed:', error);
+    
+    // If we get an auth error (401, 403, or database error from old token),
+    // clear any stale tokens to ensure fresh auth on retry
+    if (error?.status === 401 || error?.status === 403 || 
+        error?.message?.includes('Database error') ||
+        error?.message?.includes('Unauthorized')) {
+      console.log('🗑️ Clearing stale auth token due to auth error');
+      localStorage.removeItem('auth-token');
+      elizaClient.clearAuthToken();
+    }
+    
     throw error;
   }
 }
